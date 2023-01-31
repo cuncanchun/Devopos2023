@@ -1,0 +1,2107 @@
+!*****************************************************************************************************
+! Report Name: CK_PROCR.SQR - Informe FNG                                                           *
+!*****************************************************************************************************
+! Información de Confidencialidad:
+! Este módulo es información propietaria y confidencial de Colombiana 
+! de Comercio S.A. Se prohibe su copia, reproducción o transmisión por 
+! cualquier medio así como su reutilización sin expresa autorización de   
+! Colombiana de Comercio S.A. 
+!
+! Copyright (c) 2000 Colombiana de Comercio S.A. Todos los derechos 
+! Reservados.
+!****************************************************************************
+! Parámetros de entrada: 
+! $prcs_oprid          código del operador
+! $prcs_run_cntl_id    id control del proceso
+!
+! Parámetros de Salida:
+! $file_name           nombre del archivo a leer
+!
+!****************************************************************************
+! Tables Updated:   
+!****************************************************************************
+!**************************************************************************************************************
+! Listado de Modificaciones
+!--------------------------------------------------------------------------------------------------------------------------------------------------
+! Proyecto/Caso	     Ref. 	Desarrollador	Fecha		Descripcion
+!--------------------------------------------------------------------------------------------------------------------------------------------------
+!CK_CS_AR_SPG_11716    001        SPG        28/05/2015  Se incluyen los ítems con el nuevo modelo de financiación
+!														 Se incluyen nuevos campos en el reporte
+!														 Se consolida un único proceso ck_procr que es utilizado para el reporte de procredito y el 
+!														 Fondo Nacional de Garantías.
+!                                                        Se copian cambios de producción para reportar obligaciones cerradas y abiertas.																							
+!
+!CK_CS_AR_JDO_11138   005        JDO         15/10/2014    - Ajustar el proceso para que muestre obligaciones cerradas o abiertas.
+!CK_CS_CR_CEM_11969	006		     CEM	     24/08/2015 se agregan los siguientes campos al informe
+!														·       Dirección Cartera 
+!·          													Zona de Obligación
+!·                                                              Unidad de Negocio de  Obligación
+!·                                                              Tipo ND del cliente  (FC- ND)
+!·                                                              Motivo del tipo de documento  (VTPOS ND AJMAN – ND EFPCU)
+!·                                                              Fecha Contabilización de la Obligación 
+!·                                                             Fecha Documento (aplica para ND)
+!CK_CS_CR_SPG_12050	  007		  SPG	      28/09/2015 Se agregan los siguientes campos al informe: Tasa Pactada, Plan Financiación, Saldo a fecha
+!														 de corte Interés corriente y Valor cuota Inicial.
+!CK_CS_OM_CAGC_12406  008		  CAGC	      10/03/2016  Creacion Flag Marcacion direccion Cartera en PS
+!CK_CS_AR_12757_YSN	  009		  YSN	      08/07/2016  Se modifica la fecha de Vencimiento del Modelo nuevo tomandola de la tabla PS_CK_CART_FINANC y a saldo a corte se le suma la mora e interes, se elimina el campo Saldo Incor
+!CK_CS_AR_12775_YSN	  010		  YSN	      14/07/2016  Se modifica la fecha de Vencimiento para el caso de que se presente mora tome la Fecha contable de la mora más antigua
+!CK_CS_AR_13089_GMC	  011		  GMC	      23/11/2016  Incluir el campo flag de pago total
+!CK_CS_AR_13109_GMC	  012		  GMC	      12/12/2016  SP1265 Mejoras Saldos Procredito
+!CK_CS_AR_13800_LVA	  013		  LVA	      29/01/2018  Se comenta el filtro USER9 <> 'F' y las validaciónes que buscan el caracter '-' para los tipos 'FC'
+!CK_CS_AR_16858_GMR	  014		  GMR	      22/11/2022  Se inserta en la tabla: PS_CK_REP_FNG_TBL la información del archivo de salida para ser accesada por POWER BI
+!**************************************************************************************************************************************************
+
+
+#Include 'setenv.sqc'   	!Set environment
+#Include 'setup01.sqc'  	!Printer and page-size initialization
+
+!-----------------------------------!
+!  Inicializacion SetUp             !
+!-----------------------------------!
+
+begin-setup
+
+declare-variable 
+ date $dt_Fecha_Ant
+ date $dt_Fecha_Act
+ date $dt_Fecha_Pos
+ date $dt_Fecha_Ref
+ 
+end-declare
+end-setup
+
+
+!-----------------------------------!
+!  Inicializacion Programa          !
+!-----------------------------------!
+begin-program
+  do Init-DateTime
+  do Init-Number
+  do Init-Report
+  do Abrir_Archivo
+  do Process-Main
+  
+  !Let #i = 1 
+!while #i < 9 
+!  add 1 to #1 
+!end-while
+
+      !show ' AKI2 ' $AsOfToday ' - ' $Sysdatetime
+
+  do Terminate
+end-program
+
+begin-heading 6
+  !#Include 'stdhdgint01.sqc
+end-heading
+
+!-----------------------------------------------------------------------
+! Init-Report
+!-----------------------------------------------------------------------
+begin-procedure Init-Report
+!Ini 012 - Cambio de nombre al reporte
+!  move 'Informe Procredito' to $ReportTitle
+!do ObtieneFecha
+!    show 'Inicio de Reporte ' $wFecha22
+!    DO Get-Current-DateTime !curdttim.sqc 
+    
+!    show ' AKI1 ' $AsOfToday ' - ' $Sysdatetime
+
+  move 'Reporte Clientes Libranzas' to $ReportTitle
+!Fin 012
+  show $ReportTitle
+
+  do Define-Prcs-Vars
+  do Get-Run-Control-Parms
+
+  LET $Process_Instance = $PRCS_PROCESS_INSTANCE
+
+  if $prcs_process_instance = ''
+  else
+    do Select-Parameters
+  end-if
+end-procedure
+
+begin-procedure ObtieneFecha
+begin-select on-error=sql-error
+to_char(sysdate,'YYYY/MM/DD hh24:mi:ss') &wFecha23
+  
+      let $wfecha22      = &wFecha23
+
+from DUAL
+
+END-SELECT
+
+end-procedure 
+
+!************************************************************************************!
+!Proceso: Select-Parameters                                                          !
+!Selección parámetros por medio del panel asignado para generar el plano.            !
+!************************************************************************************!
+begin-procedure Select-Parameters
+begin-select on-error=sql-error
+to_char(run_cntl_in_sp.to_dt, 'YYYY/MM/DD') &to_dt
+run_cntl_in_sp.business_unit
+run_cntl_in_sp.cust_id
+
+
+    let $Fecha_Ini      = &to_dt
+    let $Unidad_Negocio = &run_cntl_in_sp.business_unit
+    let $Id_Cliente     = &run_cntl_in_sp.cust_id
+
+
+
+
+    let $Fecha_Ini      = &to_dt
+    let $Unidad_Negocio = &run_cntl_in_sp.business_unit
+    let $Id_Cliente     = &run_cntl_in_sp.cust_id
+
+!from PS_CK_PROCR_RC run_cntl_in_sp
+from PS_CK_PROFNG_RC run_cntl_in_sp	    
+where run_cntl_in_sp.oprid       = $prcs_oprid
+  and run_cntl_in_sp.run_cntl_id = $prcs_run_cntl_id
+end-select
+
+
+If IsBlank($Unidad_Negocio) and IsBlank($Id_Cliente)
+      !Ini 012
+      !Let $Where = ' WHERE B.BUSINESS_UNIT = CNT.SETCNTRLVALUE '
+      Let $Where = ' WHERE B.BUSINESS_UNIT = B.BUSINESS_UNIT '
+      !Fin 012
+end-if
+
+if not IsBlank($Unidad_Negocio) and IsBlank($Id_Cliente)
+      !Ini 012
+      !Let $Where = ' WHERE B.BUSINESS_UNIT = ''' || $Unidad_Negocio || ''' ' || ' AND B.BUSINESS_UNIT = CNT.SETCNTRLVALUE '
+      Let $Where = ' WHERE B.BUSINESS_UNIT = ''' || $Unidad_Negocio || ''' ' 
+      !Fin 012
+end-if
+
+if IsBlank($Unidad_Negocio) and not IsBlank($Id_Cliente)
+
+   !Ini 012
+   !Let $Where = ' WHERE B.CUST_ID = ''' || $Id_Cliente || ''' '||' AND B.BUSINESS_UNIT = CNT.SETCNTRLVALUE '
+   Let $Where = ' WHERE B.CUST_ID = ''' || $Id_Cliente || ''' '
+   !Fin 012
+   
+end-if
+
+if not IsBlank($Unidad_Negocio) and not IsBlank($Id_Cliente)
+
+      !Ini 012
+      !Let $Where = ' WHERE B.BUSINESS_UNIT = ''' || $Unidad_Negocio || ''' '||' AND B.CUST_ID = ''' || $Id_Cliente || ''' '||' AND B.BUSINESS_UNIT = CNT.SETCNTRLVALUE '
+      Let $Where = ' WHERE B.BUSINESS_UNIT = ''' || $Unidad_Negocio || ''' '||' AND B.CUST_ID = ''' || $Id_Cliente || ''' '
+      !Fin 012
+
+end-if
+
+end-procedure Select-Parameters
+
+!-----------------------------------------------------------------------
+! Process-Main
+!-----------------------------------------------------------------------
+begin-procedure Process-Main
+  do Escribir-Titulo
+!do ObtieneFecha
+!    show 'Sale M Escribir-Titulo ' $wFecha22
+
+
+!do ObtieneFecha
+!    show 'Entra M Consulta-CartClientes ' $wFecha22
+  Do Consulta-CartClientes
+!do ObtieneFecha
+!    show 'Sale M Consulta-CartClientes ' $wFecha22
+    
+    !Ini 012
+    Do ObtieneTasaUsura
+    !Fin 012
+    
+! do ObtieneFecha
+!    show 'Entra M InsertaItemTmp ' $wFecha22
+! Do InsertaItemTmp
+!do ObtieneFecha
+!    show 'Sale M InsertaItemTmp ' $wFecha22
+   
+  
+!do ObtieneFecha
+!    show 'Entra M Procesa-Datos ' $wFecha22
+  Do Procesa-Datos
+!do ObtieneFecha
+!    show 'Sale M Procesa-Datos ' $wFecha22
+
+!do ObtieneFecha
+!    show 'Entra M Clear-Temporal ' $wFecha22
+  Do Clear-Temporal
+!do ObtieneFecha
+!    show 'Sale M Clear-Temporal ' $wFecha22
+
+ 	
+!do ObtieneFecha
+!    show 'Entra M Clear-Temporal ' $wFecha22
+!  Do Clear-ItemTmp2
+!do ObtieneFecha
+!    show 'Sale M Clear-Temporal ' $wFecha22
+
+  
+end-procedure Process-Main
+
+
+!************************************************************************************!
+! Proceso: Consulta-CartClientes                                                     !
+! Descripcion: Seleccion de Clientes con cartera activa.                             ! 
+!************************************************************************************!
+begin-procedure Consulta-CartClientes
+!show 'Consulta-CartClientes'
+
+begin-select on-error =SQL-Error
+CNTRL.SETID  &sSetid
+
+	Let $sSetid = &sSetid
+
+FROM PS_SET_CNTRL_REC CNTRL 
+WHERE CNTRL.RECNAME = 'CUST_TEAM' 
+AND CNTRL.SETCNTRLVALUE = $Unidad_Negocio
+
+end-select
+
+begin-SQL on-error=SQL-Error
+INSERT INTO PS_CK_ITMFNG_TMP 
+SELECT 
+$prcs_process_instance,
+B.BUSINESS_UNIT,
+B.CUST_ID,
+SUM(B.BAL_AMT) BAL_AMT1
+!Ini 012 Obtimización de sentencia
+!from ps_item B,PS_SET_CNTRL_REC CNT
+FROM PS_ITEM B,PS_CUST_TEAM TEAM
+!Fin 012
+
+[$Where]
+!inicio 001
+[$Where_stat]
+AND TEAM.SETID = $sSetid
+AND B.CUST_ID = TEAM.CUST_ID
+AND (SUBSTR(TEAM.SUPPORT_TEAM_CD,1,3) = 'LBR' or SUBSTR(TEAM.SUPPORT_TEAM_CD,1,4) = 'LIBR')
+AND B.ACCOUNTING_DT > to_date('2010/01/01', 'YYYY/MM/DD')
+!fin 001
+
+!Ini 012
+!AND CNT.RECNAME = 'CUSTOMER'
+!Fin 012
+!006 Inicio
+AND ((B.ENTRY_TYPE = 'ND' and B.entry_reason in ('AJMAN','EFPCU')) OR (B.ENTRY_TYPE = 'FC'))
+!and B.ENTRY_TYPE = 'FC'
+!006 FIN
+
+group by B.BUSINESS_UNIT, B.CUST_ID
+end-SQL
+
+show '[$Where] ' $Where
+show '[$Where_stat] ' $Where_stat
+
+end-procedure !Consulta-CartClientes
+
+
+!************************************************************************************!
+! Proceso: Procesa-Datos                                                             !
+! Descripcion: Seleccion de Clientes para procesarlos  .                             ! 
+!************************************************************************************!
+begin-procedure Procesa-Datos
+!show 'Procesa-datos'
+BEGIN-SELECT
+ITMCUS.BUSINESS_UNIT,
+ITMCUS.CUST_ID,
+ITMCUS.BAL_AMT
+to_char(sysdate,'YYYY/MM/DD hh24:mi:ss') &wFecha22
+
+    Let $BU                = &ITMCUS.BUSINESS_UNIT
+    Let $Customer          = &ITMCUS.CUST_ID
+    Let #CupoUsado         = &ITMCUS.BAL_AMT
+    !Recuperacion de Datos Basicos de Cliente
+    Do Consulta-DatosCliente
+	DO DIR_CARTERA !006 
+    Let $tipo_identificac  = $TipoDoc
+    Let $nit_proveedor     = replace($Documento,',','')
+    Let $name1             = replace($NombreCli,',','')
+
+   !Ini 012
+   !Let $name1             = replace($NombreCli,',','')
+   !Let $name1             = replace($name1,'#', ' ')
+   !Let $name1             = replace($name1,'$', '')
+   !Let $name1             = replace($name1,'%', '')
+   !Let $name1             = replace($name1,'&', '')
+
+   !Let $name1             = replace($name1,'(', '')
+   !Let $name1             = replace($name1,')', '')
+   !Let $name1             = replace($name1,'*', '')
+   !Let $name1             = replace($name1,'+', '')
+   !Let $name1             = replace($name1,',', '')
+   !Let $name1             = replace($name1,'-', ' ')
+   !Let $name1             = replace($name1,'.', '')
+   !Let $name1             = replace($name1,'/', '')
+   !Let $name1             = replace($name1,':', '')
+   !Let $name1             = replace($name1,';', '')
+   !Let $name1             = replace($name1,'<', '')
+   !Let $name1             = replace($name1,'=', '')
+   !Let $name1             = replace($name1,'>', '')
+   !Let $name1             = replace($name1,'?', '')
+   !Let $name1             = replace($name1,'@', '')
+   !Let $name1             = replace($name1,'[', '')
+   !Let $name1             = replace($name1,'\', '')
+   !Let $name1             = replace($name1,']', '')
+   !Let $name1             = replace($name1,'^', '')
+   !Let $name1             = replace($name1,'_', ' ')
+   !Let $name1             = replace($name1,'`', '')
+   !Let $name1             = replace($name1,'{', '')
+   !Let $name1             = replace($name1,'|', '')
+   !Let $name1             = replace($name1,'}', '')
+   !Let $name1             = replace($name1,'~', '')
+
+
+   Let #cr_limit          = #CupoCred
+
+   Let $country           = $Desc_Pais 
+
+   Let $state             = $Desc_Depto 
+
+   Let $city              = $Desc_Ciudad 
+
+
+
+   Let $address1   	= replace($Direccion,',','')
+
+
+
+
+   !Let $address1        = replace($address1,'#',' ')
+   !Let $address1        = replace($address1,'$','')
+   !Let $address1        = replace($address1,'%','')
+   !Let $address1        = replace($address1,'&','')
+   !Let $address1 	= replace($address1,'(','')
+   !Let $address1 	= replace($address1,')','')
+   !Let $address1 	= replace($address1,'*','')
+   !Let $address1 	= replace($address1,'+','')
+   !Let $address1 	= replace($address1,'-',' ')
+   !Let $address1 	= replace($address1,'.','')
+   !Let $address1 	= replace($address1,'/','')
+   !Let $address1 	= replace($address1,':','')
+   !Let $address1 	= replace($address1,';','')
+   !Let $address1 	= replace($address1,'<','')
+   !Let $address1 	= replace($address1,'=','')
+   !Let $address1 	= replace($address1,'>','')
+   !Let $address1 	= replace($address1,'?','')
+   !Let $address1 	= replace($address1,'@','')
+   !Let $address1 	= replace($address1,'[','')
+   !Let $address1 	= replace($address1,'\','')
+   !Let $address1 	= replace($address1,']','')
+   !Let $address1 	= replace($address1,'^','')
+   !Let $address1 	= replace($address1,'_',' ')
+   !Let $address1 	= replace($address1,'`','')
+   !Let $address1 	= replace($address1,'{','')
+   !Let $address1 	= replace($address1,'|','')
+   !Let $address1 	= replace($address1,'}','')
+   !Let $address1 	= replace($address1,'~','')
+
+   Let $phone 	= replace($Telefono,',','')
+
+   !Let $phone 	= replace($phone,'#','')
+   !Let $phone 	= replace($phone,'$','')
+   !Let $phone 	= replace($phone,'%','')
+   !Let $phone 	= replace($phone,'&','')
+   !Let $phone 	= replace($phone,'(','')
+   !Let $phone 	= replace($phone,')','')
+   !Let $phone 	= replace($phone,'*','')
+   !Let $phone 	= replace($phone,'+','')
+   !Let $phone 	= replace($phone,'-','')
+   !Let $phone 	= replace($phone,'.','')
+   !Let $phone 	= replace($phone,'/','')
+   !Let $phone 	= replace($phone,':','')
+   !Let $phone 	= replace($phone,';','')
+   !Let $phone 	= replace($phone,'<','')
+   !Let $phone 	= replace($phone,'=','')
+   !Let $phone 	= replace($phone,'>','')
+   !Let $phone 	= replace($phone,'?','')
+   !Let $phone 	= replace($phone,'@','')
+   !Let $phone 	= replace($phone,'[','')
+   !Let $phone 	= replace($phone,'\','')
+   !Let $phone 	= replace($phone,']','')
+   !Let $phone 	= replace($phone,'^','')
+   !Let $phone 	= replace($phone,'_','')
+   !Let $phone 	= replace($phone,'`','')
+   !Let $phone 	= replace($phone,'{','')
+   !Let $phone 	= replace($phone,'|','')
+   !Let $phone 	= replace($phone,'}','')
+   !Let $phone 	= replace($phone,'~','')
+   !Let $phone 	= replace($phone,',','')
+   !Let $web_url 	= replace($Email,'#','')
+   !Let $web_url 	= replace($web_url,'$','')
+   !Let $web_url 	= replace($web_url,'%','')
+   !Let $web_url 	= replace($web_url,'&','')
+   !Let $web_url 	= replace($web_url,'(','')
+   !Let $web_url 	= replace($web_url,')','')
+   !Let $web_url 	= replace($web_url,'*','')
+   !Let $web_url 	= replace($web_url,'+','')
+   !Let $web_url 	= replace($web_url,',','')
+   !Let $web_url 	= replace($web_url,'-','')
+   !INICIO CAGC 008
+   ! !Let $web_url 	= replace($web_url,'.','')
+   !FIN CAGC 008
+   !Let $web_url 	= replace($web_url,'/','')
+   !Let $web_url 	= replace($web_url,':','')
+   !Let $web_url 	= replace($web_url,';','')
+   !Let $web_url 	= replace($web_url,'<','')
+   !Let $web_url 	= replace($web_url,'=','')
+   !Let $web_url 	= replace($web_url,'>','')
+   !Let $web_url 	= replace($web_url,'?','')
+   !INICIO CAGC 008
+   ! Let $web_url 	= replace($web_url,'@','')
+   !FIN CAGC 008
+   !Let $web_url 	= replace($web_url,'[','')
+   !Let $web_url 	= replace($web_url,'\','')
+   !Let $web_url 	= replace($web_url,']','')
+   !Let $web_url 	= replace($web_url,'^','')
+   !Let $web_url 	= replace($web_url,'_','')
+   !Let $web_url 	= replace($web_url,'`','')
+   !Let $web_url 	= replace($web_url,'{','')
+   !Let $web_url 	= replace($web_url,'|','')
+   !Let $web_url 	= replace($web_url,'}','')
+   !Let $web_url 	= replace($web_url,'~','')
+   !Let $web_url 	= replace($web_url,',','')
+
+   Let $wFecha22 = &wFecha22
+    !Recupera informacion del Reporte
+    
+    !Do InsertaItemTmp
+    ! do ObtieneFecha
+    !    show 'Entra M InsertaItemTmp ' $wFecha22
+    !  Do InsertaItemTmp
+    !do ObtieneFecha
+    !    show 'Sale M InsertaItemTmp ' $wFecha22
+
+    
+    Do Datos-Reporte
+
+    !Inicio 001
+	!Do Datos-Reporte-Nuevo
+ 	!Fin 001
+ 	    
+FROM PS_CK_ITMFNG_TMP ITMCUS
+WHERE ITMCUS.PROCESS_INSTANCE = $prcs_process_instance
+END-SELECT
+
+end-procedure !Procesa-Datos
+
+!Ini 011
+!************************************************************************************!
+! Proceso: ObtieneFlagPagoTotal                                                      !
+! Determina los clientes en mora.                                                    ! 
+!************************************************************************************!
+begin-procedure ObtieneFlagPagoTotal
+!do ObtieneFecha
+!show 'entra Datos-ObtieneFlagPagoTotal ' &wfecha22
+
+
+BEGIN-SELECT
+P.CK_EST_PAGO_TOTAL         &ck_est_pago_total
+
+    Let $ck_est_pago_total = &ck_est_pago_total
+    
+FROM SYSADM.PS_CK_ITEM_PTO2_VW P
+
+WHERE P.BUSINESS_UNIT = $wBu
+AND P.CUST_ID         = $wCI
+AND P.ITEM         like $wIT ||'%'
+
+end-select
+
+!show '$ck_est_pago_total ' $ck_est_pago_total ' BU ' $wBu ' CUST ' $wCI ' ITEM ' $wIT
+end-procedure !ObtieneFlagPagoTotal
+!Fin 011
+
+
+!************************************************************************************!
+! Proceso: Datos-Reporte                                                             !
+! Determina los clientes en mora.                                                    ! 
+!************************************************************************************!
+begin-procedure Datos-Reporte
+
+!do ObtieneFecha
+!show 'entra Datos-Reporte ' &wfecha22
+    !Ini 012
+    Let $wfecha_vencicuota = ''
+    !Fin 012
+
+
+BEGIN-SELECT
+B.BUSINESS_UNIT                                                                                                            &business_unit
+B.CUST_ID                                                                                                                  &cust_id
+B.ENTRY_TYPE                                                                                                               &entry_rype
+!Inicio 013
+!DECODE(B.ENTRY_TYPE,'ND',B.ITEM,substr(B.ITEM, 1, instr(B.ITEM, '-', 10) -1))                                              &item_cust
+DECODE(B.ENTRY_TYPE,'ND',B.ITEM,nvl(substr(B.ITEM, 1, instr(B.ITEM, '-', 10) - 1), B.ITEM))                                 &item_cust
+!Fin 013
+
+!Ini 011
+!P.CK_EST_PAGO_TOTAL                                                                                                        &ck_est_pago_total
+!Fin 011
+
+to_char(B.ACCOUNTING_DT, 'dd/mm/yyyy')                                                                                     &accounting_dt
+!inicio 014
+B.ACCOUNTING_DT                                                                                                            &accounting_dt_rep
+SYSDATE																													   &Fecha_Proceso
+!Fin 014
+!Inicio 013
+!nvl(MAX(SUBSTR(B.ITEM, instr(B.ITEM, '-', 10) + 1, 2)), '01')                                                              &cuotas_pactadas
+nvl(MAX(DECODE(instr(B.ITEM, '-', 10),0,'00',(SUBSTR(B.ITEM, instr(B.ITEM, '-', 10) + 1, 2)))),'01')                       &cuotas_pactadas
+!Fin 013
+sum(decode(B.item_status, 'C', 1, 'O', 0))                                                                                 &cuotas_pagadas
+sum(decode(sign(to_date($Fecha_Ini, 'YYYY/MM/DD') - b.due_dt), 1, 1, 0) * decode(B.item_status, 'O', 1, 0))                &cuotas_mora
+SUM(B.ORIG_ITEM_AMT)                                                                                                       &valor_total
+SUM(B.BAL_AMT)                                                                                                             &saldo
+sum(decode(sign(to_date($Fecha_Ini, 'YYYY/MM/DD') - b.due_dt), 1, 1, 0) * B.BAL_AMT)                                       &saldo_mora
+sum(decode(b.item_status, 'C', 1, 0) * b.orig_item_amt)                                                                    &valor_pagado
+round(AVG(B.ORIG_ITEM_AMT),0)                                                                                              &valor_cuota
+trunc(max(to_date($Fecha_Ini, 'YYYY/MM/DD') - decode(b.item_status, 'C', to_date($Fecha_Ini, 'YYYY/MM/DD'), b.due_dt)))    &dias_mora
+to_char(max(decode(b.item_status, 'C', b.post_dt, null)), 'dd/mm/yyyy')                                                    &ultimo_pago
+!Inicio 013
+!nvl(MAX(SUBSTR(B.ITEM, instr(B.ITEM, '-', 10) + 1, 2)), '01')                                                              &meses_celebrados
+!nvl(MAX(SUBSTR(B.ITEM, instr(B.ITEM, '-', 10) + 1, 2)), '01')                                                              &meses_permanencia
+nvl(MAX(DECODE(instr(B.ITEM, '-', 10),0,'00',(SUBSTR(B.ITEM, instr(B.ITEM, '-', 10) + 1, 2)))),'01')                       &meses_celebrados
+nvl(MAX(DECODE(instr(B.ITEM, '-', 10),0,'00',(SUBSTR(B.ITEM, instr(B.ITEM, '-', 10) + 1, 2)))),'01')                       &meses_permanencia
+!Fin 013
+sum(B.BAL_AMT)                                                                                                             &Saldo_Oblig
+B.SUBCUST_QUAL1	 																										    &zona_obl	 !•	Zona de Obligación 006
+B.USER7 																												    &un_obl		 !•	Unidad de Negocio de  Obligación 006
+B.ENTRY_REASON																											    &mot_doc	 !•	Motivo del tipo de documento  (VTPOS ND AJMAN – ND EFPCU) 006
+!max(to_date(B.POST_DT, 'dd/mm/yyyy'))
+to_char(max(B.POST_DT), 'dd/mm/yyyy')																							&fec_contab	   !•	Fecha Contabilización de la Obligación 006 
+!ACCOUNTING_DT 		 &accounting_dt ya es llamado este campo !•	Fecha Documento (aplica para ND) 006  
+  
+
+
+    
+    Let $business_unit     = &business_unit
+    Let $cust_id           = replace(&cust_id,',','')
+    Let $cust_id1          = &cust_id
+    Let $entry_rype        = &entry_rype
+    Let $item_cust         = &item_cust
+    
+    !Ini 011
+    !Let $ck_est_pago_total = &ck_est_pago_total
+    
+    Let $wBu               = $business_unit
+    Let $wCI               = &cust_id
+    Let $wIT               = $item_cust
+
+    Do ObtieneFlagPagoTotal
+    !Fin 011
+
+    Do Fecha_Min_Venc
+    Do Calcula-Periodicidad
+    
+!inicio 006
+	
+	LET $dir_cartera_inf  = $dir_cartera !•	Dirección Cartera 006
+	LET $zona_obl_inf=&zona_obl
+	LET $un_obl_inf=&un_obl
+	LET $mot_doc_inf=&mot_doc
+	LET $fec_contab_inf=&fec_contab	
+	!fin 006
+    Let #day_increment     = #Periodicidad
+    Let $accounting_dt     = &accounting_dt
+	!Inicio 014
+	Let $accounting_dt_rep = &accounting_dt_rep
+	Let $Fecha_Proceso     = &Fecha_Proceso
+	!Fin 014
+    Let #cuotas_pactadas   = &cuotas_pactadas
+    Let #cuotas_pagadas    = &cuotas_pagadas
+    Let #cuotas_mora       = &cuotas_mora
+    Let #valor_total       = &valor_total
+    Let #saldo             = &saldo
+    Let #saldo_mora        = &saldo_mora
+    Let #valor_pagado      = &valor_pagado
+    Let #valor_cuota       = &valor_cuota
+    Let #dias_mora         = &dias_mora
+    Let $ultimo_pago       = &ultimo_pago
+    Let $fecha_vencimiento = $fecha_venc
+    !Ini 012
+    Let $wfecha_vencicuota = $fecha_venc
+    !Fin 012
+    Let #cupo_utilizado    = #CupoUsado
+    Let #meses_celebrados  = &meses_celebrados
+    Let #meses_permanencia = &meses_permanencia
+    Let #Saldo_Oblig       = &Saldo_Oblig
+	!Inicio 007
+	Let #Tasa_Pact         = ''
+	Let #Plan_Financ       = ''
+	!<Inicio 009>
+	!Let #Saldo_Incor       = ''
+	!<Fin 009>
+	Let #Cuota_Ini         = ''
+	!Fin 007
+
+    !Inicio 001
+	Let $Int_Cor = ''
+	!Fin 001
+    
+        Do Escribir-Plano 
+    
+!Ini 011
+FROM sysadm.PS_ITEM B
+!FROM sysadm.PS_ITEM B, SYSADM.PS_CK_ITEM_PTO2_VW P
+!FROM sysadm.PS_CK_ITEM_TMP2 B
+
+
+WHERE 
+
+!B.PROCESS_INSTANCE = $Process_Instance AND
+!Fin 011
+
+B.BUSINESS_UNIT = $BU
+AND B.CUST_ID = $Customer
+!Ini 011
+!AND P.BUSINESS_UNIT = B.BUSINESS_UNIT
+!AND P.CUST_ID       = B.CUST_ID
+!AND P.ITEM          = B.ITEM
+!Fin 011
+
+!006 Inicio
+!Inicio 013
+!AND ((B.ENTRY_TYPE = 'ND' and B.entry_reason in ('AJMAN','EFPCU')) OR (B.ENTRY_TYPE = 'FC'))
+AND ((B.ENTRY_TYPE = 'ND' and B.entry_reason in ('AJMAN','EFPCU')) OR (B.ENTRY_TYPE = 'FC' and B.entry_reason <> 'INCOR'))
+!Fin 013
+!006 FIN
+AND B.REF_REASON <> 'INTER'
+!inicio 001
+!AND B.ACCOUNTING_DT > to_date('2010/01/01', 'YYYY/MM/DD')
+!fin 001
+!AND instr(B.ITEM, '-', 10) > 0
+!AND nvl(SUBSTR(B.ITEM, instr(B.ITEM, '-', 10) + 1, 2), '01') BETWEEN '01' and '99'
+!Inicio 013
+!AND ( ( DECODE(B.ENTRY_TYPE,'FC',(instr(B.ITEM, '-', 10))) > 0) OR ((B.ENTRY_TYPE='ND')and B.entry_reason in ('AJMAN','EFPCU')))
+!Fin 013
+!Inicio 013
+!AND (decode(B.ENTRY_TYPE,'FC',nvl(SUBSTR(B.ITEM, instr(B.ITEM, '-', 10) + 1, 2), '01')) BETWEEN '01' and '99' OR (B.ENTRY_TYPE='ND'))
+AND (decode(B.ENTRY_TYPE, 'FC', nvl(decode(instr(B.ITEM, '-', 10),0,'00',SUBSTR(B.ITEM, instr(B.ITEM, '-', 10) + 1, 2)), '01')) BETWEEN '00' and '99' OR (B.ENTRY_TYPE='ND'))
+!Fin 013
+!Inicio 001
+!Inicio 013
+!AND B.User9 <>'F'
+!Fin 013
+!Fin 001
+group by B.PROCESS_INSTANCE, B.BUSINESS_UNIT, B.CUST_ID, 
+B.ENTRY_TYPE,
+!Inicio 013
+!DECODE(B.ENTRY_TYPE,'ND',B.ITEM,substr(B.ITEM, 1, instr(B.ITEM, '-', 10) -1)), !modificacion por ND 006
+DECODE(B.ENTRY_TYPE,'ND',B.ITEM,nvl(substr(B.ITEM, 1, instr(B.ITEM, '-', 10) - 1), B.ITEM)),
+!Fin 013
+!Ini 011
+!P.CK_EST_PAGO_TOTAL,
+!Fin 011
+B.ACCOUNTING_DT,
+B.SUBCUST_QUAL1,
+B.USER7,
+B.ENTRY_REASON
+
+!Inicio 001
+![$Having]
+!Fin 001
+end-select
+
+!show '$ck_est_pago_total ' $ck_est_pago_total
+!do ObtieneFecha
+!show 'Sale Datos-Reporte ' &wfecha22 ' $wIT ' $wIT
+!show '$wfecha_vencicuota1 ' $wfecha_vencicuota ' $wIT ' $wIT
+
+end-procedure !Datos-Reporte
+
+
+!**********************************************************************!
+!CEM 1969															   !
+!TRAE LA DIRECCION DE CARTERA con sus componentes									   !
+!Inicio 006															   !
+!**********************************************************************
+
+
+
+
+begin-procedure DIR_CARTERA
+!show 'ENTRO A DIR CARTERA'
+
+BEGIN-SELECT On-Error=SQL-Error
+!Ini 012
+!nvl(AD.ADDRESS1,'Direccion Vacia')    &dir_cartera
+nvl(REGEXP_REPLACE(REPLACE( UPPER(UTL_RAW.CAST_TO_VARCHAR2((NLSSORT(AD.ADDRESS1,'nls_sort=binary_ai')))), ' ', ' '), '[^a-z A-Z0-9 # ]', '') , 'Direccion Vacia') &dir_cartera
+!Fin 012
+nvl(AD.COUNTY,'88888')                &barrio_cartera
+nvl(AD.COUNTRY,'COL')                 &pais_cartera
+nvl(AD.STATE,'Departamento Vacio')    &depto_cartera
+nvl(AD.CITY,'Ciudad Vacia')           &CITY_cartera
+!INICIO CAGC 008
+!Ini 012
+!NVL(AD.PHONE,'Telefono Vacio')       &phoneX
+!NVL(AD.URL_LONG,'Email Vacio')	      &EmailX
+nvl(REGEXP_REPLACE(REPLACE( UPPER(UTL_RAW.CAST_TO_VARCHAR2((NLSSORT(AD.PHONE,'nls_sort=binary_ai')))), ' ', ' '), '[^0-9]', '') , 'Telefono Vacio')              &phoneX
+nvl(ltrim(REGEXP_REPLACE(REPLACE( (UTL_RAW.CAST_TO_VARCHAR2((NLSSORT(AD.URL_LONG,'nls_sort=binary_ai')))), ' ', ' '), '[^a-z A-Z0-9 .@ ]', '')) , 'Email Vacio') &EmailX
+!Fin 012
+!FIN CAGC 008
+ 
+                    !INICIO CAGC 008
+                    Let $Telefono  = &phoneX
+                    Let $Email     = &EmailX
+                    !FIN CAGC 008
+                    
+                    let $dir_cartera  = &dir_cartera
+                    let $county       =&barrio_cartera
+                    let $Pais         = &pais_cartera
+                    let $Depto        =&depto_cartera
+                    LET $Ciudad       =&CITY_cartera
+
+
+!INICIO CAGC 008 
+FROM SYSADM.ps_ck_cust_addr_ar AD ,PS_CK_ADDR_CAR_TBL X
+where  AD.SETID = X.SETID (+)
+AND    AD.CUST_ID = X.CUST_ID (+)
+AND    AD.ADDRESS_SEQ_NUM = X.ADDRESS_SEQ_NUM (+)
+AND    X.CK_DIR_CARTERA (+) = 'Y'
+!FIN CAGC 008
+AND ad.cust_id = $Customer ! $cust_id
+and ad.eff_status='A'
+!Ini 012 Optimizacion
+!AND AD.SETID= (SELECT DISTINCT SETID FROM PS_SET_CNTRL_REC REC
+!WHERE REC.SETCNTRLVALUE=$BU !$business_unit
+!AND RECname='CUSTOMER')
+!Fin 012
+AND AD.EFFDT=(SELECT MAX(EF.EFFDT) 
+FROM  ps_ck_cust_addr_ar EF
+WHERE AD.CUST_ID=EF.CUST_ID
+!Ini 012 Optimización
+AND EF.SETID = AD.SETID )
+!AND EF.SETID= (SELECT DISTINCT SETID FROM PS_SET_CNTRL_REC REC
+!WHERE REC.SETCNTRLVALUE=$BU 
+!AND RECname='CUSTOMER'))
+AND rownum=1
+end-select
+
+let $proc_flag_cartera='Y' 
+
+	  Do Buscar_Pais
+      Do Buscar_Depto
+      Do Buscar_Ciudad
+	  Do Buscar_Barrio
+
+end-procedure
+!Fin 002
+!Inicio 001
+!************************************************************************************!
+! Proceso: Datos-Reporte-Nuevo                                                       !
+! Determina los clientes en mora en el nuevo modelo de financiación                  ! 
+!************************************************************************************!
+begin-procedure Datos-Reporte-Nuevo
+!do ObtieneFecha
+!show 'entra Datos-Reporte-Nuevo ' &wfecha22 
+    Let $wfecha_vencicuota = ''
+
+
+
+if $item_status = 'O'
+
+	  Let $WHERE_STATUS = ' AND ((B.ITEM_STATUS = ''' || $item_status || ''') OR EXISTS (SELECT ' || '''X''' || ' FROM PS_ITEM T WHERE T.INVOICE = B.INVOICE AND T.ITEM_STATUS = ' || '''O''' || ' AND T.ENTRY_TYPE = ' || '''FC''' || ' AND T.CUST_ID =  ''' || $Customer || ''' AND T.BUSINESS_UNIT = ''' || $BU || ''' ))'
+else
+
+	  Let $WHERE_STATUS = ' AND NOT EXISTS (SELECT ' || '''X''' || ' FROM PS_ITEM T WHERE T.INVOICE = B.INVOICE AND T.ITEM_STATUS = ' || '''O''' || ' AND T.ENTRY_TYPE = ' || '''FC''' || ' AND T.CUST_ID =  ''' || $Customer || ''' AND T.BUSINESS_UNIT = ''' || $BU || ''')'
+
+
+end-if
+
+BEGIN-SELECT 
+B.BUSINESS_UNIT  &business_unit2                                                                                                       
+B.CUST_ID &cust_id2                                                                                                              
+B.ENTRY_TYPE &entry_rype2                                                                                                       
+F.ITEM &item_cust_nuevo                                                                          
+!Ini 011
+!P.CK_EST_PAGO_TOTAL            &ck_est_pago_total2
+!Fin 011
+to_char(B.ACCOUNTING_DT, 'dd/mm/yyyy') &accounting_dt_nuevo                                                                     
+F.CK_CUOTAS_TOTAL   &cuotas_pactadas2                                                       
+sum(decode(A.CK_STATUS_AMORT, 'R', 1, 0)) &cuotas_pagadas2
+sum(decode(sign(to_date($Fecha_Ini, 'YYYY/MM/DD') - A.due_dt), 1, 1, 0) * decode(A.CK_STATUS_AMORT, 'MP', 1, 'MT', 1, 0)) &cuotas_mora2
+F.ORIG_ITEM_AMT &valor_total2            
+B.BAL_AMT  &saldo2                                                                                  
+sum(decode(sign(to_date($Fecha_Ini, 'YYYY/MM/DD') - A.due_dt), 1, 1, 0) * decode(A.CK_STATUS_AMORT, 'MP', A.CK_MORA_AMT, 'MT', A.CK_MORA_AMT, 0)) &saldo_mora2 
+sum(decode(A.CK_STATUS_AMORT, 'R', A.CK_APLIC_REC_AMT, 0)) &valor_pagado2
+F.CK_VAL_CUO_ORI &valor_cuota2 
+trunc(max(to_date($Fecha_Ini, 'YYYY/MM/DD') - decode(A.ck_status_amort, 'MT', A.due_dt, 'MP', A.due_dt, to_date($Fecha_Ini, 'YYYY/MM/DD')))) &dias_mora2
+to_char(max(decode(A.ck_status_amort, 'R', A.CK_FECHA_REC)),'dd/mm/yyyy') &ultimo_pago_nuevo
+nvl(MAX(A.Ck_Cuota_Numero), '01') &meses_celebrados2                                                    
+nvl(MAX(A.Ck_Cuota_Numero), '01') &meses_permanencia2   
+B.BAL_AMT  &Saldo_Oblig2
+F.CK_DIAS_INI_CTA &Periodicidad2
+!<Inicio 009 >
+to_char(F.CK_VNC_PRX_CUOT_DT, 'dd/mm/yyyy')  &fecha_venc2
+!to_char(B.DUE_DT, 'dd/mm/yyyy')  &fecha_venc2
+!<Fin 009>
+B.SUBCUST_QUAL1	 																										    &zona_obl2	 !•	Zona de Obligación 006
+B.USER7 																												    &un_obl2 !•	Unidad de Negocio de  Obligación 006
+B.ENTRY_REASON																											    &mot_doc2	 !•	Motivo del tipo de documento  (VTPOS ND AJMAN – ND EFPCU) 006
+!Inicio 007
+F.CK_TS_INT_PACT_ACT &tasa_pact2
+F.CK_PLAN_FINANC     &plan_financ2
+sum(decode(sign(to_date($Fecha_Ini, 'YYYY/MM/DD') - B.due_dt), 1, 1, 0) * decode(B.ENTRY_REASON, 'INCOR', B.BAL_AMT, 0)) &saldo_incor2
+F.ENTERED_AMT    &cuota_ini2
+!Fin 007
+!max(to_date(B.POST_DT, 'dd/mm/yyyy')) 																							&fec_contab2	   !•	Fecha Contabilización de la Obligación 006 
+to_char(max(B.POST_DT), 'dd/mm/yyyy')                                                                                    &fec_contab2
+!ACCOUNTING_DT 		 &accounting_dt ya es llamado este campo !•	Fecha Documento (aplica para ND) 006  
+    	    
+    Let $business_unit     = &business_unit2
+    Let $cust_id           = replace(&cust_id2,',','')
+    Let $cust_id1          = &cust_id2
+    Let $entry_rype2       = &entry_rype2
+    Let $item_cust2        = &item_cust_nuevo
+    !Ini 011
+    !Let $ck_est_pago_total = &ck_est_pago_total2
+    
+    Let $wBu = $business_unit
+    Let $wCI = &cust_id2
+    Let $wIT = $item_cust2
+
+    Do ObtieneFlagPagoTotal
+    !Fin 011
+    Let #day_increment     = &Periodicidad2
+    Let $accounting_dt2    = &accounting_dt_nuevo
+    Let #cuotas_pactadas   = &cuotas_pactadas2
+    Let #cuotas_pagadas    = &cuotas_pagadas2
+    Let #cuotas_mora       = &cuotas_mora2
+    Let #valor_total       = &valor_total2
+    Let #saldo             = &saldo2
+    Let #saldo_mora        = &saldo_mora2
+    Let #valor_pagado      = &valor_pagado2
+    Let #valor_cuota       = &valor_cuota2
+    Let #dias_mora         = &dias_mora2
+    Let $ultimo_pago2       = &ultimo_pago_nuevo
+    Let $fecha_vencimiento2 = &fecha_venc2
+    Let #cupo_utilizado2    = #CupoUsado
+    Let #meses_celebrados  = &meses_celebrados2
+    Let #meses_permanencia = &meses_permanencia2
+    Let #Saldo_Oblig       = &Saldo_Oblig2
+	!Inicio 007
+	Let #Tasa_Pact         = &tasa_pact2
+	Let $Plan_Financ       = &plan_financ2
+	!<Inicio 009>
+	!Let #Saldo_Incor       = &saldo_incor2
+	!<Fin 009>
+	Let #Cuota_Ini         = &cuota_ini2
+	!Fin 007
+	
+		!inicio 006
+	
+	LET $zona_obl_inf2=&zona_obl2
+	LET $un_obl_inf2=&un_obl2
+	LET $mot_doc_inf2=&mot_doc2
+	LET $fec_contab_inf2=&fec_contab2	
+	!fin 006
+	
+	    Do Interes_Corriente
+	!<Inicio 009 >
+	Let #saldo = #saldo + #saldo_mora + #Int_Cor
+        !<Fin 009 >
+        
+        !<Inicio 010>
+        if #saldo_mora > 0 
+        	Do Fecha_Min_Venc_Mora
+        	let $fecha_vencimiento2 = $fecha_venc_mora
+        end-if       
+        !<Fin 010>
+    !Ini 012
+    Let $wfecha_vencicuota2 = $fecha_vencimiento2
+    !Fin 012
+
+	Do Escribir-Plano-Nuevo
+    
+!Ini 011
+FROM PS_CK_CART_FINANC F, PS_CK_CART_AMORT A, PS_ITEM B 
+!FROM PS_CK_CART_FINANC F, PS_CK_CART_AMORT A, PS_ITEM B, SYSADM.PS_CK_ITEM_PTO2_VW P
+!FROM PS_CK_CART_FINANC F, PS_CK_CART_AMORT A, PS_CK_ITEM_TMP2 B 
+!WHERE B.BUSINESS_UNIT = F.BUSINESS_UNIT
+WHERE !B.PROCESS_INSTANCE = $Process_Instance AND
+ B.BUSINESS_UNIT = F.BUSINESS_UNIT
+!Fin 011
+AND B.CUST_ID = F.Cust_Id
+AND B.ITEM = F.ITEM
+AND B.ITEM_LINE = F.ITEM_LINE
+AND A.BUSINESS_UNIT (+) = F.BUSINESS_UNIT 
+AND A.CUST_ID (+) = F.Cust_Id
+AND A.ITEM (+)= F.ITEM
+AND A.ITEM_LINE (+)= F.ITEM_LINE
+AND B.BUSINESS_UNIT = $BU
+AND B.CUST_ID = $Customer
+AND B.ENTRY_TYPE = 'FC'
+!Ini 011
+!AND P.BUSINESS_UNIT = B.BUSINESS_UNIT
+!AND P.CUST_ID = B.CUST_ID
+!AND P.ITEM = B.ITEM
+!Fin 011
+[$WHERE_STATUS]
+group by !B.PROCESS_INSTANCE, 
+B.BUSINESS_UNIT, B.CUST_ID, 
+B.ENTRY_TYPE, 
+F.ITEM,
+!Ini 011
+!P.CK_EST_PAGO_TOTAL,
+!Fin 011
+B.ACCOUNTING_DT,
+F.CK_CUOTAS_TOTAL,
+B.BAL_AMT,
+F.ORIG_ITEM_AMT,
+F.CK_VAL_CUO_ORI,
+F.CK_DIAS_INI_CTA,
+!<Inicio 009 >
+F.CK_VNC_PRX_CUOT_DT,
+!B.DUE_DT,
+!<Fin 009 >
+B.SUBCUST_QUAL1,
+B.USER7,
+B.ENTRY_REASON,
+F.CK_TS_INT_PACT_ACT,
+F.CK_PLAN_FINANC,
+F.ENTERED_AMT
+end-select
+
+!do ObtieneFecha
+!show 'entra Datos-Reporte-Nuevo ' &wfecha22
+!show '$wfecha_vencicuota2 ' $wfecha_vencicuota2 ' $wIT ' $wIT ' $fecha_vencimiento2 ' $fecha_vencimiento2
+end-procedure
+
+!-----------------------------------------------------------------------
+! Interes_Corriente
+!-----------------------------------------------------------------------
+begin-procedure Interes_Corriente
+
+let $invoice   = &item_cust_nuevo
+Let #Int_Cor   = 0
+
+begin-SELECT On-Error=SQL-Error
+SUM(decode(sign(to_date($Fecha_Ini, 'YYYY/MM/DD') - due_dt), 1, 1, 0) * BAL_AMT) &InCor
+
+	Let #Int_Cor = &InCor
+
+FROM PS_ITEM
+WHERE BUSINESS_UNIT = $BU
+AND CUST_ID = $Customer
+AND ENTRY_TYPE = 'FC'
+AND ITEM_STATUS = 'O'
+AND ENTRY_REASON = 'INCOR'
+AND INVOICE = $invoice
+GROUP BY INVOICE
+end-select
+
+!show '#Int_Cor ' #Int_Cor 
+end-procedure Interes_Corriente
+
+!Fin 001
+
+!Ini 012
+
+!-----------------------------------------------------------------------
+! Procedimiento para obtener la tasa de usura.
+!-----------------------------------------------------------------------
+begin-procedure ObtieneTasaUsura
+!show 'ObtieneTasaUsura'
+
+begin-SELECT On-Error=SQL-Error
+D.RATE            &wrate
+    Let #wrate2 = &wrate
+
+  FROM PS_CK_TAS_USURA_VW D
+end-select
+!Show 'ObtieneTasaUsura ' #wrate2
+end-procedure ObtieneTasaUsura
+
+!-----------------------------------------------------------------------
+! Procedimiento para obtener Interés Corriente.
+!-----------------------------------------------------------------------
+begin-procedure ObtieneInteresCte
+!Show 'ObtieneInteresCte ' #wrate2
+Let #wTasaMax = 0
+Let #wPorcIva = 0
+Let #wMonto = 0
+Let #wIva2 = 0
+Let #wTasaMax2 = 0
+Let #wDias2 = 0
+Let #wTasa2 = 0
+Let #wMonto2 = 0
+
+!show ' $item_cust ' $item_cust  ' $item_cust2 ' $item_cust2
+if IsBlank($item_cust2)
+   let $wItem = $item_cust
+else
+   let $wItem = $item_cust2
+end-if
+!show 'wItem ' $wItem
+
+begin-SELECT On-Error=SQL-Error
+A.CK_PCT_IVA_ACT                                                            &CK_PCT_IVA_ACT
+!D.RATE                                                                      &rate
+DECODE(SIGN(b.due_dt - trunc(sysdate)) , -1, 0, b.due_dt - trunc(sysdate) ) &DIAS
+
+Round((( power( ((A.CK_RATE_PERIOD / (1 + (A.CK_PCT_IVA_ACT / 100)))/100 + 1) , (1 / ( A.CK_DIAS_INI_CTA / 360 )) ) ) - 1), 4) * 100 &TasaAnual
+DECODE(SIGN(B.CK_CAPITAL_AMRT - C.BAL_AMT), -1, C.BAL_AMT, B.CK_CAPITAL_AMRT) &Monto
+
+    Let #wIva2  = &CK_PCT_IVA_ACT
+    !Let #wrate2 = &rate
+    Let #wDias2 = &DIAS
+    Let #wTasa2 = &TasaAnual
+    if #wTasa2 > #wrate2
+       Let #wTasaMax2 = #wrate2 !&rate
+    else
+       Let #wTasaMax2 = &TasaAnual
+    end-if
+
+    Let #wMonto2 = &Monto
+
+
+  FROM PS_CK_CART_FINANC A, PS_CK_CART_AMORT B, PS_ITEM C
+ WHERE B.BUSINESS_UNIT = A.BUSINESS_UNIT 
+   AND B.BUSINESS_UNIT = $Unidad_Negocio
+   AND B.CUST_ID = A.CUST_ID 
+   AND B.ITEM = A.ITEM 
+   AND B.ITEM_LINE = A.ITEM_LINE 
+   AND A.ITEM = $wItem
+   AND B.CK_CUOTA_NUMERO = A.CK_PROX_CUOTA
+   AND C.BUSINESS_UNIT = A.BUSINESS_UNIT 
+   AND C.CUST_ID = A.CUST_ID 
+   AND C.ITEM = A.ITEM 
+   AND C.ITEM_LINE = A.ITEM_LINE
+   AND C.ENTRY_TYPE = 'FC'
+   
+   !$nit_proveedor
+
+end-select
+
+!show 'Tasa ' #wTasaMax2 ' #wMonto2 ' #wMonto2
+
+end-procedure ObtieneInteresCte
+
+!-----------------------------------------------------------------------
+! Procedimiento para obtener el Interés Causado.
+!-----------------------------------------------------------------------
+begin-procedure ObtieneIntCausado
+!Let #wTasaMax = 0
+!Let #wPorcIva = 0
+!Let #wMonto = 0
+Let #TasaDiaria = 0
+Let #IntFavor = 0
+Let #montotot = 0
+Let #wIntCau = 0
+
+
+!show 'wItem2 ' $wItem ' #wIva2 ' #wIva2 ' #wDias2 ' #wDias2
+
+begin-SELECT On-Error=SQL-Error
+Round((( power( ( #wTasaMax2/100 + 1) , (1 / (360 / 1)) ) ) - 1), 8) * 100                                                               &TasaDiaria
+(power ((1 + (Round((( power( ( #wTasaMax2/100 + 1) , (1 / (360 / 1)) ) ) - 1), 6) * 100) / 100) , #wDias2 ) - 1) * (B.CK_CAPITAL_AMRT)  &IntFavor
+round((( Round((( power( ( #wTasaMax2 /100 + 1) , (1 / (360 / A.CK_DIAS_INI_CTA )) ) ) - 1), 8) * 100 ) * #wMonto2 /100) ,0)             &Valor
+
+    Let #TasaDiaria = &TasaDiaria
+    Let #IntFavor   = &IntFavor
+    Let #montotot   = &Valor
+    Let #wIntCau    = (#montotot - #IntFavor ) * (1 + #wIva2 / 100)
+
+  FROM PS_CK_CART_FINANC A, PS_CK_CART_AMORT B, PS_ITEM C
+ WHERE B.BUSINESS_UNIT = A.BUSINESS_UNIT 
+   AND B.BUSINESS_UNIT = $Unidad_Negocio
+   AND B.CUST_ID = A.CUST_ID 
+   AND B.ITEM = A.ITEM 
+   AND B.ITEM_LINE = A.ITEM_LINE 
+   AND A.ITEM = $wItem
+   AND B.CK_CUOTA_NUMERO = A.CK_PROX_CUOTA
+   AND C.BUSINESS_UNIT = A.BUSINESS_UNIT 
+   AND C.CUST_ID = A.CUST_ID 
+   AND C.ITEM = A.ITEM 
+   AND C.ITEM_LINE = A.ITEM_LINE
+   AND C.ITEM_STATUS = 'O'
+
+end-select
+
+!show 'Int ' #wIntCau ' $Unidad_Negocio ' $Unidad_Negocio ' $wItem ' $wItem
+
+end-procedure ObtieneIntCausado
+
+!-----------------------------------------------------------------------
+! Procedimiento para el cálculo de Otros Valores y anticipos
+!-----------------------------------------------------------------------
+begin-procedure OtrosValores
+
+Let #wOtrosValores = 0
+Let #wAnticipos = 0
+
+if IsBlank($zona_obl_inf2)
+   let $wZona = $zona_obl_inf
+else
+   let $wZona = $zona_obl_inf2
+end-if
+
+begin-SELECT On-Error=SQL-Error
+
+CK_OTROS_VALORES
+CK_INT_ANTIC_AMT
+
+	Let #wOtrosValores = &CK_OTROS_VALORES
+	Let #wAnticipos = &CK_INT_ANTIC_AMT
+
+FROM PS_CK_OTR_VALOR_VW A
+WHERE BUSINESS_UNIT = $Unidad_Negocio
+AND CUST_ID= $nit_proveedor
+AND SUBCUST_QUAL1 = $wZona
+
+end-select
+
+!show '$Unidad_Negocio ' $Unidad_Negocio
+!show '$nit_proveedor ' $nit_proveedor
+!show '$wZona ' $wZona
+!show '$zona_obl_inf ' $zona_obl_inf
+!show '$zona_obl_inf2 ' $zona_obl_inf2
+
+!show '#wOtrosValores ' #wOtrosValores
+!show '#wAnticipos ' #wAnticipos
+end-procedure OtrosValores
+!Fin 012
+
+!<Inicio 010>
+!-----------------------------------------------------------------------
+! Fecha_Min_Venc_Mora
+!-----------------------------------------------------------------------
+begin-procedure Fecha_Min_Venc_Mora
+
+let $business_unit_mora = &business_unit2
+let $invoice_mora   = &item_cust_nuevo
+
+begin-SELECT On-Error=SQL-Error
+MIN(TO_CHAR(A.DUE_DT, 'YYYY-MM-DD')) &fecha_vencimiento_mora
+
+  Let $fecha_venc_mora = &fecha_vencimiento_mora
+
+!Ini 012
+FROM PS_ITEM A
+!FROM PS_CK_ITEM_TMP2 A
+WHERE A.BUSINESS_UNIT = $business_unit_mora
+!WHERE PROCESS_INSTANCE = $Process_Instance
+!AND A.BUSINESS_UNIT = $business_unit_mora
+!Fin 012
+AND A.CUST_ID = $Customer
+AND A.INVOICE = $invoice_mora
+AND A.ITEM_STATUS = 'O'
+AND A.ENTRY_TYPE = 'FC'
+AND A.ENTRY_REASON = 'MORA'
+end-select
+
+end-procedure Fecha_Min_Venc_Mora
+!<Fin 010>
+
+!Fin 001
+!-----------------------------------------------------------------------
+! Fecha_Min_Venc
+!-----------------------------------------------------------------------
+begin-procedure Fecha_Min_Venc
+
+
+
+
+let $item_cust_like   = $item_cust || '%'
+
+begin-SELECT On-Error=SQL-Error
+MIN(TO_CHAR(A.DUE_DT, 'YYYY-MM-DD')) &fecha_vencimiento
+
+  Let $fecha_venc = &fecha_vencimiento
+
+!Ini 012
+FROM PS_ITEM A
+!FROM PS_CK_ITEM_TMP2 A
+!WHERE A.BUSINESS_UNIT = $BU
+WHERE !PROCESS_INSTANCE = $Process_Instance AND 
+A.BUSINESS_UNIT = $BU
+!Fin 012
+AND A.CUST_ID = $Customer
+AND A.ITEM LIKE  $item_cust_like
+!006 Inicio
+AND ((A.ENTRY_TYPE = 'ND' and A.entry_reason in ('AJMAN','EFPCU')) OR (A.ENTRY_TYPE = 'FC'))
+!006 FIN
+AND A.ITEM_STATUS = 'O'
+GROUP BY substr(a.ITEM, 1, instr(a.ITEM, '-', 10) - 1) 
+end-select
+end-procedure Fecha_Min_Venc
+!-----------------------------------------------------------------------
+! Abrir_Archivo
+!-----------------------------------------------------------------------
+begin-procedure Abrir_Archivo
+SHOW 'ENTRO A Abrir_Archivo'
+Let $Mod = 'CLLIB'
+let $Mes = substr($AsOfToday,4,3)
+let $Dia = substr($AsOfToday,1,2)
+let $Punto  = '.'
+let $Sucur  = 'CSV'
+do  Convert-To-MM($Mes)
+let $nombre_archivo = $Mod||$Mes||$Dia||'.'||$Sucur
+
+begin-SELECT On-Error=SQL-Error
+C1LX.PRCSOUTPUTDIR &URLX2
+	let $ruta = &URLX2
+from PSPRCSPARMS C1LX 
+where C1LX.PRCSINSTANCE = $Process_Instance
+end-select
+
+let $Sep_Cam_Pla = ','
+ 
+let $file = $ruta || '/' || $nombre_archivo
+show '$file'  $file             
+           
+   open $file as 1 for-writing record=1020:vary status=#filestat
+  
+   if #filestat = 0
+      let $error_lit = $xv_error_open_file||' '
+   else
+      show 'Archivo abierto'
+   end-if
+   
+end-procedure   Abrir_Archivo
+
+!************************************************************************************!
+! Rutina para grabar el respectivo archivo plano enviado al Pos.
+!************************************************************************************!
+begin-procedure Escribir-titulo
+do ObtieneFecha
+
+show 'entra a Escribir-titulo ' &wfecha22
+  
+  write  1  from   'TIPO DOCUMENTO CLIENTE'
+                   $Sep_Cam_Pla
+                   'NUMERO DOCUMENTO CLIENTE'
+                   $Sep_Cam_Pla
+                   'NOMBRE COMPLETO'
+                   $Sep_Cam_Pla
+                   'ZONA OBLIGACION'!006
+                   $Sep_Cam_Pla
+		   'NUMERO OBLIGACION'
+                   $Sep_Cam_Pla   
+                   'FECHA OBLIGACION O DOCUMENTO'
+                   $Sep_Cam_Pla!Ini 011
+                   'VALOR OBLIGACION'
+                   $Sep_Cam_Pla                   
+                   'SALDO A FECHA DE CORTE'
+                   $Sep_Cam_Pla
+                   'VALOR CUOTA'
+		   $Sep_Cam_Pla
+		   'INTERES CORRIENTE A FECHA DE CORTE'
+		   $Sep_Cam_Pla		   
+		   'PLAN FINANCIACION'
+		   $Sep_Cam_Pla		   
+		   'NIT EMPRESA'
+		   $Sep_Cam_Pla		   
+		   'NOMBRE DE LA EMPRESA'
+		   
+end-procedure Escribir-titulo
+
+!************************************************************************************!
+! Rutina para grabar el respectivo archivo plano enviado al Pos.
+!************************************************************************************!
+begin-procedure Escribir-Plano
+ ! show 'Escribir-plano'
+
+
+  Do  format-number(#day_increment,$day_increment,'999999')       
+  Do  format-number(#cuotas_pactadas,$cuotas_pactadas,'999')
+  Do  format-number(#cuotas_pagadas,$cuotas_pagadas,'999')
+  Do  format-number(#cuotas_mora,$cuotas_mora,'999')
+  Do  format-number(#valor_total,$valor_total,'99999999999999999999')
+  Do  format-number(#saldo,$saldo,'99999999999999999999')
+  Do  format-number(#saldo_mora,$saldo_mora,'99999999999999999999')
+  Do  format-number(#valor_pagado,$valor_pagado,'99999999999999999999')
+  Do  format-number(#valor_cuota,$valor_cuota,'99999999999999999999')
+  Do  format-number(#dias_mora,$dias_mora,'999999')
+  Do  format-number(#cr_limit,$cr_limit,'99999999999999999999')
+  Do  format-number(#cupo_utilizado,$cupo_utilizado,'99999999999999999999')
+  Do  format-number(#meses_celebrados,$meses_celebrados,'999')
+  Do  format-number(#meses_permanencia,$meses_permanencia,'999')
+  !Inicio 001
+  Let #Int_Cor = '0'
+  Let $Tasa_Pact         = ''
+  Let $Plan_Financ       = ''
+  !<Inicio 009>
+  !Let $Saldo_Incor       = ''
+  !<Fin 009>
+  Let $Cuota_Ini         = ''
+  Do  format-number(#Int_Cor,$Int_Cor,'99999999999999999999')
+  !Fin 001
+  
+  !Inicio 007
+  Do  format-number(#Tasa_Pact,$Tasa_Pact,'99.99999')
+  !Do  format-number(#Plan_Financ,$Plan_Financ,'999')
+  !<Inicio 009>
+  !Do  format-number(#Saldo_Incor,$Saldo_Incor,'99999999999999999999')
+  !<Fin 009>
+  Do  format-number(#Cuota_Ini,$Cuota_Ini,'99999999999999999999')
+  !Fin 007
+  !Ini 012
+  Do OtrosValores
+  Do format-number(#wOtrosValores,$wOtrosValores,'99999999999999999999')
+  Do format-number(#wAnticipos,$wAnticipos,'99999999999999999999')
+  Do ObtieneInteresCte
+  Do ObtieneIntCausado
+  
+  Do format-number(#wIntCau,$wIntCau,'99999999999999999999')
+  !Fin 012
+
+  write  1  from   $tipo_identificac
+                   $Sep_Cam_Pla
+                   $nit_proveedor
+                   $Sep_Cam_Pla
+                   $name1
+                   $Sep_Cam_Pla
+                   $zona_obl_inf
+                   $Sep_Cam_Pla
+		   $item_cust
+		   $Sep_Cam_Pla
+		   $accounting_dt
+                   $Sep_Cam_Pla
+                   $valor_total
+                   $Sep_Cam_Pla
+                   $saldo
+                   $Sep_Cam_Pla
+                   $valor_cuota
+                   $Sep_Cam_Pla
+                   $Int_Cor
+                   $Sep_Cam_Pla
+                   $Plan_Financ
+                   $Sep_Cam_Pla
+                   $NitEmpresa
+                   $Sep_Cam_Pla
+  		   $NombreEmpresa
+		   
+   !Inicio 014		   
+   Do InsertaReporte
+   !Fin 014
+end-procedure Escribir-Plano
+
+
+!Inicio 001
+
+
+
+!************************************************************************************!
+! Rutina para grabar el respectivo archivo plano enviado al Pos del nuevo modelo.    !
+!************************************************************************************!
+begin-procedure Escribir-Plano-Nuevo
+  !show 'Entra Escribir-Plano-Nuevo ' $ck_est_pago_total
+  Do  format-number(#day_increment,$day_increment2,'999999')       
+  Do  format-number(#cuotas_pactadas,$cuotas_pactadas2,'999')
+  Do  format-number(#cuotas_pagadas,$cuotas_pagadas2,'999')
+  Do  format-number(#cuotas_mora,$cuotas_mora2,'999')
+  Do  format-number(#valor_total,$valor_total2,'99999999999999999999')
+  Do  format-number(#saldo,$saldo2,'99999999999999999999')
+  Do  format-number(#saldo_mora,$saldo_mora2,'99999999999999999999')
+  Do  format-number(#valor_pagado,$valor_pagado2,'99999999999999999999')
+  Do  format-number(#valor_cuota,$valor_cuota2,'99999999999999999999')
+  Do  format-number(#dias_mora,$dias_mora2,'999999')
+  Do  format-number(#cr_limit,$cr_limit2,'99999999999999999999')
+  Do  format-number(#cupo_utilizado2,$cupo_utilizado2,'99999999999999999999')
+  Do  format-number(#meses_celebrados,$meses_celebrados2,'999')
+  Do  format-number(#meses_permanencia,$meses_permanencia2,'999')
+  Do  format-number(#Int_Cor,$Int_Cor,'99999999999999999999')
+  
+   !Inicio 007
+  Do  format-number(#Tasa_Pact,$Tasa_Pact2,'99.99999')
+  !Do  format-number(#Plan_Financ,$Plan_Financ2,'999')
+  !<Inicio 009>
+  !Do  format-number(#Saldo_Incor,$Saldo_Incor2,'99999999999999999999')
+  !<Fin 009>
+  Do  format-number(#Cuota_Ini,$Cuota_Ini2,'99999999999999999999')
+  !Fin 007
+  !Ini 012
+    Do OtrosValores
+    Do format-number(#wOtrosValores,$wOtrosValores,'99999999999999999999')
+    Do format-number(#wAnticipos,$wAnticipos,'99999999999999999999')
+    Do ObtieneInteresCte
+    Do ObtieneIntCausado
+      
+  Do format-number(#wIntCau,$wIntCau,'99999999999999999999')
+  !Fin 012
+ 
+  write  1  from   $tipo_identificac
+                   $Sep_Cam_Pla
+                   $nit_proveedor
+                   $Sep_Cam_Pla
+                   $name1
+                   $Sep_Cam_Pla
+				   $Pri_nombre
+                   $Sep_Cam_Pla
+                   $Sec_nombre
+                   $Sep_Cam_Pla
+                   $Pri_apell
+                   $Sep_Cam_Pla
+                   $Sec_apell
+                   $Sep_Cam_Pla
+                   $Genero
+                   $Sep_Cam_Pla
+                   $entry_rype2
+                   $Sep_Cam_Pla
+				   !002 inicio
+				   $mot_doc_inf2
+				   $Sep_Cam_Pla
+				   $zona_obl_inf2
+				   $Sep_Cam_Pla
+                   $un_obl_inf2
+                   $Sep_Cam_Pla
+				   !fin 002
+                   $item_cust2
+                   $Sep_Cam_Pla
+                   !Ini 011
+                   $ck_est_pago_total
+                   $Sep_Cam_Pla
+                   !Fin 011
+                   $accounting_dt2
+                   $Sep_Cam_Pla
+				   !inicio 002
+				   $fec_contab_inf2
+                   $Sep_Cam_Pla
+				   !fin 002
+				   $day_increment2
+				   !Inicio 007
+				   $Sep_Cam_Pla
+                   $Tasa_Pact2
+				   $Sep_Cam_Pla
+                   $Plan_Financ
+				   !Fin 007
+                   $Sep_Cam_Pla
+                   $valor_total2
+                   $Sep_Cam_Pla
+                   $saldo2
+                   $Sep_Cam_Pla
+                   $saldo_mora2
+				   !Inicio 007
+		   !<Inicio 009>
+				   !$Sep_Cam_Pla
+                   !$Saldo_Incor2
+                   !<Fin 009>
+				   $Sep_Cam_Pla
+                   $Cuota_Ini2
+				   !Fin 007
+                   $Sep_Cam_Pla
+                   $cuotas_pactadas2
+                   $Sep_Cam_Pla
+                   $cuotas_pagadas2
+                   $Sep_Cam_Pla
+                   $cuotas_mora2
+                   $Sep_Cam_Pla
+                   $valor_cuota2
+                   $Sep_Cam_Pla
+                   $valor_pagado2
+                   $Sep_Cam_Pla
+                   $dias_mora2
+                   $Sep_Cam_Pla
+                   $ultimo_pago2
+				   $Sep_Cam_Pla
+                   $Int_Cor
+                   $Sep_Cam_Pla
+                   $fecha_vencimiento2
+                   $Sep_Cam_Pla
+                   $cr_limit2
+                   $Sep_Cam_Pla
+                   $cupo_utilizado2
+                   $Sep_Cam_Pla
+                   $meses_celebrados2
+                   $Sep_Cam_Pla
+                   $meses_permanencia2
+				   $Sep_Cam_Pla
+                   !$Zona
+                   !$Sep_Cam_Pla
+                   $country
+                   $Sep_Cam_Pla
+                   $state
+                   $Sep_Cam_Pla
+				   $Codigo_ciu
+                   $Sep_Cam_Pla
+                   $Cod_DANE
+                   $Sep_Cam_Pla
+                   $city
+				   $Sep_Cam_Pla
+                   $Barrio
+                   $Sep_Cam_Pla
+                   $address1
+                   $Sep_Cam_Pla
+                   $phone
+                   $Sep_Cam_Pla
+				   !inicio 002
+				   $Desc_Pais_cartera
+				   $Sep_Cam_Pla
+                   $Desc_Depto_cartera
+				   $Sep_Cam_Pla
+                   $Desc_Ciudad_cartera 
+				   $Sep_Cam_Pla
+				   $Barrio_cartera
+                   $Sep_Cam_Pla
+                   $dir_cartera
+                   $Sep_Cam_Pla
+				   !fin 002
+                   $web_url
+                   
+                   !Ini 012
+                    $Sep_Cam_Pla
+                    $wOtrosValores
+                    $Sep_Cam_Pla
+                    $wAnticipos
+                    $Sep_Cam_Pla
+                    $wfecha_vencicuota2
+                    $Sep_Cam_Pla
+                    $wIntCau
+                   !Fin 012
+
+
+end-procedure !Escribir-Plano
+
+!Fin 001
+
+!-------------------------------------------------------------------------------------!
+! Procedure: Clear-Temporal                                                           !
+! Descr: Limpia la tabla temporal una ve< termina el Proceso			      !
+!-------------------------------------------------------------------------------------!
+
+begin-procedure Clear-Temporal
+
+begin-sql ON-ERROR=SQL-ERROR
+delete from PS_CK_ITMFNG_TMP
+where PROCESS_INSTANCE = $prcs_process_instance
+end-sql
+
+end-procedure !Clear-Temporal
+
+!Ini 012
+!-------------------------------------------------------------------------------------!
+! Procedure: Clear-ItemTmp2                                                           !
+! Descr: Limpia la tabla temporal una ve< termina el Proceso			      !
+!-------------------------------------------------------------------------------------!
+
+begin-procedure Clear-ItemTmp2
+
+begin-sql ON-ERROR=SQL-ERROR
+delete from PS_CK_ITEM_TMP2
+where PROCESS_INSTANCE = $prcs_process_instance
+end-sql
+
+end-procedure !Clear-ItemTmp2
+
+!Fin 012
+
+
+!-------------------------------------------------------------------------------------!
+! Procedure: Consulta-DatosCliente                                                    !
+! Descr: Consulta los datos de los clientes que presentan Cartera vigente             !
+!-------------------------------------------------------------------------------------!
+begin-procedure Consulta-DatosCliente
+
+
+
+Let $TipoDoc     = ''
+Let $Documento   = ''
+Let $NombreCli   = ''
+Let #CupoCred    = ''
+Let $Pais        = ''
+Let $Depto       = ''
+Let $Ciudad      = ''
+Let $Direccion   = ''
+Let $Telefono    = ''
+Let $Email       = ''
+Let $Codigo_ciu  = ''
+!Inicio 001
+Let $Zona        = ''
+!Fin 001
+
+BEGIN-SELECT
+C.TIPO_IDENTIFICAC                                                                                                         &tipo_identificac
+C.NIT_PROVEEDOR                                                                                                            &nit_proveedor
+!Ini 012
+!E.NAME1                                                                                                                    &name1
+REGEXP_REPLACE(REPLACE( UPPER(UTL_RAW.CAST_TO_VARCHAR2((NLSSORT(E.NAME1,'nls_sort=binary_ai')))), ' ', ' '), '[^a-z A-Z0-9 # ]', '') &name1
+!Fin 012
+L.CR_LIMIT                                                                                                                 &cr_limit
+N.COUNTRY                                                                                                                  &country
+N.STATE                                                                                                                    &state
+N.CITY                                                                                                                     &city
+N.ADDRESS1                                                                                                                 &address1
+N.PHONE                                                                                                                    &phone
+E.WEB_URL                                                                                                                  &web_url
+D.SETID                                                                                                                    &setid
+!Inicio 001
+N.COUNTY                                                                                                                   &county
+E.SUBCUST_QUAL1                            									           &Zona
+!Fin 001
+
+
+      Let $TipoDoc   = &tipo_identificac
+      Let $Documento = &nit_proveedor
+      Let $NombreCli = &name1
+      Let #CupoCred  = &cr_limit
+      Let $Pais      = &country
+      Let $Depto     = &state
+      Let $Ciudad    = &city
+      Let $Direccion = &address1
+      !INICIO CAGC 008
+      !Let $Telefono  = &phone
+      !Let $Email     = &web_url
+      !FIN CAGC 008
+      
+      Let $Setid     = &setid
+	  !Inicio 001
+	  Let $County    = &county
+	  Let $Zona      = &Zona
+	  !Fin 001
+      
+
+	LET $proc_flag_cartera='N'
+      Do Buscar_Pais
+      Do Buscar_Depto
+      Do Buscar_Ciudad
+      Do Buscar_Genero
+      Do Buscar_Nombres
+	  !Inicio 001
+	  Do Buscar_Barrio
+	  !Fin 001
+      Do Buscar_Empresa
+      
+FROM sysadm.PS_SET_CNTRL_REC D,
+sysadm.PS_CUSTOMER E,
+sysadm.ps_lc_customer_id C,
+!Ini 012 - Optimización
+!(SELECT * FROM sysadm.PS_CUST_CREDIT X
+(SELECT SETID, CUST_ID, CR_LIMIT FROM sysadm.PS_CUST_CREDIT X
+!Fin 012
+ WHERE X.EFFDT = (SELECT MAX(X_CC.EFFDT)
+                  FROM sysadm.PS_CUST_CREDIT X_CC
+                WHERE X_CC.SETID = X.SETID 
+                AND X_CC.CUST_ID = X.CUST_ID
+                AND X_CC.EFFDT <= SYSDATE)
+AND X.EFF_STATUS = 'A') L,
+!Ini 012
+!(SELECT * FROM sysadm.PS_CUST_ADDRESS W
+(SELECT SETID, CUST_ID, ADDRESS_SEQ_NUM, COUNTRY, STATE, CITY, ADDRESS1, PHONE, COUNTY FROM sysadm.PS_CUST_ADDRESS W
+!Fin 012
+ WHERE W.EFFDT = (SELECT MAX(W_CC.EFFDT)
+                 FROM   sysadm.PS_CUST_ADDRESS W_CC
+                WHERE  W_CC.SETID = W.SETID
+                  AND  W_CC.CUST_ID = W.CUST_ID
+                  AND  W_CC.ADDRESS_SEQ_NUM = W.ADDRESS_SEQ_NUM
+                  AND  W_CC.EFFDT <= SYSDATE)
+AND W.EFF_STATUS = 'A') N
+WHERE D.RECNAME = 'CUSTOMER'
+AND D.SETCNTRLVALUE = $BU
+AND E.SETID = D.SETID
+AND E.CUST_ID = $Customer
+AND E.SETID = C.SETID
+AND E.CUST_ID = C.CUST_ID
+AND E.SETID = L.SETID (+)
+AND E.CUST_ID = L.CUST_ID (+)
+AND E.SETID = N.SETID (+)
+AND E.CUST_ID = N.CUST_ID (+)
+AND E.ADDRESS_SEQ_NUM = N.ADDRESS_SEQ_NUM (+)
+END-SELECT
+
+end-procedure !Consulta-DatosCliente
+
+!-------------------------------------------------------------------------------------!
+! Procedure: Buscar_Pais                                                              !
+! Descr: Buscar la descripción del país						      !
+!-------------------------------------------------------------------------------------!
+
+begin-procedure Buscar_Pais
+
+BEGIN-SELECT
+UPPER(CT.DESCR)  &Descr_p
+
+  if $proc_flag_cartera<>'Y'
+		Let $Desc_Pais = &Descr_p
+		else
+		Let  $Desc_Pais_cartera = &Descr_p
+   end-if
+  
+FROM PS_COUNTRY_TBL_VW CT 
+ WHERE CT.COUNTRY = $Pais
+END-SELECT
+
+end-procedure
+
+
+!-------------------------------------------------------------------------------------!
+! Procedure: Buscar_Genero                                                            !
+! Descr: Buscar Genero						                      !
+!-------------------------------------------------------------------------------------!
+begin-procedure Buscar_Genero
+
+Let $Genero  = ''
+
+BEGIN-SELECT
+UPPER(CG.Ck_genero)  &Genero
+
+  Let $Genero = &Genero
+
+FROM PS_CK_CUST_GENDER CG
+WHERE CG.SETID = $Setid
+AND   CG.CUST_ID = $Customer
+
+END-SELECT
+
+end-procedure
+
+!-------------------------------------------------------------------------------------!
+! Procedure: Buscar_Nombres                                                           !
+! Descr: Buscar Nombres						                      !
+!-------------------------------------------------------------------------------------!
+begin-procedure Buscar_Nombres
+
+Let $Pri_nombre  = ''
+Let $Sec_nombre  = ''
+Let $Pri_apell   = ''
+Let $Sec_apell   = ''
+
+BEGIN-SELECT
+UPPER(CN.LC_MMG_PRIM_NOMBRE)  &Prim_n
+UPPER(CN.LC_MMG_SEGU_NOMBRE)  &Secu_n
+UPPER(CN.LC_MMG_PRI_APELLID)  &Prim_a
+UPPER(CN.LC_MMG_SEG_APELLID)  &Secu_a
+
+  Let $Pri_nombre = &Prim_n
+  Let $Sec_nombre = &Secu_n
+  Let $Pri_apell  = &Prim_a
+  Let $Sec_apell  = &Secu_a
+
+FROM PS_LC_CUSTOM_NAME CN
+WHERE CN.SETID = $Setid
+AND   CN.CUST_ID = $Customer
+AND   CN.EFFDT = (SELECT MAX(EFFDT)
+                  FROM   PS_LC_CUSTOM_NAME  CN1
+                  WHERE  CN1.SETID = CN.SETID
+                  AND    CN1.CUST_ID = CN.CUST_ID)
+
+END-SELECT
+
+end-procedure
+!-------------------------------------------------------------------------------------!
+! Procedure: Buscar_Depto                                                             !
+! Descr: Buscar la descripción del departamento					      !
+!-------------------------------------------------------------------------------------!
+
+begin-procedure Buscar_Depto
+
+BEGIN-SELECT
+UPPER(ST.DESCR)  &Descr_d
+
+	if $proc_flag_cartera<>'Y' !002
+			Let $Desc_Depto = &Descr_d
+		else !002
+			Let $Desc_Depto_cartera=&Descr_d !002
+    end-if !002
+
+FROM PS_STATE_TBL ST
+ WHERE ST.COUNTRY = $Pais
+   AND ST.STATE = $Depto
+
+END-SELECT
+
+end-procedure
+
+!-------------------------------------------------------------------------------------!
+! Procedure: Buscar_Ciudad                                                              !
+! Descr: Buscar la descripción de la ciudad					      !
+!-------------------------------------------------------------------------------------!
+
+begin-procedure Buscar_Ciudad
+
+!Let $Cod_DANE  = ''
+!Let $Desc_Ciudad = ''
+
+BEGIN-SELECT
+
+UPPER(MTH.DESCR)  &Descr
+
+MTH.MUNI_FLD_HO   &Cod_DANE
+
+	if $proc_flag_cartera<>'Y'
+			Let $Cod_DANE = &Cod_DANE
+			Let $Desc_Ciudad = &Descr
+		else 
+			Let $Desc_Ciudad_cartera =&Descr 
+  end-if  
+
+
+FROM PS_MUNI_TBL_HO MTH
+ WHERE MTH.MUNI_FLD_HO = $Ciudad
+
+END-SELECT
+
+end-procedure
+
+
+
+!Inicio 001
+!-------------------------------------------------------------------------------------!
+! Procedure: Buscar_Barrio                                                             !
+! Descr: Buscar la descripción del barrio				      !
+!-------------------------------------------------------------------------------------!
+
+
+begin-procedure Buscar_Barrio
+
+!Let $Barrio  = ''
+
+BEGIN-SELECT
+!INICIO CAGC 008
+UPPER(REPLACE(DESCR,',',''))  &Barrio
+!FIN CAGC 008
+
+	if $proc_flag_cartera<>'Y' 
+		Let $Barrio= &Barrio
+		else 
+		let $barrio_cartera=&Barrio
+  end-if 
+  
+FROM PS_CK_BARRIO_TBL
+ WHERE CK_BARRIO = $County
+  AND MUNI_FLD_HO = $Ciudad
+END-SELECT
+
+end-procedure
+
+!Fin 001
+
+
+!Inicio 001
+!-------------------------------------------------------------------------------------!
+! Procedure: Buscar_Empresa                                                             !
+! Descr: Buscar la empresa del cliente				      !
+!-------------------------------------------------------------------------------------!
+
+
+begin-procedure Buscar_Empresa
+
+!Let $Barrio  = ''
+
+BEGIN-SELECT
+
+DTC.NIT_PROVEEDOR &NitEmpresa
+DTC.NAME1_VNDR    &NombreEmpresa
+
+	Let $NitEmpresa = &NitEmpresa
+	let $NombreEmpresa = &NombreEmpresa
+
+FROM PS_CK_CUST_INF_DTC DTC
+WHERE DTC.SETID = $Setid
+AND   DTC.CUST_ID = $Customer
+AND   DTC.EFFDT = (SELECT MAX(EFFDT)
+                  FROM   PS_CK_CUST_INF_DTC DTC1
+                  WHERE  DTC1.SETID = DTC.SETID
+                  AND    DTC1.CUST_ID = DTC.CUST_ID
+                  AND    DTC1.EFFDT <= SYSDATE)
+END-SELECT
+
+end-procedure
+
+!Fin 001
+
+!-------------------------------------------------------------------------------------!
+! Procedure: Calcula-Periodicidad                                                     !
+! Descr: Calcula la periodicidad de Facturacion con base en las fechas de facturacion !
+!-------------------------------------------------------------------------------------!
+begin-procedure Calcula-Periodicidad
+
+Let #Repeat = 0
+Let #AcumPeriod = 0
+
+! Obtiene la fechas de vencimiento Cuota anterior, Actual y Posterior
+BEGIN-SELECT 
+B.BUSINESS_UNIT                                                                                                                                                                                                                                                                                         &UN
+B.CUST_ID,B.ITEM                                                                                                                                                                                                                                                                                          &ITEM
+(SELECT IA.DUE_DT FROM PS_ITEM IA WHERE IA.BUSINESS_UNIT = B.BUSINESS_UNIT AND IA.CUST_ID = B.CUST_ID AND SUBSTR(B.ITEM, length(B.ITEM)-1, length(B.ITEM)) between '01' and '99' 
+AND IA.ITEM = SUBSTR(B.ITEM, 1, length(B.ITEM) - 2)||case when to_number(SUBSTR(B.ITEM, length(B.ITEM)-1, length(B.ITEM))) <= 10 then '0'||to_char(to_number(SUBSTR(B.ITEM, length(B.ITEM)-1, length(B.ITEM))) - 1) else to_char(to_number(SUBSTR(B.ITEM, length(B.ITEM)-1, length(B.ITEM))) - 1) end ) &PREV_CUOTA
+B.DUE_DT                                                                                                                                                                                                                                                                                                &CURR_CUOTA
+(SELECT IA.DUE_DT FROM PS_ITEM IA WHERE IA.BUSINESS_UNIT = B.BUSINESS_UNIT AND IA.CUST_ID = B.CUST_ID AND SUBSTR(B.ITEM, length(B.ITEM)-1, length(B.ITEM)) between '01' and '99'
+AND IA.ITEM = SUBSTR(B.ITEM, 1, length(B.ITEM) - 2)||case when to_number(SUBSTR(B.ITEM, length(B.ITEM)-1, length(B.ITEM))) < 9 then '0'||to_char(to_number(SUBSTR(B.ITEM, length(B.ITEM)-1, length(B.ITEM))) + 1) else to_char(to_number(SUBSTR(B.ITEM, length(B.ITEM)-1, length(B.ITEM))) + 1) end )   &NEXT_CUOTA
+B.ASOF_DT                                                                                                                                                                                                                                                                                               &FECHA_REF
+
+        Let #Repeat = #Repeat + 1 
+        Let $dt_Fecha_Ant = &PREV_CUOTA
+        Let $dt_Fecha_Act = &CURR_CUOTA
+        Let $dt_Fecha_Pos = &NEXT_CUOTA
+        Let $dt_Fecha_Ref = &FECHA_REF
+        
+        if isblank($dt_Fecha_Pos) and not isblank($dt_Fecha_Ant)
+           
+               Let #AcumPeriod = #AcumPeriod + datediff($dt_Fecha_Act, $dt_Fecha_Ant, 'DAY')
+
+        end-if
+        
+        if not isblank($dt_Fecha_Pos)
+           
+           Let #AcumPeriod = #AcumPeriod + datediff($dt_Fecha_Pos, $dt_Fecha_Act, 'DAY')
+
+        end-if
+        
+        if isblank($dt_Fecha_Pos) and isblank($dt_Fecha_Ant)
+        
+               Let #AcumPeriod = #AcumPeriod + datediff($dt_Fecha_Act, $dt_Fecha_Ref, 'DAY')
+        end-if
+
+!Ini 012
+FROM PS_ITEM B
+!FROM PS_CK_ITEM_TMP2 B
+WHERE B.BUSINESS_UNIT = $business_unit
+!WHERE B.PROCESS_INSTANCE = $Process_Instance
+!AND B.BUSINESS_UNIT = $business_unit
+!Fin 012
+AND B.CUST_ID = $cust_id1
+AND substr(B.ITEM, 1, instr(B.ITEM, '-', 10) -1) =  $item_cust
+
+
+
+AND B.ENTRY_TYPE = 'FC'
+AND B.REF_REASON <> 'INTER'
+
+AND SUBSTR(B.ITEM, length(B.ITEM) - 1, length(B.ITEM)) between '01' and '09'
+
+ORDER BY B.BUSINESS_UNIT,B.CUST_ID,B.ITEM
+end-select
+
+
+
+
+! Promedio Periodicidad
+if #Repeat = 0
+   let #Repeat = 1
+end-if
+Let #Periodicidad = round((#AcumPeriod/#Repeat),0)
+
+
+end-procedure
+
+!Ini 012
+!************************************************************************************!
+! Proceso: InsertaItemTmp                                                            !
+! Descripcion: Inserta la tabla temporal con los datos de la ITEM.                   ! 
+!************************************************************************************!
+begin-procedure InsertaItemTmp
+!show 'InsertaItemTmp'
+
+begin-SQL on-error=SQL-Error
+INSERT INTO PS_CK_ITEM_TMP2
+SELECT 
+$prcs_process_instance,
+A.BUSINESS_UNIT, 
+A.CUST_ID, 
+A.ITEM, 
+A.ITEM_LINE, 
+A.ITEM_STATUS, 
+A.BAL_AMT, 
+A.ACCOUNTING_DT, 
+A.ENTRY_TYPE, 
+A.ENTRY_REASON, 
+A.DUE_DT, 
+A.ORIG_ITEM_AMT,
+A.POST_DT, 
+A.SUBCUST_QUAL1, 
+A.USER7, 
+A.INVOICE,
+A.REF_REASON,
+A.ASOF_DT, 
+A.USER9
+FROM PS_ITEM A
+ !WHERE (A.BUSINESS_UNIT, A.CUST_ID) IN
+ !       (SELECT B.BUSINESS_UNIT, B.CUST_ID FROM PS_CK_ITMFNG_TMP B WHERE B.PROCESS_INSTANCE = $prcs_process_instance)
+  WHERE A.BUSINESS_UNIT = $Unidad_Negocio
+ !  AND A.CUST_ID = $Customer
+ AND A.CUST_ID in (SELECT B.CUST_ID FROM PS_CK_ITMFNG_TMP B WHERE B.PROCESS_INSTANCE = $prcs_process_instance
+ AND B.BUSINESS_UNIT = A.BUSINESS_UNIT)
+
+end-SQL
+!SHOW 'SALIO ' $Unidad_Negocio  ' PI ' $prcs_process_instance
+end-procedure !InsertaItemTmp
+
+!Fin 012
+
+!Ini 014
+!************************************************************************************!
+! Proceso: InsertaReporte                                                            !
+! Descripcion: Inserta en tabla de reporte los datos del archivo final del reporte.  ! 
+!************************************************************************************!
+begin-procedure InsertaReporte
+!show 'InsertaReporte'
+
+if $Plan_Financ = ''
+ let $Plan_Financ = ' '
+end-if
+
+begin-SQL on-error=SQL-Error
+INSERT INTO PS_CK_REP_FNG_TBL
+(PROCESS_INSTANCE, 
+CK_FECHA_PROCESO,
+TIPO_IDENTIFICAC, 
+NIT_PROVEEDOR, 
+NAME1, 
+SUBCUST_QUAL1, 
+ITEM, 
+ACCOUNTING_DT, 
+ORIG_ITEM_AMT, 
+BAL_AMT, 
+CK_CUOTA_AMT, 
+CK_INT_COR, 
+CK_PLAN_FINANC, 
+CK_NIT_EMPRESA, 
+NAME1_VNDR)
+VALUES
+(
+$prcs_process_instance,
+$Fecha_Proceso,
+$tipo_identificac,
+$nit_proveedor,
+$name1,
+$zona_obl_inf,
+$item_cust,
+$accounting_dt_rep,
+$valor_total,
+$saldo,
+$valor_cuota,
+$Int_Cor,
+$Plan_Financ,
+$NitEmpresa,
+$NombreEmpresa)
+end-SQL
+end-procedure !InsertaReporte
+
+!Fin 014
+
+
+!-----------------------------------------------------------------------
+! Terminate
+!-----------------------------------------------------------------------
+begin-procedure Terminate
+  if #prcs_process_instance > 0
+     do Update-prcs-run-status
+  end-if   
+  do reset
+end-procedure
+
+
+!*********************************************************************
+!     Rutinas Standar de SQR 
+!*********************************************************************
+#include 'curdttim.sqc'  ! Get-Current-DateTime procedure
+#include 'datetime.sqc'  ! Routines for date and time formatting
+#include 'datemath.sqc'  ! Routines for date and time formatting
+#include 'timemath.sqc'  ! Routines for date and time formatting
+#include 'number.sqc'    ! Routines for format numbers
+#include 'fsgetshr.sqc'  ! Get ShareTable Subroutine
+#include 'prcsapi.sqc'   ! Update Process Request API
+#include 'prcsdef.sqc'   ! Update Process Request variable declare
+#include 'reset.sqc'     ! Reset printer procedure
+#include 'askeffdt.sqc'  ! Ask Effective Date
+!*********************************************************************
+!     Rutinas programas de SQR 
+!*********************************************************************
+

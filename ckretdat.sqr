@@ -1,0 +1,640 @@
+!-----------------------------------------------------------------------
+! <Reporte|Proceso>: LCTRANSA.SQR - <Distribuidor por medio de pago>
+! Versiones: V<001> <19/07/99>-<JZ>
+! Se realizo modificaciones para incluir el numero de factura legal, 
+! efectuado por (06-05-03 * JC).
+! Versiones: V<001> Modificado <18/02/2002>-<JC>.
+!-----------------------------------------------------------------------
+! Desc Programa: 
+!
+!-----------------------------------------------------------------------
+! Parámetros: Los parámetros de entrada son la Unidad de Negocios y el
+!             cliente
+!-----------------------------------------------------------------------
+! Tablas referenciadas:
+!
+!-----------------------------------------------------------------------
+!Modificaciones:
+!
+! Proyecto             Ref  Fecha     Desarrollador.  Descripción                                       
+! ---------------------- ----  ---- --------- --------------------------------------------------
+! Ini 1013      	   001  03-09-15      SPG   	  Se crea el proceso SQR para calcular las retenciones para 
+!											          los cobros de datafonos.     
+! CK_CS_AR_SPG_12317   002  15-01-15      SPG         Se tiene en cuenta el municipio dentro de la fecha efectiva
+!											          del reteica.
+!**************************************************************************************
+
+! Realiza los include necesarios
+#include 'setenv.sqc'      ! Incializa el entorno
+!#Include 'Ck_setup41.sqc'  !Printer and page-size initialization
+!#Include 'Ck_setup33.sqc'      !Printer and page-size initialization
+!#Include 'ck_setup185.sqc'     !Printer and page-size initialization
+
+begin-setup
+  #include 'setupdb.sqc' ! Database specific setup
+  #define PAGE_ORIENTATION LANDSCAPE
+  #define PAGE_MAX_COLS    230
+  #define PAGE_MAX_LINES   180
+  #define PAPER_SIZE (A4)
+  #define PAGE_PAPER_SIZE (A4)
+  #define PAGE_LEFT_MARG 0.360
+  #define PAGE_TOP_MARG  0.3125
+
+  declare-layout DEFAULT
+    paper-size={PAGE_PAPER_SIZE}
+    orientation={PAGE_ORIENTATION}
+    max-columns={PAGE_MAX_COLS}
+    max-lines={PAGE_MAX_LINES}
+    left-margin={PAGE_LEFT_MARG}
+    top-margin={PAGE_TOP_MARG}
+    !line-height=8                          ! 72/printer_point-size
+    !char-width=3.32                        ! points, to handle max cols
+	line-height=4                         ! 72/printer_point-size
+    char-width=3.32
+  end-declare
+  
+end-setup
+
+
+
+begin-program
+  do Init-DateTime
+  do Init-Number
+  do Inicializar-Reporte
+  do Proceso-Principal
+  do Terminar-Proceso
+end-program
+
+begin-heading 8
+  !Do  Impresion-Titulo-Listado
+    
+  !graphic (12,1,100) box 6 
+  !graphic (,105,60)  box 6 
+  
+end-heading
+
+!***********************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Inicializar-Reporte                                       !
+! Descr:     Solicita parametros para la ejecucion del reporte.        !
+!----------------------------------------------------------------------!
+begin-procedure Inicializar-Reporte
+    DO DEFINE-PRCS-VARS
+  DO GET-RUN-CONTROL-PARMS
+    Do Seleccionar-Parametros
+	show $tipo_salida
+	if $tipo_salida = 'C'
+	Do Setup-CSV-File
+    Do Write-CSV-Header
+	else
+	Do Impresion-Titulo-Listado
+	end-if
+
+end-procedure
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Seleccionar-Parametros                                    !
+! Descr:     Captura los parametros desde PeopleSoft.                  !
+!----------------------------------------------------------------------!
+begin-procedure Seleccionar-Parametros
+BEGIN-SELECT
+RUN_CNTL_RET.deposit_bu
+RUN_CNTL_RET.from_dt
+RUN_CNTL_RET.to_dt
+RUN_CNTL_RET.CK_TIPO_SALIDA
+	
+   let $Deposit_bu = &RUN_CNTL_RET.deposit_bu
+   let $from_dt    = &RUN_CNTL_RET.from_dt
+   let $to_dt      = &RUN_CNTL_RET.to_dt
+   let $tipo_salida   = &RUN_CNTL_RET.CK_TIPO_SALIDA
+
+from PS_CK_RUN_CNTL_RET RUN_CNTL_RET
+where RUN_CNTL_RET.oprid       = $prcs_oprid
+  and RUN_CNTL_RET.run_cntl_id = $prcs_run_cntl_id
+END-SELECT
+
+
+begin-SELECT On-Error=SQL-Error
+DEFNLANG.URL
+
+  	let $CSVFilePath1 = &DEFNLANG.URL
+
+FROM PSURLDEFNLANG DEFNLANG, PSOPRDEFN DEFN
+WHERE DEFNLANG.URL_ID = 'CK_RETENCION_DAT'
+      AND DEFNLANG.LANGUAGE_CD = DEFN.LANGUAGE_CD
+      AND DEFN.OPRID       = $prcs_oprid
+end-select
+  
+  	!let $CSVFilePath1 = '/app_desa/psoft849/FSCM89/appserv/prcs/CKPRE/log_output/SQR_CKRETDAT_'
+  show 'CSVFilePath1' $CSVFilePath1
+  
+  
+   show 'operador ' $prcs_oprid 
+   show 'run_control ' $prcs_run_cntl_id
+   
+END-procedure
+
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Proceso-Principal                                         !
+! Descr:                                                               !
+!----------------------------------------------------------------------!
+begin-procedure Proceso-Principal
+
+! Begin-Select On-Error=SQL-Error
+BEGIN-SELECT DISTINCT 
+A.DEPOSIT_BU,
+B.CK_TERMINAL_PLA,
+A.MUNI_FLD_HO, 
+B.CK_DAT_APRO_ID, 
+B.CK_DAT_TRAN_ID, 
+TO_CHAR(B.DATE_ADDED,'YYYY-MM-DD') &DATE_ADDED,
+B.BAL_AMT, 
+B.VAT_AMT, 
+B.BAL_AMT_BASE, 
+B.DESCR, 
+A.DEPOSIT_ID, 
+TO_CHAR(C.ENTRY_DT,'YYYY-MM-DD') &ENTRY_DT,
+A.DEPOSIT_ID &DEPOSITO, 
+! A.CK_DEPOSIT_ID, 
+E.NAME1, 
+G.TIPO_IDENTIFICAC,
+I.LC_TIPOPAGO,
+E.SETID,
+E.CUST_ID
+
+	Let $business_unit = &A.DEPOSIT_BU
+	let $terminal = &B.CK_TERMINAL_PLA
+	let $municipio = &A.MUNI_FLD_HO
+	let $aprobacion = &B.CK_DAT_APRO_ID 
+	let #transaccion = &B.CK_DAT_TRAN_ID 
+	let $date_added = &DATE_ADDED
+	let #brut = &B.BAL_AMT
+	let #iva = &B.VAT_AMT
+	let #base = &B.BAL_AMT_BASE 
+	let $frq  = &B.DESCR 
+	let $dep_pad = &A.DEPOSIT_ID
+	let $entry_dt = &ENTRY_DT
+	let $dep_ret = &DEPOSITO ! &A.CK_DEPOSIT_ID 
+	let $cliente = &E.NAME1
+	let $tip_id = &G.TIPO_IDENTIFICAC
+	let $tip_pago = &I.LC_TIPOPAGO	
+	let $cust_id = &E.CUST_ID
+
+	   do Retenciones
+	   if $tipo_salida = 'C'
+	   Do Write-CSV-Data
+	   else
+	   Do Write-PDF-Data
+	   end-if
+	 
+FROM SYSADM.PS_CK_PAY_DATA_HDR A, SYSADM.PS_CK_DAT_SIC_TBL B, SYSADM.PS_CK_PAY_AUT_HDR C, SYSADM.PS_BI_HDR D, SYSADM.PS_CUSTOMER E, SYSADM.PS_SET_CNTRL_REC F, SYSADM.PS_LC_CUSTOMER_ID G, SYSADM.PS_BUS_UNIT_TBL_BI H, SYSADM.PS_CK_AR_FRQC_TBL I
+ WHERE A.DEPOSIT_ID = B.DEPOSIT_ID
+     AND B.DEPOSIT_BU = A.DEPOSIT_BU
+     AND B.DEPOSIT_ID = A.DEPOSIT_ID
+     AND C.DEPOSIT_BU = A.DEPOSIT_BU
+     AND C.DEPOSIT_ID = A.DEPOSIT_ID
+     AND D.INVOICE = A.INVOICE_TO
+     AND D.BILL_TO_CUST_ID = E.CUST_ID
+     AND E.SETID = F.SETID
+     AND D.BUSINESS_UNIT = F.SETCNTRLVALUE
+     AND F.RECNAME = 'CUSTOMER'
+     AND E.SETID = G.SETID
+     AND E.CUST_ID = G.CUST_ID
+     AND A.DEPOSIT_BU = H.BUSINESS_UNIT_AR
+     AND D.BUSINESS_UNIT = H.BUSINESS_UNIT
+     AND A.DEPOSIT_BU = $Deposit_bu
+     AND (C.ENTRY_DT BETWEEN $from_dt AND $to_dt)
+     AND I.BUSINESS_UNIT = D.BUSINESS_UNIT
+     AND B.DESCR = I.DESCR
+     AND I.FRQ_STATUS = 'A'
+end-select
+
+end-procedure Proceso-Principal
+
+
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Retenciones                                               !
+! Descr: Encuentra procentaje de RETEIVA, RETEFUENTE, Y RETEICA.       !
+!----------------------------------------------------------------------!
+
+begin-procedure Retenciones
+
+!RETEIVA
+Begin-Select On-Error=SQL-Error
+
+CK_AR_PRMIMP_DH.RATE
+
+	let #Rete_Iva = &CK_AR_PRMIMP_DH.RATE
+
+FROM  PS_CK_AR_PRMIMP_DH CK_AR_PRMIMP_DH
+WHERE CK_AR_TIPO_ENTR = 'RTI' 
+AND CK_AR_PRMIMP_DH.BUSINESS_UNIT = $Deposit_bu
+AND CK_AR_PRMIMP_DH.LC_TIPOPAGO = $tip_pago
+AND CK_AR_PRMIMP_DH.EFF_STATUS = 'A'
+AND CK_AR_PRMIMP_DH.EFFDT =
+(SELECT MAX(J_ED.EFFDT) 
+FROM PS_CK_AR_PRMIMP_DH J_ED
+WHERE CK_AR_PRMIMP_DH.BUSINESS_UNIT = J_ED.BUSINESS_UNIT
+AND CK_AR_PRMIMP_DH.CK_AR_TIPO_ENTR = J_ED.CK_AR_TIPO_ENTR
+AND CK_AR_PRMIMP_DH.LC_TIPOPAGO = J_ED.LC_TIPOPAGO
+AND J_ED.EFFDT <= SYSDATE)
+
+end-select 
+
+  let #Rete_Ica = 0
+
+!RETEICA
+Begin-Select On-Error=SQL-Error
+CK_AR_PRMIMP_MP.RATE 
+  
+  
+  
+  let #Rete_Ica = &CK_AR_PRMIMP_MP.RATE
+  
+  
+
+FROM  PS_CK_AR_PRMIMP_MP CK_AR_PRMIMP_MP
+WHERE CK_AR_PRMIMP_MP.BUSINESS_UNIT = $Deposit_bu
+AND CK_AR_PRMIMP_MP.LC_TIPOPAGO = $tip_pago
+AND CK_AR_PRMIMP_MP.EFF_STATUS = 'A'
+AND CK_AR_PRMIMP_MP.MUNI_FLD_HO = $municipio
+AND CK_AR_PRMIMP_MP.EFFDT =
+(SELECT MAX(J_ED.EFFDT) 
+FROM PS_CK_AR_PRMIMP_MP J_ED
+WHERE CK_AR_PRMIMP_MP.BUSINESS_UNIT = J_ED.BUSINESS_UNIT
+AND CK_AR_PRMIMP_MP.LC_TIPOPAGO = J_ED.LC_TIPOPAGO
+/*Inicio 002*/
+AND CK_AR_PRMIMP_MP.MUNI_FLD_HO = J_ED.MUNI_FLD_HO
+/*Fin 002*/
+AND J_ED.EFFDT <= SYSDATE)
+end-select 
+
+show 'Ica ' #Rete_Ica
+
+!RETEFUENTE
+Begin-Select On-Error=SQL-Error
+CK_AR_PRMIMP.RATE
+
+	let #Rete_Fnt = &CK_AR_PRMIMP.RATE
+
+FROM  PS_CK_AR_PRMIMP_DH CK_AR_PRMIMP
+WHERE CK_AR_TIPO_ENTR = 'RTF' 
+AND CK_AR_PRMIMP.BUSINESS_UNIT = $Deposit_bu
+AND CK_AR_PRMIMP.LC_TIPOPAGO = $tip_pago
+AND CK_AR_PRMIMP.EFF_STATUS = 'A'
+AND CK_AR_PRMIMP.EFFDT =
+(SELECT MAX(J_ED2.EFFDT) 
+FROM PS_CK_AR_PRMIMP_DH J_ED2
+WHERE CK_AR_PRMIMP.BUSINESS_UNIT = J_ED2.BUSINESS_UNIT
+AND CK_AR_PRMIMP.CK_AR_TIPO_ENTR = J_ED2.CK_AR_TIPO_ENTR
+AND CK_AR_PRMIMP.LC_TIPOPAGO = J_ED2.LC_TIPOPAGO
+AND J_ED2.EFFDT <= SYSDATE) 
+end-select 
+
+end-procedure Retenciones
+
+
+
+
+
+!Methods To Write CSV Info.
+!----------------------------------------------------------------------
+! Procedure: Setup-CSV-File
+! Descr:     Setup CSV File Destination
+!----------------------------------------------------------------------
+begin-procedure Setup-CSV-File
+#debug show 'BEGIN Setup-CSV-File'
+ 
+let $CSVFilePath = ''
+let $CSVFileName = ''
+ 
+ 
+!let $tab = chr(9)
+let $comma = ','
+Let $Quote = '''' 
+let $CSVFilePath = $CSVFilePath1
+!let $CSVFilePath = $CSVFilePath1
+ 
+if isblank($CSVFilePath)
+    show ''
+    input $CSVFilePath maxlen=200 'Enter an output path for the CSV File'
+end-if
+ 
+let $CSVFileName = 'CKRETDAT' ! Or whatever unique name you want to use
+
+if not isblank($prcs_process_instance)
+    let $CSVFileName = $CSVFileName || '_' || $prcs_process_instance || '/CKRETDAT_' || $prcs_process_instance
+end-if
+ 
+let $CSVFileName = $CSVFileName || '.csv'
+let $CSVFilePath = $CSVFilePath || $CSVFileName
+ 
+open $CSVFilePath as 2 for-writing record=5000:FIXED
+status=#FileStatus
+ 
+If #FileStatus = 0
+    show '[Setup-CSV-File] Successfully created file ' $CSVFilePath
+Else
+    show '[Setup-CSV-File] Error opening file ' $CSVFilePath    
+End-If
+ 
+#debug show 'END Setup-CSV-File'
+end-procedure Setup-CSV-File
+
+begin-procedure Write-CSV-Header
+#debug show 'BEGIN Write-CSV-Header'
+
+let $CSVHeader = ''
+
+
+let $sHeader1    = 'UNIDAD DE NEGOCIO'
+let $sHeader2    = 'CODIGO TERMINAL'
+let $sHeader3    = 'NIT CLIENTE'
+let $sHeader4    = 'Ciudad Terminal'
+let $sHeader5    = 'Aprobación'
+let $sHeader6    = 'Transacción'
+Let $sHeader7    = 'Fecha Transac.'
+let $sHeader8    = 'Valor del Voucher'
+let $sHeader9    = 'Valor IVA'
+let $sHeader10    = 'Valor Base'
+let $sHeader11    = 'Franquicia'
+let $sHeader12   = 'Depósito Padre'
+let $sHeader13   = 'Fecha Contable'
+let $sHeader14   = 'Depósito Retenciones'
+let $sHeader15   = 'Nombre del cliente'
+let $sHeader16   = 'Tipo de Identificación'
+let $sHeader17   = 'Rete IVA'
+let $sHeader18   = 'Rete ICA'
+let $sHeader19   = 'Rete Fuente'
+let $sHeader20   = 'Total Retenciones'
+
+string            $sHeader1  by $comma into $CSVHeader
+string $CSVHeader $sHeader2  by $comma into $CSVHeader
+string $CSVHeader $sHeader3  by $comma into $CSVHeader
+string $CSVHeader $sHeader4  by $comma into $CSVHeader
+string $CSVHeader $sHeader5  by $comma into $CSVHeader
+string $CSVHeader $sHeader6  by $comma into $CSVHeader
+string $CSVHeader $sHeader7  by $comma into $CSVHeader
+string $CSVHeader $sHeader8  by $comma into $CSVHeader
+string $CSVHeader $sHeader9  by $comma into $CSVHeader
+string $CSVHeader $sHeader10 by $comma into $CSVHeader
+string $CSVHeader $sHeader11 by $comma into $CSVHeader
+string $CSVHeader $sHeader12 by $comma into $CSVHeader
+string $CSVHeader $sHeader13 by $comma into $CSVHeader
+string $CSVHeader $sHeader14 by $comma into $CSVHeader
+string $CSVHeader $sHeader15 by $comma into $CSVHeader
+string $CSVHeader $sHeader16 by $comma into $CSVHeader
+string $CSVHeader $sHeader17 by $comma into $CSVHeader
+string $CSVHeader $sHeader18 by $comma into $CSVHeader
+string $CSVHeader $sHeader19 by $comma into $CSVHeader
+string $CSVHeader $sHeader20 by $comma into $CSVHeader
+
+write 2 from $CSVHeader
+
+#debug show 'END Write-CSV-Header'
+end-procedure Write-CSV-Header
+
+begin-procedure Write-CSV-Data
+#debug show 'BEGIN Write-CSV-Data'
+
+
+#IFDEF DebugM
+display '***************************'
+display 'Line File: '  $CSVLine
+display '***************************'
+#ENDIF
+
+ 
+! Enclose data to prevent Microsoft Excel formatting taking over
+
+
+Let #Rete_Iv      =  (#Rete_Iva/100) * #iva
+Let #Rete_Ic      =  (#Rete_Ica * #base)
+Let #Rete_Fn      =  #Rete_Fnt * #base
+
+
+Let $Iva    = edit(#Rete_Iv,'999,999,999.999') 
+Let $Ica    = edit(#Rete_Ic,'999,999,999.999') 
+Let $fuente = edit(#Rete_Fn,'999,999,999.999') 
+Let #Total = #Rete_Iv + #Rete_Ic + #Rete_Fn
+Let $Total = edit(#Total,'999,999,999.999') 
+
+
+let $bu1           =  '"' || $Deposit_bu      || '"'
+let $terminal1     =  '"' || $terminal        || '"'
+Let $cust_id1      =  '"' || $cust_id         || '"'
+Let $municipio1    =  '"' || $municipio       || '"'
+Let $aprobacion1   =  '"' || $aprobacion          || '"'
+Let $transaccion1  =  '"' || to_char(#transaccion)	           || '"'
+Let $date_added1  =  '"'  || $date_added      || '"'
+Let $brut1         =  '"' || to_char(#brut)         || '"'
+Let $iva1          =  '"' || to_char(#iva)	   || '"'
+Let $base1         =  '"' || to_char(#base)	   || '"'
+Let $frq1          =  '"' || $frq      || '"'
+Let $dep_pad1      =  '"' || $dep_pad          || '"'
+Let $entry_dt1     =  '"' || $entry_dt        || '"'
+Let $dep_ret1       =  '"' || $dep_ret       || '"'
+Let $cliente1      =  '"' || $cliente           || '"'
+Let $tip_id1	   =  '"' || $tip_id              || '"'
+Let $Rete_Iva1      =  '"' || $Iva	|| '"'
+Let $Rete_Ica1      =  '"' || $Ica	|| '"'
+Let $Rete_Fnt1      =  '"' || $fuente	|| '"'
+Let $Total_Ret      =  '"' || $Total  || '"'
+
+
+		   
+let $CSVLine = ''
+
+string          $bu1  by $comma into $CSVLine 
+string $CSVLine  $terminal1    by $comma into $CSVLine
+string $CSVLine  $cust_id1    by $comma into $CSVLine
+string $CSVLine $municipio1    by $comma into $CSVLine
+string $CSVLine $aprobacion1     by $comma into $CSVLine
+string $CSVLine	$transaccion1         by $comma into $CSVLine
+string $CSVLine	$date_added1  by $comma into $CSVLine
+string $CSVLine $brut1    by $comma into $CSVLine
+string $CSVLine $iva1   by $comma into $CSVLine
+string $CSVLine $base1      by $comma into $CSVLine
+string $CSVLine $frq1 by $comma into $CSVLine
+string $CSVLine $dep_pad1     by $comma into $CSVLine
+string $CSVLine $entry_dt1   by $comma into $CSVLine
+string $CSVLine $dep_ret1  	by $comma into $CSVLine
+string $CSVLine $cliente1   by $comma into $CSVLine
+string $CSVLine $tip_id1	by $comma into $CSVLine   
+string $CSVLine $Rete_Iva1  	by $comma into $CSVLine   
+string $CSVLine $Rete_Ica1  	by $comma into $CSVLine   
+string $CSVLine $Rete_Fnt1 	by $comma into $CSVLine
+string $CSVLine $Total_Ret 	by $comma into $CSVLine      
+         
+
+write 2 from $CSVLine
+ 
+#debug show 'END Write-CSV-Data'
+
+end-procedure Write-CSV-Data
+
+
+
+begin-procedure Write-PDF-Data
+
+Let #Rete_Iv      =  (#Rete_Iva/100) * #iva
+!Let #Rete_Ic      = (#Rete_Ica * #base)
+Let #Rete_Ic      =  (#Rete_Ica * #base)
+Let $Rete_Ic2     = to_char(#Rete_Ic)
+Let #Rete_Fn      =  #Rete_Fnt * #base
+
+
+Let #Total = #Rete_Iv + #Rete_Ic + #Rete_Fn
+
+
+
+
+ Print $Deposit_bu   (+5,2,8)
+
+   Print $terminal   (,+14,7)
+
+   Print $cust_id     (,+20,11) 
+
+   Print $municipio        (,+10,8)  
+
+   Print $aprobacion        (,+10,9)  
+
+   Print #transaccion     (,+10,10) 
+   
+   Print $date_added    (,+10,10) 
+   
+   Print #brut   (,+10,13) 
+
+   Print #iva	       (,+14,7)  
+
+   Print #base     (,+14,11)  
+
+   Print $frq       (,+14,8)  
+
+   Print $dep_pad      (+4,2,10)  
+
+   Print $entry_dt      (,+15,15)  
+    
+   Print $dep_ret   (,+15,15) 
+
+   Print $cliente        (,+12,7)  
+
+   Print $tip_id      (,+10,8)  
+
+   Print #Rete_Iv     (,+20,10)  
+
+   Print #Rete_Ic      (,+15,10)  
+
+   Print #Rete_Fn    (,+15,10)  
+   
+   Print #Total     (,+15,14)  
+
+end-procedure Write-PDF-Data
+
+
+
+
+
+
+!***********************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Terminar-Proceso                                          !
+! Descr:                                                               !
+!----------------------------------------------------------------------!
+begin-procedure Terminar-Proceso
+    if #prcs_process_instance > 0
+       do Update-Prcs-Run-Status
+    end-if
+    let $stdhdg_end_rep = 'Fin de Reporte'
+    do Reset
+end-procedure
+
+
+
+
+begin-procedure Impresion-Titulo-Listado
+
+
+   Print 'Fecha :'         (+4,2) 
+   
+   let $Date = datenow()
+  
+   Print $Date       (,+8,11)  bold
+
+   Print 'Fecha In:'  (,+90)  
+
+   Print $from_dt     (,+10,11)  bold
+
+   Print 'UN:'         (+4,2)  
+
+   Print $Deposit_bu  (,+6,5)   bold
+
+   Print 'Fecha Fin:'    (,+100)  
+
+   Print $to_dt        (,+12,11) bold
+
+
+   Print 'UN'  (+5,2,8) bold
+
+   Print 'TERMINAL'         (,+14,7)  bold
+
+   Print 'NIT'     (,+20,11) bold 
+
+   Print 'Ciu Terminal'        (,+10,8)  bold
+
+   Print 'Aprob'       (,+10,9)  bold
+
+   Print 'Transac'      (,+10,10) bold 
+   
+   Print 'Fecha Trans'  (,+10,15) bold
+   
+   Print 'Voucher'  (,+10,13) bold
+
+   Print 'IVA'        (,+14,7)  bold
+
+   Print 'Base'     (,+14,11) bold 
+
+   Print 'Franq'        (,+14,8)  bold
+
+   Print 'Dep Padre'       (+4,2,10)  bold
+
+   Print 'Fecha Cont'      (,+15,15) bold 
+    
+   Print 'Dep Retenc'  (,+15,15) bold
+
+   Print 'Nombre Cliente'        (,+12,7)  bold
+
+   Print 'Tipo Id'     (,+10,8) bold 
+
+   Print 'Ret IVA'        (,+20,10)  bold
+
+   Print 'Ret ICA'       (,+15,10)  bold
+
+   Print 'Ret Fuente'      (,+15,10) bold 
+   
+   Print 'Total Retenc'      (,+15,14) bold 
+   
+
+end-procedure   Impresion-Titulo-Listado
+
+
+
+!***********************************************************************
+!----------------------------------------------------------------------!
+! Llama procedimientos SQC                                             !
+!----------------------------------------------------------------------!
+#include 'prcsapi.sqc'   ! Update process Request API
+#include 'prcsdef.sqc'   ! Update Process Request variable declare
+#include 'eoj.sqc'       ! Ask Effective Date
+#include 'curdttim.sqc'  ! Get-Current-DateTime procedure
+#include 'datetime.sqc'  ! Routines for date and time formatting
+#include 'datemath.sqc'  ! Routines for date manipulation
+#include 'number.sqc'    ! Routines to format numbers
+#include 'readxlat.sqc'  ! Read Translate Table
+#include 'reset.sqc'     ! End of program
+!***********************************************************************

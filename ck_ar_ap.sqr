@@ -1,0 +1,3618 @@
+!----------------------------------------------------------------------!
+! Report Name: ck_ar_ap.sqr   Cruce entre AR y AP                      !
+! By: Edgar Murillo   
+!----------------------------------------------------------------------!
+! Información de Confidencialidad:
+! Este módulo es información propietaria y confidencial de Colombiana 
+! de Comercio S.A. Se prohibe su copia, reproducción o transmisión por 
+! cualquier medio así como su reutilización sin expresa autorización de   
+! Colombiana de Comercio S.A. 
+!
+! Copyright (c) 2000 Colombiana de Comercio S.A. Todos los derechos 
+! Reservados.
+!----------------------------------------------------------------------!
+!DESCRIPCION:Se modifca el SQR para la insercion de las tablas de
+!			 interface de AP, puesto que se cambian las EC por las
+!			 STG.
+!
+!----------------------------------------------------------------------!
+!MODIFICACIONES:
+!	CK2006 - UPG - 2006/12/14 - JV
+!	CK2008 - UPG - 2008/04/27 - CAMILO AVELLA
+!	CK2009 - JCC - 2009/07/29 - Modificación ND con parametrización
+!   CK6164 - JCC - 2010/05/20 - #001 - No tomar las NC - Cobro para las Devol
+! 004   CS9960 - FMJ - 2013/04/12 - Genera invoice_id
+! 005  CS11271 - FMJ - 2013/04/12 - Genera invoice_id
+! 007	11593    CEM   15/04/20175
+! 008   13183    GMC   12/01/2017 - Cruce AR-AP incluir traslados de Nits
+! 009   13122    CCG   18/01/2017 - modificacion para que un item no sea doblemente procesado
+! 010   13240    MC    23/05/2017 - Se incluye la inserción en las tablas CK_WS_CONTROL - CK_WS_ITEM (TEXT254)
+! 010   13240    MC    23/05/2017 - Se incluye la inserción en las tablas CK_WS_CONTROL - CK_WS_ITEM (TEXT254)
+! 011   13631    GMR   17/10/2017 - Exclusion de Generacion de Devoluciones parametrizadas.
+! 012   14020  - SFR - 24/05/2018 - Incluir Tipos de Entrada NDC y NCC. 
+! 013   14235  - JAS - 12/10/2018 - Incluir en selección de items los que tengan 14 caracteres  
+! 014   14382  - JAS - 29/01/2019 - Tener en cuenta obligaciones que tienen refinanciamiento
+! 014   14612  - CCG - 20/08/2019 - Tener en cuenta Facturación siniestros de transportes CC3-SINIE 
+! 015   15618  - CCG - 17/03/2021 - Tener en cuenta registros con B.INVOICE = A.ITEM 
+! 016   16325  - CCG - 07/03/2022 - Cambio de sentencia por mal funcionamiento de OR
+! 017   16325  - CCG - 07/03/2022 - Adicion de logica para validacion de variable #cnt-hold
+! 018   16325  - CCG - 07/03/2022 - Modificacion sentencia para que no retenga si en otra UN tiene cartera
+! 019   16325  - CCG - 08/03/2022 - Adicion de codigo para que grabe en la tabla de auditoria
+! 020   16325  - CCG - 09/03/2022 - Sentencia para retener registros para no contemplar los eliminados
+! 021   16325  - CCG - 09/03/2022 - Cambio de sentencia por mal funcionamiento del EXISTS
+! 022   16357  - CCG - 22/03/2022 - Cambio de SYSDATE por SYSTIMESTAMP en insercion de auditoria.
+! 023   16420  - CCG - 20/04/2022 - Validacion NCC de Otros Ingresos
+! 024   16834  - CCG - 08/11/2022 - Validar la item con cust_id e item_status = ‘O’ adicionar ENTRY_TYPE no igual a ANTIC y PEND
+!----------------------------------------------------------------------!
+!DESCRIPCION:
+!
+!----------------------------------------------------------------------!
+
+#include 'setenv.sqc'
+#include 'setup02.sqc'
+#include 'archart.sqc'   !Define ChartFields
+#include 'sqrtrans.sqc'  !setup translation
+
+!**********************************************************************
+!----------------------------------------------------------------------!
+! Begin Report                                                         !
+!----------------------------------------------------------------------!
+Begin-Report
+   do Init-DateTime
+   do Init-Number
+   do Get-Current-DateTime
+   do Init-Report
+   do end-process
+End-Report
+
+!**********************************************************************
+!----------------------------------------------------------------------!
+! Initialize Report
+!----------------------------------------------------------------------!
+Begin-Procedure Init-Report
+
+  do Define-Prcs-Vars
+  do Get-Run-Control-Parms
+  do AP-Installed
+  do Select-Parameters
+
+  if $prcs_process_instance = ''
+    !No Prompt
+  end-if
+
+End-Procedure !Init-Report
+
+!**********************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Select-Parameters                                         !
+! Descr:     Se obtienen los parámetros ingresados por el usuario      !
+!----------------------------------------------------------------------!
+begin-procedure select-parameters
+display 'select-parameters'
+
+begin-sql On-error=SQL-Error
+!ALTER SESSION SET TIMED_STATISTICS =  TRUE
+End-SQL
+
+begin-sql On-error=SQL-Error
+!ALTER SESSION SET SQL_TRACE =  TRUE
+End-SQL
+
+begin-sql On-error=SQL-Error
+ALTER SESSION SET tracefile_identifier = ck_ar_ap
+End-SQL
+
+begin-select ON-ERROR = SQL-error
+RUN_CNTL_AR.BUSINESS_UNIT
+SYSDATE                   &FECHA-ACTUAL
+SUBSTR(TO_CHAR(SYSDATE,'YYYY-MM-DD'),6,2) || SUBSTR(TO_CHAR(SYSDATE,'YYYY-MM-DD'),3,2) || '00000001' &DOC_SEQ_AR
+
+
+ !Definición variables generales
+ let $select-business-unit = &RUN_CNTL_AR.BUSINESS_UNIT
+ let $ECTRANSID      = 'AR-VCHR-IN'
+ let $ECTRANSINOUTSW = 'I'
+ let $deposit-type   = 'I'
+ let $opr-ar         = 'CR_AR_AP'
+ let $payment-id     = 'CRUCE AR AP'
+
+ let $tipo-pago   = ' '
+ let $medio-pago  = ' '
+
+ if $ap = 'Y'
+    let $business-unit-ap = ' '
+    do get-business-unit-ap
+    if $business-unit-ap <> ' '
+       do get-chartfields
+       if $tipo-pago <> ' ' and $medio-pago <> ' '
+          do get-setid-customer
+          do get-bank
+          do get-items-ar
+       else
+          display 'No se tiene definido el medio de pago' 
+          display 'para la unidad de negocios de AR elegida'          
+       end-if          
+    else
+       display 'No se tiene definida una unidad de negocios de AP'
+       display 'para la unidad de negocios de AR elegida'          
+    end-if
+ end-if
+
+from PS_RUN_CNTL_AR RUN_CNTL_AR
+
+where RUN_CNTL_AR.OPRID = $prcs_oprid
+  and RUN_CNTL_AR.RUN_CNTL_ID = $prcs_run_cntl_id
+end-select
+end-procedure !select-parameters
+
+!**********************************************************************
+!----------------------------------------------------------------------!
+! Procedure: get-items-ar                                              !
+! Descr:     Se determinan los ítems de AR a procesar                  !
+!----------------------------------------------------------------------!
+! Inicio 014
+!Para ENTRY_REASON<>'REFIN'
+! Fin 014
+begin-procedure get-items-ar
+display 'get-items-ar'
+display 'items generados PeopleSoft'
+let $vendor-ant = ' '
+let #PS           = 1
+let #cnt-hold     = 0
+let #val-hold     = 0
+let #cnt-items    = 0
+let #cnt-hold-ini = 0
+let #cnt-hold-act = 0
+let #saldo-AP     = 0
+let $hold      = 'N'
+begin-select ON-ERROR = SQL-error
+/*+ RULE */
+A.BUSINESS_UNIT
+C.VENDOR_SETID
+C.VENDOR_ID
+A.ENTRY_TYPE
+A.ITEM
+A.ITEM_LINE
+C.NAME1
+B.BILL_TYPE_ID
+B.ORIGINAL_INVOICE
+A.CUST_ID
+A.USER1
+A.ITEM_STATUS
+A.PAYMENT_METHOD
+A.ENTRY_REASON
+A.BAL_AMT
+A.BAL_CURRENCY
+A.RT_TYPE
+A.RATE_MULT
+A.RATE_DIV
+A.BAL_AMT_BASE
+A.ENTRY_USE_ID
+A.ACCOUNTING_DT
+A.SALES_PERSON
+A.SUBCUST_QUAL1
+A.SUBCUST_QUAL2
+A.DUE_DT 
+B.BUSINESS_UNIT             
+NVL(TRIM(A.USER1), A.ITEM) || DECODE(INSTR(SUBSTR(A.ITEM,4),'-'),0,'','-' || SUBSTR(A.ITEM,INSTR(SUBSTR(A.ITEM,4),'-')+4))  	&INVOICE-ID
+
+
+       let #cnt-items = #cnt-items + 1
+       
+       display &A.BUSINESS_UNIT noline
+       display ' '              noline 
+       display &A.ITEM
+
+       let $business-unit    = &A.BUSINESS_UNIT
+       let $vendor_setid     = &C.VENDOR_SETID
+       let $vendor_id        = &C.VENDOR_ID
+       let $cust-id          = &A.CUST_ID
+       let $name1            = &C.NAME1
+       let $original-invoice = &B.ORIGINAL_INVOICE       
+       let $voucher_id       = 'NEXT'
+       !let $invoice_id      = &A.USER1  || &SUFIJO  !Se elimina prefijo a solicitud de Wilson Ramírez 08-oct-2003   
+       let $invoice_id       = &INVOICE-ID
+       let $invoice_dt       = &A.ACCOUNTING_DT
+       let #gross_amt        = &A.BAL_AMT
+       let $txn_currency_cd  = &A.BAL_CURRENCY
+       let $cur_rt_type      = &A.RT_TYPE
+       let #rate_mult        = &A.RATE_MULT
+       let #rate_div         = &A.RATE_DIV
+       let #ecqinstance      = 0
+       let $sent-ap          = 'N'
+       let $sales-person     = &A.SALES_PERSON
+       let $payment-method   = &A.PAYMENT_METHOD
+       let $deposit-id       = ' '
+       let $group-id         = ' '
+       let $doc-type         = ' '
+       let $DOC_SEQ_NBR      = ' '
+       let $DOC_SEQ_DATE     = ''
+       let $subcust-qual1    = &A.SUBCUST_QUAL1
+       let $subcust-qual2    = &A.SUBCUST_QUAL2
+       let $item             = &A.ITEM
+       let #item-line        = &A.ITEM_LINE
+       let #amount           = &A.BAL_AMT
+       let $bal-currency     = $txn_currency_cd
+       let #rate-mult        = &A.RATE_MULT
+       let #rate-div         = &A.RATE_DIV
+       let $bill-type        = &B.BILL_TYPE_ID
+       let $due-dt-orig      = &A.DUE_DT
+	   ! Inicio 023
+	   let $unidadNegocioBI  = &B.BUSINESS_UNIT
+	   ! Fin 023
+       let $entry-tp         = &A.ENTRY_TYPE 
+       let $entry-rsn        = &A.ENTRY_REASON       
+       SHOW '-------------------------------------------------'
+	   SHOW '-------------------------------------------------'
+       if $vendor_id <> $vendor-ant   
+          do Validate-bal-amount-AP
+          do cnt-hold-AP
+          let #cnt-hold-ini = #cnt-hold
+          ! Inicio 017
+          if $hold = 'Y'
+			 SHOW 'Entra 1CC '
+             do unhold-vouchers-AP
+             let #cnt-hold = 0
+             let #val-hold = 0
+             let $hold     = 'N'         
+          end-if
+		  ! Fin 017
+          display 'Saldo ini :' noline
+          display #saldo-ini 
+          display 'Saldo act :' noline
+          display #saldo-act
+       end-if 
+       
+       let #procesar = 0
+       !012
+       if &A.ENTRY_TYPE = 'FC' OR &A.ENTRY_TYPE = 'ND' OR &A.ENTRY_TYPE = 'NDC' 
+          let $original-invoice = ' '
+          ! Inicio 014
+          !if &B.BILL_TYPE_ID  = 'VOM' or &B.BILL_TYPE_ID  = 'C48' or (&B.BILL_TYPE_ID  = 'CC3' and $entry-rsn = 'FLETE')
+		  if &B.BILL_TYPE_ID  = 'VOM' or &B.BILL_TYPE_ID  = 'C48' or (&B.BILL_TYPE_ID  = 'CC3' and $entry-rsn = 'FLETE') or (&B.BILL_TYPE_ID  = 'CC3' and $entry-rsn = 'VTAS') or (&B.BILL_TYPE_ID  = 'CC3' and $entry-rsn = 'SINIE') or (&B.BILL_TYPE_ID  = 'VOM' and $entry-rsn = 'SINIE')
+		  ! Fin 014
+             if &A.DUE_DT <= &FECHA-ACTUAL   
+                let #procesar = 1
+             else
+                let #procesar = 0             
+             end-if
+          else
+             let #procesar = 1
+          end-if
+          
+		 
+          if #saldo-act >= #gross_amt and #procesar = 1
+             let #cnt-hold = 0
+             let #val-hold = 0
+             let $hold     = 'N'          
+             let $due-dt-calc = ''
+             let $due-dt-flg  = 'U'
+             
+             do Get-EcqueueInstance
+             do insert-voucher
+             do insert-voucher-line
+             do insert-distrib-line
+             let $sent-AP   = 'Y'          
+             let #saldo-act = #saldo-act - #gross_amt
+             let $group-type = 'P'
+             !do get-doc-seq
+             let $doc-type     = 'ARRECIBO'
+	         let $DOC_SEQ_NBR  = &DOC_SEQ_AR
+	         let $DOC_SEQ_DATE = &FECHA-ACTUAL
+             do crear-cobro-AR
+          else
+			 SHOW 'Entra 1 '
+             let $due-dt-calc = ''
+             if #procesar = 1
+				SHOW 'Entra 2 '
+                do hold-vouchers-AP   !*1
+                do cnt-hold-AP
+                let #cnt-hold-act = #cnt-hold
+             end-if
+          end-if
+       end-if
+       ! 012
+       if &A.ENTRY_TYPE = 'NC' OR &A.ENTRY_TYPE = 'NCC'   
+		  SHOW 'Entra 3 ' 
+          let #procesar = 1
+          let $process-flag = 'N'
+          let #cnt-hold = 0
+          let #val-hold = 0
+          Let $hold     = 'N'
+          do get-process-flag
+          if $process-flag = 'Y'   
+			SHOW 'Entra 4 ' 			
+			let $valida-nc-parametrizada ='N'
+			do get-valida-nc-parametrizada
+			
+			SHOW 'Unidad Negocio: ' $business-unit 
+            SHOW 'Tipo Documento: ' $entry-tp
+            SHOW 'Razon Documento: ' $entry-rsn
+			SHOW 'Item : ' $item
+			
+			SHOW 'Parametriada S/N: ' $valida-nc-parametrizada
+			if $valida-nc-parametrizada = 'Y'   
+				let #procesar = 0
+				let $process-flag = 'N'
+			end-if
+			
+			if $valida-nc-parametrizada = 'N'   
+      
+				let $group-type     = 'M'
+				let $entry-use-id   = 'MT-09'
+				let $entry-type     = 'DEVOL'
+				let $entry-reason   = '33201'
+				let $require-reason = 'Y'
+				let $sent-AP   = 'Y'          
+          
+				!do get-doc-seq
+				let $doc-type     = 'ARRECIBO'
+				let $DOC_SEQ_NBR  = &DOC_SEQ_AR
+				let $DOC_SEQ_DATE = &FECHA-ACTUAL
+
+				if $subcust-use-sw = 'Y' and ($subcust-qual1 = ' ' and $subcust-qual2 = ' ')
+					do get-subcust
+				end-if
+				do get-group-id
+				display $group-id
+				do create-worksheet
+			end-if
+			!Fin 011
+          end-if
+       end-if       
+       
+       if #procesar = 1
+          do insert-log
+       end-if       
+       let $vendor-ant = $vendor_id
+
+  FROM PS_ITEM A, PS_BI_HDR B, PS_CUSTOMER C, PS_VENDOR E, PS_CK_AUT_CRUCE_AR F, PS_CK_TP_CRUCE_AR G,PS_SET_CNTRL_REC H
+       , PS_ITEM_ACTIVITY I
+  WHERE A.BUSINESS_UNIT = $select-business-unit
+     AND B.BUSINESS_UNIT = A.BUSINESS_UNIT_BI
+	 !inicio 015
+	 AND (B.INVOICE = SUBSTR(A.ITEM, 1, 13) OR B.INVOICE = SUBSTR(A.ITEM, 1, 14)OR   B.INVOICE = A.ITEM)
+	 !Fin 015
+	 AND I.CUST_ID  = B.BILL_TO_CUST_ID 
+	 AND I.ITEM = A.ITEM
+     AND I.ITEM_LINE = A.ITEM_LINE AND I.ITEM_SEQ_NUM = 1 
+     AND I.ORIGIN_ID = 'PS_BI'
+	 AND A.ITEM_STATUS = 'O'
+     AND A.ENTRY_REASON<>'REFIN' 
+     AND (
+          (
+			! Inicio 016
+     		(A.ENTRY_TYPE        ='FC' OR A.ENTRY_TYPE        ='NDC' OR A.ENTRY_TYPE = 'ND'
+			! Fin 016
+     		) 
+	        AND A.BAL_AMT                > 0 
+	      )
+	      OR ((A.ENTRY_TYPE            = 'NC' OR A.ENTRY_TYPE            = 'NCC' ) AND A.BAL_AMT < 0 ) 
+	     )
+     AND A.BUSINESS_UNIT = H.SETCNTRLVALUE
+     AND H.RECNAME = 'CUSTOMER'
+     AND C.SETID = H.SETID
+     AND A.CUST_ID = C.CUST_ID
+     AND E.SETID = C.VENDOR_SETID
+     AND E.VENDOR_ID = C.VENDOR_ID
+     AND E.SETID = F.SETID
+     AND E.VENDOR_ID = F.VENDOR_ID
+     AND F.EFFDT =
+        (SELECT MAX(F_ED.EFFDT) FROM PS_CK_AUT_CRUCE_AR F_ED
+        WHERE F.SETID = F_ED.SETID
+          AND F.VENDOR_ID = F_ED.VENDOR_ID
+          AND F_ED.EFFDT <= A.ACCOUNTING_DT)
+     AND F.EFF_STATUS = 'A'
+     AND F.CK_AUT_CRUCE_AR_AP = 'Y'
+     AND F.SETID = G.SETID
+     AND F.VENDOR_ID = G.VENDOR_ID
+     AND G.EFFDT =
+        (SELECT MAX(G_ED.EFFDT) FROM PS_CK_TP_CRUCE_AR G_ED
+        WHERE G.SETID = G_ED.SETID
+          AND G.VENDOR_ID = G_ED.VENDOR_ID
+          AND G_ED.EFFDT <= F.EFFDT)
+     AND G.BILL_TYPE_ID = B.BILL_TYPE_ID
+	! Inicio 021	
+     AND (SELECT MAX(PROCESS_INSTANCE)
+          FROM sysadm.PS_CK_LOG_AR_AP CR
+         WHERE CR.BUSINESS_UNIT = A.BUSINESS_UNIT
+           AND CR.CUST_ID = A.CUST_ID
+           AND CR.ITEM = A.ITEM
+           AND CR.ITEM_LINE = A.ITEM_LINE
+           AND CR.SENT_TO_AP = 'Y') IS NULL
+	! Fin 021
+     ORDER BY 1, 2, 3, 4, 15 desc
+end-select
+
+! Inicio 014
+!Para ENTRY_REASON = 'REFIN'
+
+display 'items generados PeopleSoft ENTRY_REASON = REFIN'
+let $vendor-ant = ' '
+let #PS           = 1
+let #cnt-hold     = 0
+let #val-hold     = 0
+let #cnt-items    = 0
+let #cnt-hold-ini = 0
+let #cnt-hold-act = 0
+let #saldo-AP     = 0
+let $hold      = 'N'
+begin-select DISTINCT
+/*+ RULE */ 
+A2.BUSINESS_UNIT
+C2.VENDOR_SETID
+C2.VENDOR_ID
+A2.ENTRY_TYPE
+A2.ITEM
+A2.ITEM_LINE
+C2.NAME1
+B2.BILL_TYPE_ID
+B2.ORIGINAL_INVOICE
+A2.CUST_ID
+A2.USER1
+A2.ITEM_STATUS
+A2.PAYMENT_METHOD
+A2.ENTRY_REASON
+A2.BAL_AMT
+A2.BAL_CURRENCY
+A2.RT_TYPE
+A2.RATE_MULT
+A2.RATE_DIV
+A2.BAL_AMT_BASE
+A2.ENTRY_USE_ID
+A2.ACCOUNTING_DT
+A2.SALES_PERSON
+A2.SUBCUST_QUAL1
+A2.SUBCUST_QUAL2
+A2.DUE_DT              
+A2.ITEM  	&INVOICE-ID3
+!Fin 004
+
+       let #cnt-items = #cnt-items + 1
+       
+       display &A2.BUSINESS_UNIT noline
+       display ' '              noline 
+       display &A2.ITEM
+
+       let $business-unit    = &A2.BUSINESS_UNIT
+       let $vendor_setid     = &C2.VENDOR_SETID
+       let $vendor_id        = &C2.VENDOR_ID
+       let $cust-id          = &A2.CUST_ID
+       let $name1            = &C2.NAME1
+       let $original-invoice = &B2.ORIGINAL_INVOICE       
+       let $voucher_id       = 'NEXT'
+       !let $invoice_id      = &A.USER1  || &SUFIJO  !Se elimina prefijo a solicitud de Wilson Ramírez 08-oct-2003   
+       let $invoice_id       = &INVOICE-ID3
+       let $invoice_dt       = &A2.ACCOUNTING_DT
+       let #gross_amt        = &A2.BAL_AMT
+       let $txn_currency_cd  = &A2.BAL_CURRENCY
+       let $cur_rt_type      = &A2.RT_TYPE
+       let #rate_mult        = &A2.RATE_MULT
+       let #rate_div         = &A2.RATE_DIV
+       let #ecqinstance      = 0
+       let $sent-ap          = 'N'
+       let $sales-person     = &A2.SALES_PERSON
+       let $payment-method   = &A2.PAYMENT_METHOD
+       let $deposit-id       = ' '
+       let $group-id         = ' '
+       let $doc-type         = ' '
+       let $DOC_SEQ_NBR      = ' '
+       let $DOC_SEQ_DATE     = ''
+       let $subcust-qual1    = &A2.SUBCUST_QUAL1
+       let $subcust-qual2    = &A2.SUBCUST_QUAL2
+       let $item             = &A2.ITEM
+       let #item-line        = &A2.ITEM_LINE
+       let #amount           = &A2.BAL_AMT
+       let $bal-currency     = $txn_currency_cd
+       let #rate-mult        = &A2.RATE_MULT
+       let #rate-div         = &A2.RATE_DIV
+       let $bill-type        = &B2.BILL_TYPE_ID
+       let $due-dt-orig      = &A2.DUE_DT
+	   ! Inicio 023
+	   let $unidadNegocioBI  = &B.BUSINESS_UNIT
+	   ! Fin 023
+       let $entry-tp         = &A2.ENTRY_TYPE 
+       let $entry-rsn        = &A2.ENTRY_REASON       
+       SHOW '-------------------------------------------------'
+	   SHOW '-------------------------------------------------'
+       if $vendor_id <> $vendor-ant   
+          do Validate-bal-amount-AP
+          do cnt-hold-AP
+          let #cnt-hold-ini = #cnt-hold
+          
+          if $hold = 'Y'
+			 SHOW 'Entra 2CC '
+             do unhold-vouchers-AP
+             let #cnt-hold = 0
+             let #val-hold = 0
+             let $hold     = 'N'         
+          end-if
+
+          display 'Saldo ini :' noline
+          display #saldo-ini 
+          display 'Saldo act :' noline
+          display #saldo-act
+       end-if 
+       
+       let #procesar = 0
+       !012
+       if &A2.ENTRY_TYPE = 'FC' OR &A2.ENTRY_TYPE = 'ND' OR &A2.ENTRY_TYPE = 'NDC' 
+          let $original-invoice = ' '
+          ! Inicio 014
+          !if &B.BILL_TYPE_ID  = 'VOM' or &B.BILL_TYPE_ID  = 'C48' or (&B.BILL_TYPE_ID  = 'CC3' and $entry-rsn = 'FLETE')
+		  if &B2.BILL_TYPE_ID  = 'VOM' or &B2.BILL_TYPE_ID  = 'C48' or (&B2.BILL_TYPE_ID  = 'CC3' and $entry-rsn = 'FLETE') or (&B2.BILL_TYPE_ID  = 'CC3' and $entry-rsn = 'VTAS')or (&B2.BILL_TYPE_ID  = 'CC3' and $entry-rsn = 'REFIN') or (&B2.BILL_TYPE_ID  = 'CC3' and $entry-rsn = 'SINIE') or (&B2.BILL_TYPE_ID  = 'VOM' and $entry-rsn = 'SINIE')
+		  ! Fin 014
+             if &A2.DUE_DT <= &FECHA-ACTUAL   
+                let #procesar = 1
+             else
+                let #procesar = 0             
+             end-if
+          else
+             let #procesar = 1
+          end-if
+          
+          if #saldo-act >= #gross_amt and #procesar = 1
+             let #cnt-hold = 0
+             let #val-hold = 0
+             let $hold     = 'N'          
+             let $due-dt-calc = ''
+             let $due-dt-flg  = 'U'
+             
+             do Get-EcqueueInstance
+             do insert-voucher
+             do insert-voucher-line
+             do insert-distrib-line
+             let $sent-AP   = 'Y'          
+             let #saldo-act = #saldo-act - #gross_amt
+             let $group-type = 'P'
+             !do get-doc-seq
+             let $doc-type     = 'ARRECIBO'
+	         let $DOC_SEQ_NBR  = &DOC_SEQ_AR
+	         let $DOC_SEQ_DATE = &FECHA-ACTUAL
+             do crear-cobro-AR
+          else
+			 SHOW 'Entra 1A '
+             let $due-dt-calc = ''
+             if #procesar = 1
+				SHOW 'Entra 2A '
+                do hold-vouchers-AP   !*1
+                do cnt-hold-AP
+                let #cnt-hold-act = #cnt-hold
+             end-if
+          end-if
+       end-if
+       ! 012
+       if &A2.ENTRY_TYPE = 'NC' OR &A2.ENTRY_TYPE = 'NCC'  
+		  SHOW 'Entra 3A '
+          let #procesar = 1
+          let $process-flag = 'N'
+          let #cnt-hold = 0
+          let #val-hold = 0
+          Let $hold     = 'N'
+          do get-process-flag
+          if $process-flag = 'Y'   
+		    SHOW 'Entra 4A '
+			!Ini 011
+			let $valida-nc-parametrizada ='N'
+			do get-valida-nc-parametrizada
+			
+			SHOW 'Unidad Negocio: ' $business-unit 
+            SHOW 'Tipo Documento: ' $entry-tp
+            SHOW 'Razon Documento: ' $entry-rsn
+			SHOW 'Item : ' $item
+			
+			SHOW 'Parametriada S/N: ' $valida-nc-parametrizada
+			if $valida-nc-parametrizada = 'Y'   
+				let #procesar = 0
+				let $process-flag = 'N'
+			end-if
+			
+			if $valida-nc-parametrizada = 'N'   
+			    SHOW 'Entra 5A '
+				let $group-type     = 'M'
+				let $entry-use-id   = 'MT-09'
+				let $entry-type     = 'DEVOL'
+				let $entry-reason   = '33201'
+				let $require-reason = 'Y'
+				let $sent-AP   = 'Y'          
+          
+				!do get-doc-seq
+				let $doc-type     = 'ARRECIBO'
+				let $DOC_SEQ_NBR  = &DOC_SEQ_AR
+				let $DOC_SEQ_DATE = &FECHA-ACTUAL
+
+				if $subcust-use-sw = 'Y' and ($subcust-qual1 = ' ' and $subcust-qual2 = ' ')
+					do get-subcust
+				end-if
+				do get-group-id
+				display $group-id
+				do create-worksheet
+			end-if
+			!Fin 011
+          end-if
+       end-if       
+       
+       if #procesar = 1
+          do insert-log
+       end-if       
+       let $vendor-ant = $vendor_id
+
+  FROM PS_ITEM A2, PS_BI_HDR B2, PS_CUSTOMER C2, PS_VENDOR E2, PS_CK_AUT_CRUCE_AR F2, PS_CK_TP_CRUCE_AR G2,PS_SET_CNTRL_REC H2
+       , PS_ITEM_ACTIVITY I2
+  WHERE A2.BUSINESS_UNIT = $select-business-unit
+     AND B2.BUSINESS_UNIT = A2.BUSINESS_UNIT_BI
+	 AND (B2.INVOICE = SUBSTR(A2.ITEM, 1, 13) OR B2.INVOICE = SUBSTR(A2.ITEM, 1, 14))
+     AND I2.CUST_ID  = B2.BILL_TO_CUST_ID 
+     AND (I2.ITEM = SUBSTR(A2.ITEM, 1, 13) OR I2.ITEM = SUBSTR(A2.ITEM, 1, 14) OR I2.ITEM = SUBSTR(A2.ITEM, 1, 18))
+     AND I2.ITEM_LINE = A2.ITEM_LINE AND I2.ITEM_SEQ_NUM = 1 
+     AND I2.ORIGIN_ID = 'PS_BI'
+     AND A2.ITEM_STATUS = 'O'
+	 AND A2.ENTRY_REASON = 'REFIN' AND A2.ENTRY_TYPE ='FC'
+     AND (
+          (
+          ! 012
+		  ! Inicio 016
+     		(A2.ENTRY_TYPE        ='FC' OR A2.ENTRY_TYPE        ='NDC' OR A2.ENTRY_TYPE = 'ND'
+	      ! Fin 016
+     		) 
+	        AND A2.BAL_AMT                > 0 
+	      )
+	      ! 012
+	      OR ((A2.ENTRY_TYPE            = 'NC' OR A2.ENTRY_TYPE            = 'NCC' ) AND A2.BAL_AMT < 0 ) 
+	     )
+     AND A2.BUSINESS_UNIT = H2.SETCNTRLVALUE
+     AND H2.RECNAME = 'CUSTOMER'
+     AND C2.SETID = H2.SETID
+     AND A2.CUST_ID = C2.CUST_ID
+     AND E2.SETID = C2.VENDOR_SETID
+     AND E2.VENDOR_ID = C2.VENDOR_ID
+     AND E2.SETID = F2.SETID
+     AND E2.VENDOR_ID = F2.VENDOR_ID
+     AND F2.EFFDT =
+        (SELECT MAX(F_ED2.EFFDT) FROM PS_CK_AUT_CRUCE_AR F_ED2
+        WHERE F2.SETID = F_ED2.SETID
+          AND F2.VENDOR_ID = F_ED2.VENDOR_ID
+          AND F_ED2.EFFDT <= A2.ACCOUNTING_DT)
+     AND F2.EFF_STATUS = 'A'
+     AND F2.CK_AUT_CRUCE_AR_AP = 'Y'
+     AND F2.SETID = G2.SETID
+     AND F2.VENDOR_ID = G2.VENDOR_ID
+     AND G2.EFFDT =
+        (SELECT MAX(G_ED2.EFFDT) FROM PS_CK_TP_CRUCE_AR G_ED2
+        WHERE G2.SETID = G_ED2.SETID
+          AND G2.VENDOR_ID = G_ED2.VENDOR_ID
+          AND G_ED2.EFFDT <= F2.EFFDT)
+     AND G2.BILL_TYPE_ID = B2.BILL_TYPE_ID
+	! Inicio 021
+     AND (SELECT MAX(PROCESS_INSTANCE) FROM PS_CK_LOG_AR_AP CR2
+     WHERE CR2.BUSINESS_UNIT = A2.BUSINESS_UNIT
+       AND CR2.CUST_ID       = A2.CUST_ID
+       AND CR2.ITEM          = A2.ITEM
+       AND CR2.ITEM_LINE     = A2.ITEM_LINE
+       AND CR2.SENT_TO_AP    = 'Y') IS NULL
+	! Fin 021
+     ORDER BY 1, 2, 3, 4, 15 desc
+end-select
+! Fin 014
+
+display 'items no generados PeopleSoft'
+let $vendor-ant = ' '
+let #PS=0
+
+begin-select ON-ERROR = SQL-error
+/*+ RULE */
+A1.BUSINESS_UNIT
+C1.VENDOR_SETID
+C1.VENDOR_ID
+A1.ENTRY_TYPE
+A1.ITEM
+A1.ITEM_LINE
+A1.CUST_ID
+C1.NAME1
+A1.USER1
+A1.ITEM_STATUS
+A1.PAYMENT_METHOD 
+A1.ENTRY_REASON
+A1.BAL_AMT
+A1.BAL_CURRENCY
+A1.RT_TYPE
+A1.RATE_MULT
+A1.RATE_DIV
+A1.BAL_AMT_BASE
+A1.ENTRY_USE_ID
+A1.ACCOUNTING_DT
+A1.SALES_PERSON
+A1.SUBCUST_QUAL1
+A1.SUBCUST_QUAL2
+A1.DUE_DT                
+A1.USER5
+NVL(TRIM(A1.USER1), A1.ITEM) || DECODE(INSTR(SUBSTR(A1.ITEM,4),'-'),0,'','-' || SUBSTR(A1.ITEM,INSTR(SUBSTR(A1.ITEM,4),'-')+4))  	&INVOICE-ID2
+
+
+       display &A1.BUSINESS_UNIT noline
+       display ' '              noline 
+       display &A1.ITEM
+       
+       let $business-unit    = &A1.BUSINESS_UNIT
+       let $vendor_setid     = &C1.VENDOR_SETID
+       let $vendor_id        = &C1.VENDOR_ID
+       let $cust-id          = &A1.CUST_ID
+       let $name1            = &C1.NAME1
+       let $original-invoice = &A1.ITEM       
+       let $voucher_id       = 'NEXT'
+       let $invoice_id       = &INVOICE-ID2
+       let $invoice_dt       = &A1.ACCOUNTING_DT
+       let #gross_amt        = &A1.BAL_AMT
+       let $txn_currency_cd  = &A1.BAL_CURRENCY
+       let $cur_rt_type      = &A1.RT_TYPE
+       let #rate_mult        = &A1.RATE_MULT
+       let #rate_div         = &A1.RATE_DIV
+       let #ecqinstance      = 0
+       let $sent-ap          = 'N'
+       let $sales-person     = &A1.SALES_PERSON
+       let $payment-method   = &A1.PAYMENT_METHOD
+       let $deposit-id       = ' '
+       let $group-id         = ' '
+       let $doc-type         = ' '
+       let $DOC_SEQ_NBR      = ' '
+       let $DOC_SEQ_DATE     = ''
+       let $subcust-qual1    = &A1.SUBCUST_QUAL1
+       let $subcust-qual2    = &A1.SUBCUST_QUAL2
+       let $item             = &A1.ITEM
+       let #item-line        = &A1.ITEM_LINE
+       let #amount           = &A1.BAL_AMT
+       let $bal-currency     = $txn_currency_cd
+       let #rate-mult        = &A1.RATE_MULT
+       let #rate-div         = &A1.RATE_DIV
+       let $bill-type        = &A1.USER5
+       let $due-dt-orig      = &A1.DUE_DT
+       let $entry-tp         = &A1.ENTRY_TYPE
+       
+       if $vendor_id <> $vendor-ant   
+          do validate-bal-amount-AP
+          
+          if #cnt-items = 0
+             do cnt-hold-AP
+         let #cnt-hold-ini = #cnt-hold
+              
+         if $hold = 'Y'
+			SHOW 'Entra 3CC '
+            do unhold-vouchers-AP
+            let #cnt-hold = 0
+            let #val-hold = 0
+            let $hold     = 'N'      
+         end-if    
+          end-if
+          display 'Saldo ini :' noline
+          display #saldo-ini 
+          display 'Saldo act :' noline
+          display #saldo-act
+       end-if 
+
+       let #procesar = 0
+       if &A1.ENTRY_TYPE = 'FC' OR &A1.ENTRY_TYPE = 'NDC'
+          let $original-invoice = ' '
+          
+          if &A1.USER5  = 'VOM'
+             if &A1.DUE_DT <= &FECHA-ACTUAL
+                !Se determina si el ítem tiene un cheque posfechado asociado
+                do get-chq-posfec
+                if #amt-chq-posfec >= #gross_amt          
+                   let #procesar = 0
+                else
+                   let #procesar = 1 
+                end-if
+             else
+                let #procesar = 0             
+             end-if
+          else
+             let #procesar = 1
+          end-if
+
+          if #saldo-act >= #gross_amt and #procesar = 1
+             let #cnt-hold = 0
+             let #val-hold = 0
+             let $hold     = 'N'        
+             let $due-dt-calc = ''
+			 !inicio 007
+             let $due-dt-flg  = 'U' 
+			 !fin 007
+		     SHOW 'Entra 4CC '
+             do unhold-vouchers-AP             
+             do Get-EcqueueInstance
+             do insert-voucher
+             do insert-voucher-line
+             do insert-distrib-line
+             let $sent-AP   = 'Y'          
+             let #saldo-act = #saldo-act - #gross_amt
+             let $group-type = 'P'
+             !do get-doc-seq
+             let $doc-type     = 'ARRECIBO'
+	     let $DOC_SEQ_NBR  = &DOC_SEQ_AR
+	     let $DOC_SEQ_DATE = &FECHA-ACTUAL
+             do crear-cobro-AR
+          else
+             let $due-dt-calc = ''
+             if #procesar = 1
+                do hold-vouchers-AP   !*2
+                do cnt-hold-AP
+                let #cnt-hold-act = #cnt-hold
+             end-if
+          end-if
+       end-if
+       ! 012
+       if &A1.ENTRY_TYPE = 'NC' OR &A1.ENTRY_TYPE = 'NCC'
+          let #procesar = 1       
+          let $process-flag = 'N'
+          let #cnt-hold = 0
+          let #val-hold = 0
+          let $hold     = 'N'
+          do get-process-flag
+          if $process-flag = 'Y'      
+	  
+			!Ini 011
+			let $valida-nc-parametrizada ='N'
+			do get-valida-nc-parametrizada
+
+			SHOW 'Unidad Negocio: ' $business-unit 
+            SHOW 'Tipo Documento: ' $entry-tp
+            SHOW 'Razon Documento: ' $entry-rsn
+			SHOW 'Item : ' $item
+
+			
+			SHOW 'Parametriada S/N: ' $valida-nc-parametrizada
+			if $valida-nc-parametrizada = 'Y'   
+				let #procesar = 0
+				let $process-flag = 'N'
+			end-if
+			
+			if $valida-nc-parametrizada = 'N'   
+		  
+				let $group-type     = 'M'
+				let $entry-use-id   = 'MT-09'
+				let $entry-type     = 'DEVOL'
+				let $entry-reason   = '33201'
+				let $require-reason = 'Y'
+				let $sent-AP   = 'Y'          
+          
+				!do get-doc-seq
+				let $doc-type     = 'ARRECIBO'
+				let $DOC_SEQ_NBR  = &DOC_SEQ_AR
+				let $DOC_SEQ_DATE = &FECHA-ACTUAL
+
+				if $subcust-use-sw = 'Y' and ($subcust-qual1 = ' ' and $subcust-qual2 = ' ')
+					do get-subcust
+				end-if
+				do get-group-id
+				display $group-id
+				do create-worksheet
+			end-if
+			!Fin 011
+		  end-if
+       end-if       
+       
+       if #procesar = 1
+          do insert-log
+       end-if
+       let $vendor-ant = $vendor_id
+
+  FROM PS_ITEM A1, PS_CUSTOMER C1, PS_VENDOR E1, PS_CK_AUT_CRUCE_AR F1, PS_CK_TP_CRUCE_AR G1
+  WHERE A1.BUSINESS_UNIT = $select-business-unit
+    AND A1.ITEM_STATUS = 'O'
+    AND (((A1.ENTRY_TYPE  = 'FC' OR &A1.ENTRY_TYPE = 'NDC')
+    AND A1.BAL_AMT > 0)
+    OR ((A1.ENTRY_TYPE  = 'NC' OR &A1.ENTRY_TYPE = 'NCC') AND A1.ENTRY_REASON <> 'COBRO'
+    AND A1.BAL_AMT < 0))
+    AND C1.SETID = (SELECT D.SETID
+  FROM PS_SET_CNTRL_REC D
+  WHERE D.SETCNTRLVALUE = A1.BUSINESS_UNIT
+     AND D.RECNAME    = 'CUSTOMER')
+     AND A1.CUST_ID   = C1.CUST_ID
+     AND E1.SETID     = C1.VENDOR_SETID
+     AND E1.VENDOR_ID = C1.VENDOR_ID
+     AND E1.SETID     = F1.SETID
+     AND E1.VENDOR_ID = F1.VENDOR_ID
+     AND F1.EFFDT =
+        (SELECT MAX(F_ED.EFFDT) FROM PS_CK_AUT_CRUCE_AR F_ED
+        WHERE F1.SETID     = F_ED.SETID
+          AND F1.VENDOR_ID = F_ED.VENDOR_ID
+          AND F_ED.EFFDT   <= A1.ACCOUNTING_DT)
+     AND F1.EFF_STATUS         = 'A'
+     AND F1.CK_AUT_CRUCE_AR_AP = 'Y'
+     AND F1.SETID              = G1.SETID
+     AND F1.VENDOR_ID          = G1.VENDOR_ID
+     AND G1.EFFDT =
+        (SELECT MAX(G_ED.EFFDT) FROM PS_CK_TP_CRUCE_AR G_ED
+        WHERE G1.SETID     = G_ED.SETID
+          AND G1.VENDOR_ID = G_ED.VENDOR_ID
+          AND G_ED.EFFDT   <= F1.EFFDT)
+     AND G1.BILL_TYPE_ID   = A1.USER5             !Cambio para facturas migradas AR para Alkosto.
+     AND NOT EXISTS (SELECT 'X' FROM PS_CK_LOG_AR_AP CR
+     WHERE CR.BUSINESS_UNIT = A1.BUSINESS_UNIT
+       AND CR.CUST_ID       = A1.CUST_ID
+       AND CR.ITEM          = A1.ITEM
+       AND CR.ITEM_LINE     = A1.ITEM_LINE
+       AND CR.SENT_TO_AP    = 'Y')
+       AND NOT EXISTS (SELECT 'X' FROM PS_BI_HDR BIHDR
+            WHERE BIHDR.BUSINESS_UNIT = A1.BUSINESS_UNIT
+              AND BIHDR.BILL_TO_CUST_ID = A1.CUST_ID
+			  AND (BIHDR.INVOICE = A1.ITEM OR SUBSTR(A1.ITEM,1,13) = BIHDR.INVOICE OR SUBSTR(A1.ITEM,1,14) = BIHDR.INVOICE))
+     ORDER BY 1, 2, 3, 4, 13 desc
+end-select
+do update-voucher-id
+
+do levantar-retencion           !CK2008 25-04-08 Se levanta retención a prov q no tengan cartera por cruzar.
+
+end-procedure !get-items-ar
+
+!**********************************************************************
+!----------------------------------------------------------------------!
+! Procedure : levantar-retencion
+! Descr     : verificar todos proveedores que tengan retención de pago 
+!             en AP y que no tengan cartera por cruzar, de existir el 
+!             proceso debe levantar la retención de pagos de esos 
+!             proveedores.
+! CK2008 24-04-08 Camilo Avella.
+!----------------------------------------------------------------------!
+begin-procedure levantar-retencion
+display 'levantar-retencion'
+
+
+let $business-unit      = ' '
+let $voucher_id         = ' '
+let $vendor_id          = ' '
+let $vendor_setid       = ' '
+
+begin-select ON-ERROR = SQL-error
+P.BUSINESS_UNIT
+P.VOUCHER_ID
+P.REMIT_VENDOR  
+P.REMIT_SETID  
+	
+	
+	let $ver-item-people    = ' '
+   let $ver-item-no-people = ' '
+
+	let $business-unit      = ' '
+	let $voucher_id         = ' '
+	let $vendor_id          = ' '
+	let $vendor_setid       = ' '
+	
+	let $business-unit = &P.BUSINESS_UNIT
+    let $voucher_id    = &P.VOUCHER_ID	
+	let $vendor_id     = &P.REMIT_VENDOR 
+	let $vendor_setid  = &P.REMIT_SETID 
+	
+	!Verificar items generados por peoplesoft
+    do ver-items-people
+    
+    !Verificar items NO generados por peoplesoft
+    !Si no existe items generados de ninguna forma se debe levantar la retención - RA - 16/07/2008
+    do ver-items-no-people
+    if $ver-item-no-people = ' ' and  $ver-item-people = ' '
+      !SHOW 'levanto retencion prov'  $vendor_id
+	  SHOW 'Entra 5CC '
+      do unhold-vouchers-AP
+	  ! Inicio 019
+	  ! Se comenta este llamado porque se llamara desde el mismo sitio donde se levanta la retencion
+      !do registro-auditoria 
+	  ! Fin 019
+    end-if
+    
+FROM PS_PYMNT_VCHR_XREF P
+WHERE P.BUSINESS_UNIT IN (SELECT AP.BUSINESS_UNIT FROM PS_BUS_UNIT_TBL_AP AP)
+  AND P.PYMNT_HOLD = 'Y'
+  AND P.PYMNT_HOLD_REASON = 'CAR'
+end-select
+
+end-procedure !levantar-retencion
+
+!**********************************************************************
+!----------------------------------------------------------------------!
+! Procedure : ver-items-people
+! Descr     : 
+! CK2008 24-04-08 Camilo Avella.            
+!----------------------------------------------------------------------!
+begin-procedure ver-items-people
+display 'ver-items-people'
+
+let $ver-item-people = ' '
+begin-select ON-ERROR = SQL-error
+'X'          &IT.VERITEM
+
+	let $ver-item-people = &IT.VERITEM
+
+FROM PS_ITEM A2, PS_BI_HDR B2, PS_CUSTOMER C2, PS_VENDOR E2, PS_CK_AUT_CRUCE_AR F2, PS_CK_TP_CRUCE_AR G2, PS_SET_CNTRL_REC H2
+     , PS_ITEM_ACTIVITY I2
+WHERE A2.BUSINESS_UNIT IN (SELECT AR.BUSINESS_UNIT FROM PS_BUS_UNIT_TBL_AR AR)
+     AND E2.VENDOR_ID = $vendor_id                  !*
+     AND E2.SETID = $vendor_setid                     !*
+     AND B2.BUSINESS_UNIT = A2.BUSINESS_UNIT_BI
+	 AND (B2.INVOICE = SUBSTR(A2.ITEM,1,13) OR B2.INVOICE = SUBSTR(A2.ITEM,1,14))
+	 AND I2.BUSINESS_UNIT_BI = B2.BUSINESS_UNIT AND I2.CUST_ID  = B2.BILL_TO_CUST_ID AND I2.ITEM = A2.ITEM
+     AND I2.ITEM_LINE = A2.ITEM_LINE AND I2.ITEM_SEQ_NUM = 1 
+     AND I2.ORIGIN_ID = 'PS_BI'
+     AND A2.ITEM_STATUS = 'O' 
+     AND (
+          (
+			! Inicio 016
+     		((A2.ENTRY_TYPE        ='FC' OR A2.ENTRY_TYPE        ='NDC'  OR A2.ENTRY_TYPE ='ND' ) 
+			! Fin 016
+
+     		) 
+	        AND A2.BAL_AMT                > 0 
+	      )
+	      OR ((A2.ENTRY_TYPE            = 'NC' OR A2.ENTRY_TYPE            = 'NCC') AND A2.BAL_AMT < 0 ) 
+	     )
+     AND H2.SETCNTRLVALUE = A2.BUSINESS_UNIT
+     AND H2.RECNAME = 'CUSTOMER'
+     AND C2.SETID = H2.SETID
+     AND A2.CUST_ID = C2.CUST_ID
+     AND E2.SETID = C2.VENDOR_SETID
+     AND E2.VENDOR_ID = C2.VENDOR_ID
+     AND E2.SETID = F2.SETID
+     AND E2.VENDOR_ID = F2.VENDOR_ID
+     AND F2.EFFDT =
+        (SELECT MAX(F_ED2.EFFDT) FROM PS_CK_AUT_CRUCE_AR F_ED2
+        WHERE F2.SETID = F_ED2.SETID
+          AND F2.VENDOR_ID = F_ED2.VENDOR_ID
+          AND F_ED2.EFFDT <= A2.ACCOUNTING_DT)
+     AND F2.EFF_STATUS = 'A'
+     AND F2.CK_AUT_CRUCE_AR_AP = 'Y'
+     AND F2.SETID = G2.SETID
+     AND F2.VENDOR_ID = G2.VENDOR_ID
+     AND G2.EFFDT =
+        (SELECT MAX(G_ED2.EFFDT) FROM PS_CK_TP_CRUCE_AR G_ED2
+        WHERE G2.SETID = G_ED2.SETID
+          AND G2.VENDOR_ID = G_ED2.VENDOR_ID
+          AND G_ED2.EFFDT <= F2.EFFDT)
+     AND G2.BILL_TYPE_ID = B2.BILL_TYPE_ID
+     AND ( A2.BUSINESS_UNIT,A2.CUST_ID,A2.ITEM,A2.ITEM_LINE) 
+	  NOT IN (SELECT  CR2.BUSINESS_UNIT, CR2.CUST_ID,CR2.ITEM ,CR2.ITEM_LINE 
+               FROM PS_CK_LOG_AR_AP CR2
+              WHERE CR2.SENT_TO_AP = 'Y')               
+end-select
+
+end-procedure !ver-items-people
+
+!**********************************************************************
+!----------------------------------------------------------------------!
+! Procedure : ver-items-no-people
+! Descr     : 
+! CK2008 24-04-08 Camilo Avella.            
+!----------------------------------------------------------------------!
+begin-procedure ver-items-no-people
+display 'ver-items-no-people'
+
+let $ver-item-no-people = ' '
+
+begin-select ON-ERROR = SQL-error
+'X'          &IT.VERITEMNO
+
+	let $ver-item-no-people = &IT.VERITEMNO
+	
+FROM PS_ITEM A3, PS_CUSTOMER C3, PS_VENDOR E3, PS_CK_AUT_CRUCE_AR F3, PS_CK_TP_CRUCE_AR G3
+WHERE A3.BUSINESS_UNIT IN (SELECT AR.BUSINESS_UNIT FROM PS_BUS_UNIT_TBL_AR AR)
+  AND E3.VENDOR_ID = $vendor_id                  !*
+  AND E3.SETID = $vendor_setid                    !*
+  AND A3.ITEM_STATUS = 'O'   
+  AND (((A3.ENTRY_TYPE  = 'FC' OR A3.ENTRY_TYPE  = 'NDC') 
+  AND A3.BAL_AMT > 0)
+  OR ((A3.ENTRY_TYPE  = 'NC' OR A3.ENTRY_TYPE  = 'NCC')
+  AND A3.BAL_AMT < 0))
+  AND C3.SETID = (SELECT D3.SETID
+FROM PS_SET_CNTRL_REC D3
+WHERE D3.SETCNTRLVALUE = A3.BUSINESS_UNIT
+   AND D3.RECNAME    = 'CUSTOMER')
+   AND A3.CUST_ID   = C3.CUST_ID
+   AND E3.SETID     = C3.VENDOR_SETID
+   AND E3.VENDOR_ID = C3.VENDOR_ID
+   AND E3.SETID     = F3.SETID
+   AND E3.VENDOR_ID = F3.VENDOR_ID
+   AND F3.EFFDT =
+    (SELECT MAX(F_ED3.EFFDT) FROM PS_CK_AUT_CRUCE_AR F_ED3
+    WHERE F3.SETID     = F_ED3.SETID
+      AND F3.VENDOR_ID = F_ED3.VENDOR_ID
+      AND F_ED3.EFFDT   <= A3.ACCOUNTING_DT)
+ AND F3.EFF_STATUS         = 'A'
+ AND F3.CK_AUT_CRUCE_AR_AP = 'Y'
+   AND F3.SETID              = G3.SETID
+   AND F3.VENDOR_ID          = G3.VENDOR_ID
+   AND G3.EFFDT =
+      (SELECT MAX(G_ED3.EFFDT) FROM PS_CK_TP_CRUCE_AR G_ED3
+      WHERE G3.SETID     = G_ED3.SETID
+        AND G3.VENDOR_ID = G_ED3.VENDOR_ID
+        AND G_ED3.EFFDT   <= F3.EFFDT)
+   AND G3.BILL_TYPE_ID   = A3.USER5                                  
+   AND NOT EXISTS (SELECT 'X' FROM PS_CK_LOG_AR_AP CR3
+   WHERE CR3.BUSINESS_UNIT = A3.BUSINESS_UNIT
+     AND CR3.CUST_ID       = A3.CUST_ID
+     AND CR3.ITEM          = A3.ITEM
+     AND CR3.ITEM_LINE     = A3.ITEM_LINE
+     AND CR3.SENT_TO_AP    = 'Y')
+     AND NOT EXISTS (SELECT 'X' FROM PS_BI_HDR BIHDR3
+          WHERE BIHDR3.BUSINESS_UNIT = A3.BUSINESS_UNIT
+            AND BIHDR3.BILL_TO_CUST_ID = A3.CUST_ID
+            AND BIHDR3.INVOICE       = A3.ITEM)    
+end-select
+
+end-procedure !ver-items-no-people
+
+
+!**********************************************************************
+!----------------------------------------------------------------------!
+! Procedure : registro-auditoria 
+! CK2008 24-04-08 Camilo Avella.
+!----------------------------------------------------------------------!
+begin-procedure registro-auditoria
+display 'registro-auditoria'
+
+begin-SQL ON-ERROR = SQL-error 
+insert into PSAUDIT
+values(
+$prcs_oprid,
+SYSDATE,
+'D',                        !DELETE
+'PYMNT_VCHR_XREF',
+'PYMNT_HOLD',
+' ',
+'CAR',
+$business-unit,
+$voucher_id,
+'PYMMT_CNT',
+'CK_AR_AP.SQR',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' '
+)
+end-SQL
+
+end-procedure !registro-auditoria
+
+! Inicio 019
+!**********************************************************************
+!----------------------------------------------------------------------!
+! Procedure : registro-auditoria PS_PYMNT_VCHR_XREF
+! CK2008 08-03-2022 Cesar Cuncanchun
+!----------------------------------------------------------------------!
+begin-procedure registro-auditoria-XR-levanta
+display 'registro-auditoria'
+
+begin-SQL ON-ERROR = SQL-error 
+insert into PSAUDIT
+values(
+$prcs_oprid,
+SYSTIMESTAMP ,
+'D',                        !DELETE
+'PYMNT_VCHR_XREF',
+'PYMNT_HOLD',
+'Y',
+'N',
+$business-unit_XR,
+$voucher_id_XR,
+'PYMMT_CNT',
+'CK_AR_AP.SQR',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' '
+)
+end-SQL
+end-procedure !registro-auditoria-XR-levanta
+! Fin 019
+
+
+! Inicio 019
+!**********************************************************************
+!----------------------------------------------------------------------!
+! Procedure : registro-auditoria PS_PYMNT_VCHR_XREF
+! CK2008 08-03-2022 Cesar Cuncanchun
+!----------------------------------------------------------------------!
+begin-procedure registro-auditoria-XR-retiene
+display 'registro-auditoria'
+
+begin-SQL ON-ERROR = SQL-error 
+insert into PSAUDIT
+values(
+$prcs_oprid,
+SYSTIMESTAMP ,
+'D',                        !DELETE
+'PYMNT_VCHR_XREF',
+'PYMNT_HOLD',
+'N',
+'Y',
+$business-unit_XR,
+$voucher_id_XR,
+'PYMMT_CNT',
+'CK_AR_AP.SQR',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' '
+)
+end-SQL
+end-procedure !registro-auditoria-XR-retiene
+! Fin 019
+
+
+!**********************************************************************
+!----------------------------------------------------------------------!
+! Procedure : get-chq-posfec
+!----------------------------------------------------------------------!
+begin-procedure get-chq-posfec
+display 'get-chq-posfec'
+let #amt-chq-posfec = 0
+begin-select ON-ERROR = SQL-error
+A.AMOUNT      &AMT-CHQ-POSFEC
+ 
+   let #amt-chq-posfec = &AMT-CHQ-POSFEC
+
+FROM PS_LC_CHQ_POS_FACT A, PS_LC_CHQ_POSTFECH B
+WHERE A.DEPOSIT_BU        = &A1.BUSINESS_UNIT
+  AND A.CUST_ID           = &A1.CUST_ID
+  AND A.ITEM              = &A1.ITEM
+  AND A.DEPOSIT_BU        = B.DEPOSIT_BU
+  AND A.CUST_ID           = B.CUST_ID
+  AND A.LC_NUM_CHEQUE     = B.LC_NUM_CHEQUE
+  AND A.LC_PLAZA_BANCO    = B.LC_PLAZA_BANCO
+  AND A.LC_CODIGO_BANCO   = B.LC_CODIGO_BANCO
+  AND B.LC_ANULAR_CHEQUE  <> 'Y'
+end-select
+
+end-procedure !get-chq-posfec
+
+!**********************************************************************
+!----------------------------------------------------------------------!
+! Procedure : validate-bal-amount-AP
+!----------------------------------------------------------------------!
+begin-procedure Validate-bal-amount-AP
+display 'Validate-bal-amount-AP'
+let #saldo-ini-xref = 0
+let #saldo-act-xref = 0
+let #saldo-ini-stg = 0
+let #saldo-act-stg = 0
+begin-select ON-ERROR = SQL-error
+SUM(A.PYMNT_GROSS_AMT -  A.DSCNT_PAY_AMT)      &SALDO-AP         
+
+  let #saldo-ini-xref = &SALDO-AP
+  let #saldo-act-xref = &SALDO-AP
+  let #saldo-AP  = 1                                              
+  
+FROM PS_PYMNT_VCHR_XREF A, PS_VOUCHER B
+WHERE A.REMIT_SETID        = $vendor_setid
+  AND A.REMIT_VENDOR       = $vendor_id
+  AND A.PYMNT_SELCT_STATUS = 'N'  
+  AND B.BUSINESS_UNIT      = A.BUSINESS_UNIT
+  AND B.VOUCHER_ID         = A.VOUCHER_ID
+  AND B.ENTRY_STATUS       <> 'X'
+  AND B.CLOSE_STATUS       = 'O'
+!CK2009 - NJ - 08/04/09 - INICIO - CASO 4322
+  AND B.VOUCHER_STYLE      <> 'TMPL'
+!CK2009 - NJ - 08/04/09 - FIN - CASO 4322
+end-select
+
+!Valida cruces de otras unidades ya guardados en la stg - RA - 16/07/2008 
+
+begin-select ON-ERROR = SQL-error
+SUM(A_1.GROSS_AMT)      &SALDO-AP-STG         
+
+  let #saldo-ini-stg = &SALDO-AP-STG
+  let #saldo-act-stg = &SALDO-AP-STG
+  let #saldo-AP  = 1                                              
+  
+FROM PS_VCHR_HDR_STG A_1
+WHERE A_1.VENDOR_SETID    = $vendor_setid
+  AND A_1.VENDOR_ID       = $vendor_id
+end-select
+
+let #saldo-ini = #saldo-ini-xref + #saldo-ini-stg
+let #saldo-act = #saldo-act-xref + #saldo-act-stg
+
+SHOW '#saldo-act' #saldo-act
+
+end-procedure ! Validate-bal-amount-AP
+
+!**********************************************************************
+!----------------------------------------------------------------------!
+! Procedure : get-saldo-venc-dt
+!----------------------------------------------------------------------!
+begin-procedure get-saldo-venc-dt 
+display 'get-saldo-venc-dt'
+let #saldo-venc = 0
+begin-select ON-ERROR = SQL-error
+SUM(A.PYMNT_GROSS_AMT -  A.DSCNT_PAY_AMT)     &SALDO-VENC
+
+  let #saldo-venc = &SALDO-VENC
+  
+  FROM PS_PYMNT_VCHR_XREF A
+  WHERE A.REMIT_SETID         = $vendor_setid
+     AND A.REMIT_VENDOR       = $vendor_id
+     AND A.PYMNT_SELCT_STATUS = 'N'    
+     AND A.SCHEDULED_PAY_DT   >= TO_DATE($due-dt-calc,'DD-MM-YYYY')
+end-select
+end-procedure ! Validate-bal-amount-AP
+
+!**********************************************************************
+!----------------------------------------------------------------------!
+! Procedure : hold-vouchers-AP
+!----------------------------------------------------------------------!
+begin-procedure hold-vouchers-AP
+show 'hold-vouchers-AP'
+
+!Ck2008 - Caso 3689 - RA
+!Actualiza campo DESCR254_MIXED con la Unidad de Cartera concatenado con la fecha
+let $Description = $business-unit || &FECHA-ACTUAL
+
+SHOW '	$Description: ' $Description
+SHOW '	$vendor_setid: ' $vendor_setid
+SHOW '	$vendor_id: ' $vendor_id
+
+begin-select on-error=SQL-Error
+COUNT(*)  &SUMATORIA
+    let #sumatoria = &SUMATORIA    
+FROM PS_PYMNT_VCHR_XREF A
+WHERE A.REMIT_SETID        = $vendor_setid
+  AND A.REMIT_VENDOR       = $vendor_id
+  AND A.PYMNT_SELCT_STATUS = 'N'
+  AND A.PYMNT_HOLD         <> 'Y'
+  AND A.PYMNT_GROSS_AMT    > 0 
+end-select
+
+show '	Registros a afectar ' #sumatoria
+
+! Inicio 019
+!Se recorren los registros que se actualizaran a Y
+begin-select on-error=SQL-Error
+AXR.BUSINESS_UNIT
+AXR.VOUCHER_ID
+
+	let $business-unit_XR = &AXR.BUSINESS_UNIT
+	let $voucher_id_XR    = &AXR.VOUCHER_ID
+	SHOW 'Se realiza retencion prov :'  $vendor_id
+	!Se llama al procedure de auditoria XR
+	do registro-auditoria-XR-retiene
+	
+FROM PS_PYMNT_VCHR_XREF AXR
+WHERE AXR.REMIT_SETID        = $vendor_setid
+  AND AXR.REMIT_VENDOR       = $vendor_id
+  AND AXR.PYMNT_SELCT_STATUS = 'N'
+  AND AXR.PYMNT_HOLD         <> 'Y'
+  AND AXR.PYMNT_GROSS_AMT    > 0  
+end-select
+! Fin 019
+
+! Inicio 020
+begin-SQL on-error=SQL-Error
+UPDATE PS_PYMNT_VCHR_XREF A
+   SET A.PYMNT_HOLD           = 'Y',
+       A.PYMNT_HOLD_REASON    = 'CAR',
+       A.DESCR254_MIXED       = $Description
+WHERE ROWID IN (SELECT A.ROWID
+FROM PS_PYMNT_VCHR_XREF A, PS_VOUCHER B
+WHERE  A.BUSINESS_UNIT = B.BUSINESS_UNIT 
+AND A.VOUCHER_ID = B.VOUCHER_ID
+AND A.REMIT_SETID = $vendor_setid
+AND B.ENTRY_STATUS <> 'X'
+AND A.REMIT_VENDOR = $vendor_id
+AND A.PYMNT_SELCT_STATUS = 'N'
+AND A.PYMNT_HOLD <> 'Y'
+AND A.PYMNT_GROSS_AMT > 0)
+end-sql
+! Fin 020
+
+! Se comenta el siguiente porque la sentencia anterior lo realiza
+!begin-SQL on-error=SQL-Error
+!UPDATE PS_PYMNT_VCHR_XREF A
+!   SET A.PYMNT_HOLD           = 'Y',
+!       A.PYMNT_HOLD_REASON    = 'CAR',
+!       A.DESCR254_MIXED       = $Description
+!WHERE A.REMIT_SETID        = $vendor_setid
+!  AND A.REMIT_VENDOR       = $vendor_id
+!  AND A.PYMNT_SELCT_STATUS = 'N'
+!  AND A.PYMNT_HOLD         <> 'Y'
+!  AND A.PYMNT_GROSS_AMT    > 0     !Modificación solicitada Wilson Ramírez 19-ago-2004
+!end-sql
+
+BEGIN-SQL
+COMMIT
+END-SQL
+
+end-procedure ! hold-vouchers-AP
+
+!**********************************************************************
+!----------------------------------------------------------------------!
+! Procedure : unhold-vouchers-AP
+!----------------------------------------------------------------------!
+begin-procedure unhold-vouchers-AP
+show 'Entro unhold-vouchers-AP : ' $vendor_id
+! Inicio 019
+!Se recorren los registros que se actualizaran a N
+begin-select ON-ERROR = SQL-error
+XR.BUSINESS_UNIT
+XR.VOUCHER_ID
+
+	let $business-unit_XR = &XR.BUSINESS_UNIT
+	let $voucher_id_XR    = &XR.VOUCHER_ID
+	SHOW 'levanto retencion prov :'  $vendor_id
+	!Se llama al procedure de auditoria XR
+	do registro-auditoria-XR-levanta
+	
+FROM PS_PYMNT_VCHR_XREF XR 
+WHERE XR.REMIT_SETID        = $vendor_setid
+  AND XR.REMIT_VENDOR       = $vendor_id
+  AND XR.PYMNT_SELCT_STATUS = 'N'
+  AND XR.PYMNT_HOLD         = 'Y'
+  AND XR.PYMNT_HOLD_REASON  = 'CAR' 
+  AND NOT EXISTS (SELECT 'X' FROM SYSADM.PS_ITEM VALX
+  WHERE VALX.CUST_ID = XR.REMIT_VENDOR
+  AND VALX.ITEM_STATUS='O'
+  AND VALX.DUE_DT <= SYSDATE
+  ! Inicio 024
+  AND VALX.ENTRY_TYPE NOT IN ('PEND','ANTIC'))
+  ! Fin 024
+end-select
+! Fin 019
+
+
+!Se actualiza a N
+
+begin-SQL on-error=SQL-Error
+UPDATE PS_PYMNT_VCHR_XREF A
+   SET A.PYMNT_HOLD           = 'N',
+       A.PYMNT_HOLD_REASON    = ' '
+WHERE A.REMIT_SETID        = $vendor_setid
+  AND A.REMIT_VENDOR       = $vendor_id
+  AND A.PYMNT_SELCT_STATUS = 'N'
+  AND A.PYMNT_HOLD         = 'Y'
+  AND A.PYMNT_HOLD_REASON  = 'CAR' 
+  !Inicio 018 
+  AND NOT EXISTS (SELECT 'X' FROM SYSADM.PS_ITEM VAL
+  WHERE VAL.CUST_ID = A.REMIT_VENDOR
+  AND VAL.ITEM_STATUS='O'
+  AND VAL.DUE_DT <= SYSDATE
+  ! Inicio 024
+  AND VAL.ENTRY_TYPE NOT IN ('PEND','ANTIC'))
+  ! Fin 024
+ !Fin 018 
+end-sql
+
+BEGIN-SQL
+COMMIT
+END-SQL
+end-procedure !unhold-vouchers-AP
+
+
+
+!**********************************************************************
+!----------------------------------------------------------------------!
+! Procedure : cnt-hold-AP
+!----------------------------------------------------------------------!
+begin-procedure cnt-hold-AP
+SHOW 'cnt-hold-AP ' 
+SHOW '		$vendor_setid: ' $vendor_setid
+SHOW '		$vendor_id: ' $vendor_id
+!Inicio 17
+let $hold     = 'N' 
+
+begin-select on-error=SQL-Error
+COUNT(*)                                      &CNT-HOLD
+SUM(A.PYMNT_GROSS_AMT -  A.DSCNT_PAY_AMT)     &VAL-HOLD	
+	
+    let #cnt-hold = &CNT-HOLD
+    let #val-hold = &VAL-HOLD
+	
+	SHOW '#cnt-hold : '#cnt-hold
+	IF #cnt-hold <> 0	
+		let $hold     = 'Y' 
+	END-IF
+!Fin 17	
+FROM PS_PYMNT_VCHR_XREF A
+WHERE A.PYMNT_HOLD           = 'Y'
+  AND A.PYMNT_HOLD_REASON    = 'CAR'
+  AND A.REMIT_SETID          = $vendor_setid
+  AND A.REMIT_VENDOR         = $vendor_id
+  AND A.PYMNT_SELCT_STATUS   = 'N'
+end-select
+end-procedure ! cnt-hold-AP
+
+!**********************************************************************
+!----------------------------------------------------------------------!
+! Get EcqueueInstance
+!----------------------------------------------------------------------!
+begin-procedure Get-EcqueueInstance
+display 'Get-EcqueueInstance'
+!Se obtiene la secuencia actual
+begin-select ON-ERROR = SQL-error
+AR_VOUCHER_SEQ_NUM
+
+  let #ecqinstance = &ar_voucher_seq_num 
+  display '#ecqinstance:' noline
+  display #ecqinstance
+  
+from PS_BUS_UNIT_TBL_AR
+where BUSINESS_UNIT = $select-business-unit
+end-select
+
+add 1 to #ecqinstance round=0
+ 
+!Se actualiza la secuencia
+begin-SQL on-error=SQL-Error
+UPDATE PS_BUS_UNIT_TBL_AR
+SET AR_VOUCHER_SEQ_NUM = #ecqinstance
+where BUSINESS_UNIT    = $select-business-unit
+end-sql
+end-procedure !  Get-EcqueueInstance
+
+!**********************************************************************
+!----------------------------------------------------------------------!
+! insert-voucher
+!----------------------------------------------------------------------!
+begin-procedure insert-voucher
+let $descr = ' '
+display 'insert-voucher'
+begin-select on-error=SQL-Error
+A.DESCR
+
+   let $descr = &A.DESCR
+
+FROM PS_CK_TYPE_INV_VW A
+WHERE A.BILL_TYPE_ID = $bill-type
+end-select
+
+begin-select on-error=SQL-Error
+A.DST_CNTRL_ID   &DST-CNTRL-ID
+
+  let $dst-cntrl-id = &DST-CNTRL-ID
+
+FROM PS_VENDOR_LOC A, PS_VENDOR B
+WHERE A.EFFDT =
+        (SELECT MAX(A_ED.EFFDT) FROM PS_VENDOR_LOC A_ED
+        WHERE A.SETID = A_ED.SETID
+          AND A.VENDOR_ID = A_ED.VENDOR_ID
+          AND A.VNDR_LOC = A_ED.VNDR_LOC
+          AND A_ED.EFFDT <= SYSDATE)
+     AND A.SETID     = $vendor_setid
+     AND A.VENDOR_ID = $vendor_id
+     AND A.SETID     = B.SETID
+     AND A.VENDOR_ID = B.VENDOR_ID
+     AND A.VNDR_LOC  = B.DEFAULT_LOC 
+end-select
+
+let #existe-bus-unit-po = 0
+begin-select
+A.BUSINESS_UNIT    &BUSINESS-UNIT-AR
+
+  let #existe-bus-unit-po = 1
+  let $business-unit-po   = $business-unit
+  
+FROM PS_BUS_UNIT_TBL_PM A
+WHERE A.BUSINESS_UNIT = $business-unit
+end-select
+
+if #existe-bus-unit-po = 0
+  let $business-unit-po   = 'AKB68'
+  show 'existe bus unit po ' $business-unit-po
+end-if
+
+show 'contenido invoice id' $invoice_id
+
+begin-SQL on-error=SQL-Error
+INSERT INTO PS_VCHR_HDR_STG ( BUSINESS_UNIT 
+ , VCHR_BLD_KEY_C1 
+ , VCHR_BLD_KEY_C2 
+ , VCHR_BLD_KEY_N1 
+ , VCHR_BLD_KEY_N2 
+ , VOUCHER_ID 
+ , VOUCHER_STYLE 
+ , INVOICE_ID 
+ , INVOICE_DT 
+ , VENDOR_SETID 
+ , VENDOR_ID 
+ , VNDR_LOC 
+ , ADDRESS_SEQ_NUM 
+ , GRP_AP_ID 
+ , ORIGIN 
+ , OPRID 
+ , ACCOUNTING_DT 
+ , POST_VOUCHER 
+ , DST_CNTRL_ID 
+ , VOUCHER_ID_RELATED 
+ , GROSS_AMT 
+ , DSCNT_AMT 
+ , TAX_EXEMPT 
+ , SALETX_AMT 
+ , FREIGHT_AMT 
+ , MISC_AMT 
+ , PYMNT_TERMS_CD 
+ , TXN_CURRENCY_CD 
+ , RT_TYPE 
+ , RATE_MULT 
+ , RATE_DIV 
+ , VAT_ENTRD_AMT 
+ , MATCH_ACTION 
+ , CUR_RT_SOURCE 
+ , DSCNT_AMT_FLG 
+ , DUE_DT_FLG 
+ , VCHR_APPRVL_FLG 
+ , BUSPROCNAME 
+ , APPR_RULE_SET 
+ , VAT_DCLRTN_POINT 
+ , VAT_CALC_TYPE 
+ , VAT_CALC_GROSS_NET 
+ , VAT_RECALC_FLG 
+ , VAT_CALC_FRGHT_FLG 
+ , VAT_TREATMENT_GRP 
+ , COUNTRY_SHIP_FROM 
+ , STATE_SHIP_FROM 
+ , COUNTRY_SHIP_TO 
+ , STATE_SHIP_TO 
+ , COUNTRY_VAT_BILLFR 
+ , COUNTRY_VAT_BILLTO 
+ , VAT_EXCPTN_CERTIF 
+ , VAT_ROUND_RULE 
+ , COUNTRY_LOC_SELLER 
+ , STATE_LOC_SELLER 
+ , COUNTRY_LOC_BUYER 
+ , STATE_LOC_BUYER 
+ , COUNTRY_VAT_SUPPLY 
+ , STATE_VAT_SUPPLY 
+ , COUNTRY_VAT_PERFRM 
+ , STATE_VAT_PERFRM 
+ , STATE_VAT_DEFAULT 
+ , PREPAID_REF 
+ , PREPAID_AUTO_APPLY 
+ , DESCR254_MIXED 
+ , EIN_FEDERAL 
+ , EIN_STATE_LOCAL 
+ , PROCESS_INSTANCE 
+ , IN_PROCESS_FLG 
+ , BUSINESS_UNIT_PO 
+ , PO_ID 
+ , PACKSLIP_NO 
+ , PAY_TRM_BSE_DT_OPT 
+ , VAT_CALC_MISC_FLG 
+ , IMAGE_REF_ID 
+ , PAY_SCHEDULE_TYPE 
+ , TAX_GRP 
+ , TAX_PYMNT_TYPE 
+ , BILL_OF_LADING 
+ , CARRIER_ID 
+ , DOC_TYPE 
+ , DSCNT_PRORATE_FLG 
+ , ECQUEUEINSTANCE 
+ , ECTRANSID 
+ , FRGHT_CHARGE_CODE 
+ , LC_ID 
+ , MISC_CHARGE_CODE 
+ , REMIT_ADDR_SEQ_NUM 
+ , SALETX_CHARGE_CODE 
+ , VCHR_BLD_CODE 
+ , BUSINESS_UNIT_AR 
+ , CUST_ID 
+ , ITEM 
+ , ITEM_LINE 
+ , VCHR_SRC 
+ , VAT_EXCPTN_TYPE 
+ , USER_VCHR_CHAR1 
+ , USER_VCHR_CHAR2 
+ , USER_VCHR_DEC 
+ , USER_VCHR_NUM1 
+ , USER_HDR_CHAR1 
+ , LS_KEY 
+ , ERS_INV_SEQ
+ !inicio 007
+ ,DUE_DT)
+ !fin 007
+VALUES
+($business-unit-ap 
+ , 'BILL' 
+ , $business-unit
+ , #ecqinstance
+ , 0 
+ , $voucher_id
+ , ' ' 
+ , $invoice_id
+ , TO_DATE($TODAY,'DD-MM-YYYY')
+ , $vendor_setid
+ , $vendor_id
+ , ' ' 
+ , 0 
+ , ' ' 
+ , $origin-ap
+ , $prcs_oprid
+ , TO_DATE($TODAY,'DD-MM-YYYY')
+ , 'D' 
+ , ' ' 
+ , ' ' 
+ , #gross_amt*-1
+ , 0 
+ , ' ' 
+ , 0 
+ , 0 
+ , 0 
+ , '1D'
+ , $txn_currency_cd 
+ , $cur_rt_type 
+ , #rate_mult
+ , #rate_div
+ , 0 
+ , 'N' 
+ , 'T' 
+ , 'T' 
+ ,$due-dt-flg !007
+ , 'P' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ ,$descr
+ , ' ' 
+ , ' ' 
+ , #prcs_process_instance
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , 'APCRUCE'
+ , ' ' 
+ , #ecqinstance
+ , $ectransid
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , 0 
+ , ' ' 
+ , ' ' 
+ , $business-unit
+ , $cust-id
+ , $item
+ , #item-line
+ , 'BILL' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , 0 
+ , 0 
+ , ' ' 
+ , 0 
+ , 0
+ !inicio 007
+ ,TO_DATE($TODAY,'DD-MM-YYYY'))
+ !fin007
+end-SQL
+
+end-procedure !Insert-Voucher
+
+!**********************************************************************
+!----------------------------------------------------------------------!
+! insert-voucher-line
+!----------------------------------------------------------------------!
+begin-procedure Insert-Voucher-Line
+display 'insert-voucher-line'
+begin-SQL on-error=SQL-Error
+INSERT INTO PS_VCHR_LINE_STG (
+BUSINESS_UNIT 
+ , VCHR_BLD_KEY_C1 
+ , VCHR_BLD_KEY_C2 
+ , VCHR_BLD_KEY_N1 
+ , VCHR_BLD_KEY_N2 
+ , VOUCHER_ID 
+ , VOUCHER_LINE_NUM 
+ , BUSINESS_UNIT_PO 
+ , PO_ID 
+ , LINE_NBR 
+ , SCHED_NBR 
+ , DESCR 
+ , MERCHANDISE_AMT 
+ , ITM_SETID 
+ , INV_ITEM_ID 
+ , QTY_VCHR 
+ , STATISTIC_AMOUNT 
+ , UNIT_OF_MEASURE 
+ , UNIT_PRICE 
+ , DSCNT_APPL_FLG 
+ , TAX_CD_VAT 
+ , BUSINESS_UNIT_RECV 
+ , RECEIVER_ID 
+ , RECV_LN_NBR 
+ , RECV_SHIP_SEQ_NBR 
+ , MATCH_LINE_OPT 
+ , DISTRIB_MTHD_FLG 
+ , SHIPTO_ID 
+ , SUT_BASE_ID 
+ , TAX_CD_SUT 
+ , ULTIMATE_USE_CD 
+ , SUT_EXCPTN_TYPE 
+ , SUT_EXCPTN_CERTIF 
+ , SUT_APPLICABILITY 
+ , VAT_APPLICABILITY 
+ , VAT_TXN_TYPE_CD 
+ , VAT_USE_ID 
+ , ADDR_SEQ_NUM_SHIP 
+ , BUS_UNIT_RELATED 
+ , VOUCHER_ID_RELATED 
+ , VENDOR_ID 
+ , VNDR_LOC 
+ , DESCR254_MIXED 
+ , SPEEDCHART_KEY 
+ , BUSINESS_UNIT_GL 
+ , ACCOUNT 
+ , ALTACCT 
+, OPERATING_UNIT         
+, PRODUCT                
+, FUND_CODE              
+, CLASS_FLD              
+, PROGRAM_CODE           
+, BUDGET_REF             
+, AFFILIATE              
+, AFFILIATE_INTRA1       
+, AFFILIATE_INTRA2       
+, CHARTFIELD1            
+, CHARTFIELD2            
+, CHARTFIELD3            
+ , DEPTID 
+ , PROJECT_ID 
+, BUSINESS_UNIT_PC       
+, ACTIVITY_ID            
+, ANALYSIS_TYPE          
+, RESOURCE_TYPE          
+, RESOURCE_CATEGORY      
+, RESOURCE_SUB_CAT       
+ , ECQUEUEINSTANCE 
+ , ECTRANSID 
+ , TAX_DSCNT_FLG 
+ , TAX_FRGHT_FLG 
+ , TAX_MISC_FLG 
+ , TAX_VAT_FLG 
+ , PHYSICAL_NATURE 
+ , VAT_RCRD_INPT_FLG 
+ , VAT_RCRD_OUTPT_FLG 
+ , VAT_TREATMENT 
+ , VAT_SVC_SUPPLY_FLG 
+ , VAT_SERVICE_TYPE 
+ , COUNTRY_LOC_BUYER 
+ , STATE_LOC_BUYER 
+ , COUNTRY_LOC_SELLER 
+ , STATE_LOC_SELLER 
+ , COUNTRY_VAT_SUPPLY 
+ , STATE_VAT_SUPPLY 
+ , COUNTRY_VAT_PERFRM 
+ , STATE_VAT_PERFRM 
+ , STATE_SHIP_FROM 
+ , STATE_VAT_DEFAULT 
+ , REQUESTOR_ID 
+ , VAT_ENTRD_AMT 
+ , VAT_RECEIPT 
+ , VAT_RGSTRN_SELLER 
+ , USER_VCHR_CHAR1 
+ , USER_VCHR_CHAR2 
+ , USER_VCHR_DEC 
+ , USER_VCHR_NUM1 
+ , USER_LINE_CHAR1 
+ , USER_SCHED_CHAR1 
+ , WTHD_SW 
+ , WTHD_CD 
+ , MFG_ID)
+VALUES
+($business-unit-ap
+ , 'BILL' 
+ , $business-unit
+ , #ecqinstance
+ , 0 
+ , $voucher_id 
+ , 1
+ , $business-unit-po
+ , ' ' 
+ , 1 
+ , 0 
+ , 'Cruce AR-AP '
+ , #gross_amt*-1 
+ , ' ' 
+ , ' ' 
+ , 0 
+ , 0 
+ , ' ' 
+ , 0 
+ , ' ' 
+ , 'EXC' 
+ , ' ' 
+ , ' ' 
+ , 0 
+ , 0 
+ , 'N' 
+ , 'A' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , 'COMP' 
+ , 'IMPONB' 
+ , 0 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , $account
+!Inicio 005
+! ,' ' 
+ , $altacct
+!Fin 005
+, ' '       
+,  $product                
+,  ' '           
+, ' '             
+, ' '             
+, ' '             
+,  $affiliate       
+, ' '             
+, ' '             
+, ' '             
+, ' '             
+, ' '             
+ , $deptid
+ , $project-id
+, ' '             
+, ' '             
+, ' '             
+, ' '             
+, ' '             
+, ' '             
+ , #ecqinstance
+ ,$ectransid
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , 0 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , 0 
+ , 0 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' )
+end-SQL
+end-procedure ! Insert-Voucher-Line
+
+!**********************************************************************
+!----------------------------------------------------------------------!
+!  Insert Distrib Line
+!----------------------------------------------------------------------!
+begin-procedure Insert-Distrib-Line
+display 'insert-distrib-line'
+begin-SQL on-error=SQL-Error
+INSERT INTO PS_VCHR_DIST_STG ( BUSINESS_UNIT 
+ , VCHR_BLD_KEY_C1 
+ , VCHR_BLD_KEY_C2 
+ , VCHR_BLD_KEY_N1 
+ , VCHR_BLD_KEY_N2 
+ , VOUCHER_ID 
+ , VOUCHER_LINE_NUM 
+ , DISTRIB_LINE_NUM 
+ , BUSINESS_UNIT_GL 
+ , ACCOUNT 
+ , ALTACCT 
+ , DEPTID 
+ , STATISTICS_CODE 
+ , STATISTIC_AMOUNT 
+ , QTY_VCHR 
+ , DESCR 
+ , MERCHANDISE_AMT 
+ , BUSINESS_UNIT_PO 
+ , PO_ID 
+ , LINE_NBR 
+ , SCHED_NBR 
+ , PO_DIST_LINE_NUM 
+ , BUSINESS_UNIT_PC 
+ , ACTIVITY_ID 
+ , ANALYSIS_TYPE 
+ , RESOURCE_TYPE 
+ , RESOURCE_CATEGORY 
+ , RESOURCE_SUB_CAT 
+ , ASSET_FLG 
+ , BUSINESS_UNIT_AM 
+ , ASSET_ID 
+ , PROFILE_ID 
+ , COST_TYPE 
+ , VAT_TXN_TYPE_CD 
+ , BUSINESS_UNIT_RECV 
+ , RECEIVER_ID 
+ , RECV_LN_NBR 
+ , RECV_SHIP_SEQ_NBR 
+ , RECV_DIST_LINE_NUM 
+, OPERATING_UNIT
+, PRODUCT
+, FUND_CODE
+, CLASS_FLD
+, PROGRAM_CODE
+, BUDGET_REF
+, AFFILIATE
+, AFFILIATE_INTRA1
+, AFFILIATE_INTRA2
+, CHARTFIELD1
+, CHARTFIELD2
+, CHARTFIELD3
+ , PROJECT_ID 
+ , ENTRY_EVENT 
+ , ECQUEUEINSTANCE 
+ , ECTRANSID 
+ , JRNL_LN_REF 
+ , VAT_APORT_CNTRL 
+ , USER_VCHR_CHAR1 
+ , USER_VCHR_CHAR2 
+ , USER_VCHR_DEC 
+ , USER_VCHR_NUM1 
+ , USER_DIST_CHAR1 
+ , OPEN_ITEM_KEY 
+ , VAT_RECOVERY_PCT 
+ , VAT_REBATE_PCT 
+ , VAT_CALC_AMT 
+ , VAT_BASIS_AMT 
+ , VAT_RCVRY_AMT 
+ , VAT_NRCVR_AMT 
+ , VAT_REBATE_AMT 
+ , VAT_TRANS_AMT 
+ , TAX_CD_VAT_PCT 
+ , VAT_INV_AMT 
+ , VAT_NONINV_AMT 
+ , BUSINESS_UNIT_WO 
+ , WO_ID 
+ , WO_TASK_ID 
+ , RSRC_TYPE 
+ , RES_LN_NBR )
+VALUES
+($business-unit-ap
+ , 'BILL' 
+, $business-unit
+ , #ecqinstance
+ , 0 
+ , $voucher_id
+ , 1
+ , 1 
+ , ' ' 
+ , $account
+!Inicio 005
+! , ' '
+ , $altacct
+!Fin 005
+ , $deptid
+ , ' ' 
+ , 0 
+ , 0 
+ , 'Cruce AR-AP '
+ , #gross_amt*-1
+ , $business-unit-po
+ , ' ' 
+ , 0 
+ , 0 
+ , 0 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , 0 
+ , 0 
+ , 0 
+ , ' ' 
+, $product
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+, $affiliate
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , $project-id
+ , ' ' 
+ , #ecqinstance
+ , $ectransid
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , ' ' 
+ , 0 
+ , 0 
+ , ' ' 
+ , ' ' 
+ , 0 
+ , 0 
+ , 0 
+ , 0 
+ , 0 
+ , 0 
+ , 0 
+ , 0 
+ , 0 
+ , 0 
+ , 0 
+ , ' ' 
+ , ' ' 
+ , 0 
+ , ' ' 
+ , 0 )
+end-SQL
+end-procedure !Insert-Distrib-Line
+
+!**********************************************************************
+!----------------------------------------------------------------------
+! Procedure: create-worksheet
+! Descr: Crear hoja de trabajo para la devolución
+!----------------------------------------------------------------------
+begin-procedure create-worksheet
+display 'create-worksheet'
+display 'delete ws_item'
+begin-SQL on-error=SQL-Error
+delete from ps_ws_item
+where ws_bu = $select-business-unit
+  and ws_id = $group-id
+  and item_selected = 'N'
+end-sql
+
+display 'insert ws_id_cust'
+begin-SQL on-error=SQL-Error
+INSERT INTO PS_WS_ID_CUST
+(WS_BU,
+WS_ID,
+ID_SEQ_NUM,
+BUSINESS_UNIT,
+CUST_ID,
+NAME1,
+CITY,
+POSTAL,
+REMIT_FROM_SETID,
+REMIT_FROM_CUST_ID,
+CORPORATE_SETID,
+CORPORATE_CUST_ID,
+MICR_ID,
+SUBCUST_QUAL1,
+SUBCUST_QUAL2)
+select
+$select-business-unit,
+$group-id,
+1,
+$select-business-unit,
+$cust-id,
+B.NAME1,
+' ',
+' ',
+B.REMIT_FROM_SETID,
+B.REMIT_FROM_CUST_ID,
+B.CORPORATE_SETID,
+B.CORPORATE_CUST_ID,
+' ',
+$subcust-qual1,
+$subcust-qual2
+from ps_customer B
+where B.SETID       = $customer-setid
+and   B.CUST_ID     = $cust-id
+and   B.CUST_STATUS = 'A'
+end-sql
+
+display 'insert ws_control'
+begin-SQL on-error=SQL-Error
+INSERT INTO PS_WS_CONTROL
+(
+WS_BU
+, WS_ID
+, OPRID
+, ASSN_OPRID
+, BUSINESS_UNIT
+, GROUP_TYPE
+, BAL_STATUS
+, EDIT_STATUS
+, POST_STATUS
+, POST_ACTION
+, CONTROL_AMT
+, CONTROL_CNT
+, ENTERED_AMT
+, ENTERED_CNT
+, POSTED_TOTAL
+, POSTED_COUNT
+, GROUP_SEQ_NUM
+, ORIGIN_ID
+, RECEIVED_DT
+, ENTRY_DT
+, POST_DT
+, ACCOUNTING_DT
+, PROCESS_INSTANCE
+, DST_BAL_STATUS
+, ALLOW_DST
+, CREATE_DST_BATCH
+, SEL_CUST_ID
+, SEL_PO
+, SEL_REMIT
+, SEL_CORP_ACCT
+, SEL_MICR
+, SEL_OPEN_ITEM
+, SEL_DOCUMENT
+, SEL_REF_RANGE
+, ID_SEQ_CUST
+, ID_SEQ_ITEM
+, WS_COUNT
+, WS_DTTM
+, WS_REF_MATCH_TYPE
+, ENTRY_USE_ID
+, ENTRY_TYPE
+, ENTRY_REASON
+, REQUIRE_REASON
+, WS_TOTAL_DR
+, WS_TOTAL_CR
+, WS_TOTAL_WO
+, WS_TOTAL_REF
+, WS_TOTAL_ADJ
+, WS_NET
+, POST_ACTION_DELETE
+, POST_ACTION_GLDIST
+, CURRENCY_CD
+, CURRENCY_CD_BASE
+, BUSINESS_UNIT_GL
+, CUST_ID
+, WS_DISTRIB_STATUS
+, DOC_TYPE
+, DOC_SEQ_NBR
+, DOC_SEQ_DATE
+, DOC_SEQ_STATUS
+, RT_TYPE
+, WS_REASON
+, ANCHOR_BU
+, BALANCING_CURRENCY
+, DST_ID_MAINT_CTL
+, ITEM_IN_EXCLUSION
+, EXCLUDE_COLLECTION
+, EXCLUDE_DEDUCTIONS
+, EXCLUDE_DISPUTES
+, ACCOUNTING_DT_TO
+, ACCOUNTING_DT_FROM
+, AR_SPECIALIST
+, BROKER_ID
+, DEDUCTION_STATUS
+, OPRID_APPROVED_BY
+)
+VALUES
+(
+$select-business-unit,
+$group-id,
+$opr-ar,
+$opr-ar,
+$select-business-unit,
+$group-type,
+'O',
+'E',
+'N',
+'L',
+0,
+0,
+0,
+0,
+0,
+0,
+0,
+'PS_AR',
+TO_DATE($TODAY,'DD-MM-YYYY'),
+TO_DATE($TODAY,'DD-MM-YYYY'),
+NULL,
+TO_DATE($TODAY,'DD-MM-YYYY'),
+0,
+'O',
+'N',
+'Y',
+'Y',
+'N',
+'N',
+'N',
+'N',
+'N',
+'N',
+'N',
+1,
+0,
+1,
+SYSDATE,
+'E',
+' ',
+' ',
+' ',
+' ',
+0,
+0,
+0,
+0,
+0,
+0,
+'A',
+'A',
+$txn_currency_cd,
+$base-currency,
+$business-unit-gl,
+$cust-id,
+'N',
+$doc-type,
+$DOC_SEQ_NBR,
+$DOC_SEQ_DATE,
+' ',
+$bu-cur-rt-type,
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+NULL,
+NULL,
+' ',
+' ',
+' ',
+' '
+)
+end-sql
+
+!Inicio 010
+if $entry-type = 'DEVOL'
+display 'insert ck_ws_control'
+begin-SQL on-error=SQL-Error
+INSERT INTO PS_CK_WS_CONTROL
+(
+WS_BU
+, WS_ID
+, OPRID2
+, DESCR254_MIXED
+)
+VALUES
+(
+$select-business-unit,
+$group-id,
+$opr-ar,
+'Devoluciones AR-AP'
+)
+end-sql
+end-if
+!Fin 010
+
+display 'insert ws_item_tmp'
+begin-SQL on-error=SQL-Error
+INSERT INTO PS_WS_ITEM_TMP
+(
+WS_BU,
+WS_ID,
+SUB_GROUP_ID,
+BUSINESS_UNIT,
+CUST_ID,
+ITEM,
+ITEM_LINE,
+WS_SEQ,
+ITEM_SELECTED,
+ENTRY_USE_ID,
+ENTRY_TYPE,
+ENTRY_REASON,
+ENTRY_EVENT,
+REF_REASON,
+REQUIRE_REASON,
+BAL_AMT,
+ACCOUNTING_DT,
+ASOF_DT,
+DUE_DT,
+PO_REF,
+DOCUMENT,
+DOCUMENT_LINE,
+DST_ID_AR,
+BILL_OF_LADING,
+SUBCUST_QUAL1,
+SUBCUST_QUAL2,
+BAL_CURRENCY,
+RATE_MULT,
+RATE_DIV,
+RT_TYPE,
+BAL_AMT_BASE,
+CURRENCY_CD,
+PYMNT_TERMS_CD,
+ITEM_ACCTG_DT,
+ITEM_ENTRY_TYPE,
+ITEM_ENTRY_REASON,
+AMT_REM,
+BUSINESS_UNIT_GL,
+DISC_DT,
+MATCH_SEQ,
+REAL_GAIN_LOSS,
+RATE_MULT_ORIG,
+RATE_DIV_ORIG,
+DST_ID_REAL,
+SETID,
+AMT_SEL,
+ITEM_AMT,
+ITEM_AMT_BASE,
+ITEM_MTCH,
+ITEM_LINE_MTCH,
+ORDER_NO,
+CONTRACT_NUM,
+ITEM_ENTRY_USE,
+VAT_ENTITY,
+VAT_CALC_GROSS_NET,
+VAT_EXCPTN_TYPE,
+VAT_EXCPTN_CERTIF,
+VAT_DCLRTN_POINT,
+VAT_RECALC_FLG,
+COUNTRY_VAT_BILLFR,
+COUNTRY_VAT_BILLTO,
+COUNTRY_SHIP_TO,
+COUNTRY_SHIP_FROM,
+VAT_TREATMENT_GRP,
+VAT_RGSTRN_BUYER,
+VAT_DST_ACCT_TYPE,
+VAT_ROUND_RULE,
+CONSOL_BUS_UNIT,
+CONSOL_INVOICE,
+PAYMENT_METHOD,
+DRAFT_BU,
+DRAFT_ID,
+DRAFT_APPROVAL,
+DRAFT_DOC,
+DRAFT_CURRENCY,
+DRAFT_FORMAT,
+DD_BU,
+DD_ID,
+DD_STATUS,
+DD_PROFILE_ID,
+DD_CURRENCY,
+DD_AMT,
+DD_AMT_BASE,
+DRAFT_TYPE,
+DRAFT_AMT_BASE,
+BANK_SETID,
+BANK_CD,
+BANK_ACCT_KEY,
+DOUBTFUL,
+SALES_PERSON,
+SALES_PERSON2,
+REGION_CD,
+REVALUE_FLAG,
+DRAFT_BUSN_EVENT,
+DRAFT_SUB_EVENT,
+PACKSLIP_NO,
+SBI_NUM,
+LC_ID,
+VAT_ADVPAY_FLG,
+CONTROL_AMT,
+CONTROL_AMT_BASE,
+DST_ID_MAINT_CTL,
+MRL_STATUS,
+MRL_TAX_AMT,
+CONTROL_CURRENCY,
+CONTROL_CURR_BASE,
+CONTROL_RATE_MULT,
+CONTROL_RATE_DIV,
+CONTROL_RT_TYPE,
+PPRC_PROMO_CD,
+CLAIM_NO,
+AR_SPECIALIST,
+BROKER_ID,
+CARRIER_ID,
+CLAIM_DT,
+CLASS_OF_TRADE,
+DEDUCTION_STATUS,
+DEDUCTION_DT,
+DIVISION,
+DT_INVOICED,
+INV_PROD_FAM_CD,
+INVOICE,
+INVOICE_BU,
+MAJOR_CLASS,
+MEMO_STATUS_CD,
+MERCH_TYPE,
+PROOF_OF_DELIVERY,
+SHIP_FROM_BU,
+SHIP_TO_ADDR_NUM,
+SHIP_TO_CUST_ID,
+SOLD_TO_ADDR_NUM,
+SOLD_TO_CUST_ID,
+DISPUTE_STATUS,
+COLLECTION_STATUS,
+PHYSICAL_NATURE,
+COUNTRY_LOC_BUYER,
+STATE_LOC_BUYER,
+COUNTRY_LOC_SELLER,
+STATE_LOC_SELLER,
+VAT_SVC_SUPPLY_FLG,
+VAT_SERVICE_TYPE,
+COUNTRY_VAT_PERFRM,
+STATE_VAT_PERFRM,
+COUNTRY_VAT_SUPPLY,
+STATE_VAT_SUPPLY,
+STATE_SHIP_FROM,
+STATE_SHIP_TO,
+VAT_RPT_CNTRY_SRC,
+STATE_VAT_DEFAULT,
+BUSINESS_UNIT_BI,
+CONVERS_EXISTS,
+ADDRESS_SEQ_NUM,
+AG_REF_NBR
+)
+SELECT DISTINCT
+x.ws_bu,
+x.ws_id,
+0,
+O.BUSINESS_UNIT,
+O.CUST_ID,
+O.ITEM,
+O.ITEM_LINE,
+0,
+'N',
+'MT-01',
+O.ENTRY_TYPE,
+O.ENTRY_REASON,
+O.ENTRY_EVENT,
+O.REF_REASON,
+' ', 
+O.BAL_AMT,
+O.ACCOUNTING_DT,
+O.ASOF_DT,
+O.DUE_DT,
+O.PO_REF,
+O.DOCUMENT,
+O.DOCUMENT_LINE,
+O.DST_ID_AR,
+O.BILL_OF_LADING,
+O.SUBCUST_QUAL1,
+O.SUBCUST_QUAL2,
+O.BAL_CURRENCY,
+O.RATE_MULT,
+O.RATE_DIV,
+O.RT_TYPE,
+O.BAL_AMT_BASE,
+O.CURRENCY_CD,
+O.PYMNT_TERMS_CD,
+O.accounting_dt,
+O.entry_type,
+O.entry_reason,
+0,
+z.business_unit_gl,
+O.DISC_DT,
+' ',
+0,
+1,
+1,
+' ',
+' ',
+0,
+(O.BAL_AMT*-1),
+(O.BAL_AMT_BASE*-1),
+' ',
+0,
+O.ORDER_NO,
+O.CONTRACT_NUM,
+'N',
+O.VAT_ENTITY,
+O.VAT_CALC_GROSS_NET,
+O.VAT_EXCPTN_TYPE,
+O.VAT_EXCPTN_CERTIF,
+O.VAT_DCLRTN_POINT,
+O.VAT_RECALC_FLG,
+O.COUNTRY_VAT_BILLFR,
+O.COUNTRY_VAT_BILLTO,
+O.COUNTRY_SHIP_TO,
+O.COUNTRY_SHIP_FROM,
+O.VAT_TREATMENT_GRP,
+O.VAT_RGSTRN_BUYER,
+' ',
+O.VAT_ROUND_RULE,
+O.CONSOL_BUS_UNIT,
+O.CONSOL_INVOICE,
+O.PAYMENT_METHOD,
+O.DRAFT_BU,
+O.DRAFT_ID,
+O.DRAFT_APPROVAL,
+O.DRAFT_DOC,
+O.DRAFT_CURRENCY,
+O.DRAFT_FORMAT,
+O.DD_BU,
+O.DD_ID,
+O.DD_STATUS,
+O.DD_PROFILE_ID,
+O.DD_CURRENCY,
+0,
+0,
+O.DRAFT_TYPE,
+0,
+O.BANK_SETID,
+O.BANK_CD,
+O.BANK_ACCT_KEY,
+O.DOUBTFUL,
+O.SALES_PERSON,
+O.SALES_PERSON2,
+O.REGION_CD,
+O.REVALUE_FLAG,
+O.DRAFT_BUSN_EVENT,
+O.DRAFT_SUB_EVENT,
+O.PACKSLIP_NO,
+O.SBI_NUM,
+O.LC_ID,
+' ',
+(O.BAL_AMT*-1),
+(O.BAL_AMT_BASE*-1),
+' ',
+' ',
+0,
+'COP',
+'COP',
+1,
+1,
+'TRM',
+O.PPRC_PROMO_CD,
+O.CLAIM_NO,
+O.AR_SPECIALIST,
+O.BROKER_ID,
+O.CARRIER_ID,
+O.CLAIM_DT,
+O.CLASS_OF_TRADE,
+O.DEDUCTION_STATUS,
+O.DEDUCTION_DT,
+O.DIVISION,
+O.DT_INVOICED,
+O.INV_PROD_FAM_CD,
+O.INVOICE,
+O.INVOICE_BU,
+O.MAJOR_CLASS,
+O.MEMO_STATUS_CD,
+O.MERCH_TYPE,
+O.PROOF_OF_DELIVERY,
+O.SHIP_FROM_BU,
+O.SHIP_TO_ADDR_NUM,
+O.SHIP_TO_CUST_ID,
+O.SOLD_TO_ADDR_NUM,
+O.SOLD_TO_CUST_ID,
+O.DISPUTE_STATUS,
+O.COLLECTION_STATUS,
+O.PHYSICAL_NATURE,
+O.COUNTRY_LOC_BUYER,
+O.STATE_LOC_BUYER,
+O.COUNTRY_LOC_SELLER,
+O.STATE_LOC_SELLER,
+O.VAT_SVC_SUPPLY_FLG,
+O.VAT_SERVICE_TYPE,
+O.COUNTRY_VAT_PERFRM,
+O.STATE_VAT_PERFRM,
+O.COUNTRY_VAT_SUPPLY,
+O.STATE_VAT_SUPPLY,
+O.STATE_SHIP_FROM,
+O.STATE_SHIP_TO,
+O.VAT_RPT_CNTRY_SRC,
+O.STATE_VAT_DEFAULT,
+O.BUSINESS_UNIT_BI,
+O.CONVERS_EXISTS,
+O.ADDRESS_SEQ_NUM,
+O.AG_REF_NBR
+from ps_item o, ps_customer C, ps_ws_id_cust X, PS_BUS_UNIT_TBL_AR Z
+where C.SETID = ( SELECT setid from ps_set_cntrl_rec where setcntrlvalue = o.business_unit and recname = 'CUSTOMER' ) 
+  AND Z.BUSINESS_UNIT = O.BUSINESS_UNIT
+  AND C.CUST_ID       = O.CUST_ID 
+  AND X.WS_BU         = $select-business-unit
+  AND x.WS_ID         = $group-id
+  and O.item_status   <> 'C'
+  and O.draft_status not in ('A','E','P','R')
+  and o.dd_status not in ('A', 'R', 'P')
+  AND X.CUST_ID <> ' '
+  AND O.CUST_ID = X.CUST_ID
+  AND X.SUBCUST_QUAL1 = O.SUBCUST_QUAL1
+  and X.SUBCUST_QUAL2 = O.SUBCUST_QUAL2
+  AND ( X.BUSINESS_UNIT = ' ' OR ( X.BUSINESS_UNIT <> ' ' AND O.BUSINESS_UNIT = X.BUSINESS_UNIT))
+end-sql
+
+!Inicio 010
+if $entry-type = 'DEVOL'
+ Do Read-CK_WS_ITEM_TMP
+end-if
+!Fin 010
+
+display 'delete ws_item_tmp'
+begin-SQL on-error=SQL-Error
+DELETE FROM PS_WS_ITEM_TMP
+WHERE WS_BU = $select-business-unit
+AND WS_ID   = $group-id
+AND EXISTS (SELECT 'X' FROM PS_WS_ITEM
+WHERE WS_BU         = PS_WS_ITEM_TMP.WS_BU 
+  AND WS_ID         = PS_WS_ITEM_TMP.WS_ID
+  AND BUSINESS_UNIT = PS_WS_ITEM_TMP.BUSINESS_UNIT
+  AND CUST_ID       = PS_WS_ITEM_TMP.CUST_ID
+  AND ITEM          = PS_WS_ITEM_TMP.ITEM
+  AND ITEM_LINE     = PS_WS_ITEM_TMP.ITEM_LINE) 
+end-sql
+
+display 'insert ws_item'
+begin-SQL on-error=SQL-Error
+INSERT INTO PS_WS_ITEM
+(WS_BU
+, WS_ID
+, SUB_GROUP_ID
+, BUSINESS_UNIT
+, CUST_ID
+, ITEM
+, ITEM_LINE
+, WS_SEQ
+, ITEM_SELECTED
+, ENTRY_USE_ID
+, ENTRY_TYPE
+, ENTRY_REASON
+, ENTRY_EVENT
+, REF_REASON
+, REQUIRE_REASON
+, BAL_AMT
+, ACCOUNTING_DT
+, ASOF_DT
+, DUE_DT
+, PO_REF
+, DOCUMENT
+, DOCUMENT_LINE
+, DST_ID_AR
+, BILL_OF_LADING
+, SUBCUST_QUAL1
+, SUBCUST_QUAL2
+, BAL_CURRENCY
+, RT_TYPE
+, RATE_MULT
+, RATE_DIV
+, BAL_AMT_BASE
+, CURRENCY_CD
+, PYMNT_TERMS_CD
+, ITEM_ACCTG_DT
+, ITEM_ENTRY_TYPE
+, ITEM_ENTRY_REASON
+, AMT_REM
+, BUSINESS_UNIT_GL
+, DISC_DT
+, MATCH_SEQ
+, REAL_GAIN_LOSS
+, RATE_MULT_ORIG
+, RATE_DIV_ORIG
+, DST_ID_REAL
+, SETID
+, AMT_SEL
+, ITEM_AMT
+, ITEM_AMT_BASE
+, ITEM_MTCH
+, ITEM_LINE_MTCH
+, ORDER_NO
+, CONTRACT_NUM
+, ITEM_ENTRY_USE
+, VAT_ENTITY
+, VAT_CALC_GROSS_NET
+, VAT_EXCPTN_TYPE
+, VAT_EXCPTN_CERTIF
+, VAT_DCLRTN_POINT
+, VAT_RECALC_FLG
+, COUNTRY_VAT_BILLFR
+, COUNTRY_VAT_BILLTO
+, COUNTRY_SHIP_TO
+, COUNTRY_SHIP_FROM
+, VAT_TREATMENT_GRP
+, VAT_RGSTRN_BUYER
+, VAT_DST_ACCT_TYPE
+, VAT_ROUND_RULE
+, CONSOL_BUS_UNIT
+, CONSOL_INVOICE
+, PAYMENT_METHOD
+, DRAFT_BU
+, DRAFT_ID
+, DRAFT_APPROVAL
+, DRAFT_DOC
+, DRAFT_CURRENCY
+, DRAFT_FORMAT
+, DD_BU
+, DD_ID
+, DD_STATUS
+, DD_PROFILE_ID
+, DD_CURRENCY
+, DD_AMT
+, DD_AMT_BASE
+, DRAFT_TYPE
+, DRAFT_AMT_BASE
+, BANK_SETID
+, BANK_CD
+, BANK_ACCT_KEY
+, DOUBTFUL
+, SALES_PERSON
+, SALES_PERSON2
+, REGION_CD
+, REVALUE_FLAG
+, DRAFT_BUSN_EVENT
+, DRAFT_SUB_EVENT
+, PACKSLIP_NO
+, SBI_NUM
+, LC_ID
+, VAT_ADVPAY_FLG
+, CONTROL_AMT
+, CONTROL_AMT_BASE
+, DST_ID_MAINT_CTL
+, MRL_STATUS
+, MRL_TAX_AMT
+, CONTROL_CURRENCY
+, CONTROL_CURR_BASE
+, CONTROL_RATE_MULT
+, CONTROL_RATE_DIV
+, CONTROL_RT_TYPE
+, PPRC_PROMO_CD
+, CLAIM_NO
+, AR_SPECIALIST
+, BROKER_ID
+, CARRIER_ID
+, CLAIM_DT
+, CLASS_OF_TRADE
+, DEDUCTION_STATUS
+, DEDUCTION_DT
+, DIVISION
+, DT_INVOICED
+, INV_PROD_FAM_CD
+, INVOICE
+, INVOICE_BU
+, MAJOR_CLASS
+, MEMO_STATUS_CD
+, MERCH_TYPE
+, PROOF_OF_DELIVERY
+, SHIP_FROM_BU
+, SHIP_TO_ADDR_NUM
+, SHIP_TO_CUST_ID
+, SOLD_TO_ADDR_NUM
+, SOLD_TO_CUST_ID
+, DISPUTE_STATUS
+, COLLECTION_STATUS
+, PHYSICAL_NATURE
+, COUNTRY_LOC_BUYER
+, STATE_LOC_BUYER
+, COUNTRY_LOC_SELLER
+, STATE_LOC_SELLER
+, VAT_SVC_SUPPLY_FLG
+, VAT_SERVICE_TYPE
+, COUNTRY_VAT_PERFRM
+, STATE_VAT_PERFRM
+, COUNTRY_VAT_SUPPLY
+, STATE_VAT_SUPPLY
+, STATE_SHIP_FROM
+, STATE_SHIP_TO
+, VAT_RPT_CNTRY_SRC
+, STATE_VAT_DEFAULT
+, BUSINESS_UNIT_BI
+, CONVERS_EXISTS
+, ADDRESS_SEQ_NUM
+, AG_REF_NBR)
+SELECT DISTINCT 
+WS_BU
+, WS_ID
+, SUB_GROUP_ID
+, BUSINESS_UNIT
+, CUST_ID
+, ITEM
+, ITEM_LINE
+, WS_SEQ
+, ITEM_SELECTED
+, ENTRY_USE_ID
+, ENTRY_TYPE
+, ENTRY_REASON
+, ENTRY_EVENT
+, REF_REASON
+, REQUIRE_REASON
+, BAL_AMT
+, ACCOUNTING_DT
+, ASOF_DT
+, DUE_DT
+, PO_REF
+, DOCUMENT
+, DOCUMENT_LINE
+, DST_ID_AR
+, BILL_OF_LADING
+, SUBCUST_QUAL1
+, SUBCUST_QUAL2
+, BAL_CURRENCY
+, RT_TYPE
+, RATE_MULT
+, RATE_DIV
+, BAL_AMT_BASE
+, CURRENCY_CD
+, PYMNT_TERMS_CD
+, ITEM_ACCTG_DT
+, ITEM_ENTRY_TYPE
+, ITEM_ENTRY_REASON
+, AMT_REM
+, BUSINESS_UNIT_GL
+, DISC_DT
+, MATCH_SEQ
+, REAL_GAIN_LOSS
+, RATE_MULT_ORIG
+, RATE_DIV_ORIG
+, DST_ID_REAL
+, SETID
+, AMT_SEL
+, ITEM_AMT
+, ITEM_AMT_BASE
+, ITEM_MTCH
+, ITEM_LINE_MTCH
+, ORDER_NO
+, CONTRACT_NUM
+, ITEM_ENTRY_USE
+, VAT_ENTITY
+, VAT_CALC_GROSS_NET
+, VAT_EXCPTN_TYPE
+, VAT_EXCPTN_CERTIF
+, VAT_DCLRTN_POINT
+, VAT_RECALC_FLG
+, COUNTRY_VAT_BILLFR
+, COUNTRY_VAT_BILLTO
+, COUNTRY_SHIP_TO
+, COUNTRY_SHIP_FROM
+, VAT_TREATMENT_GRP
+, VAT_RGSTRN_BUYER
+, VAT_DST_ACCT_TYPE
+, VAT_ROUND_RULE
+, CONSOL_BUS_UNIT
+, CONSOL_INVOICE
+, PAYMENT_METHOD
+, DRAFT_BU
+, DRAFT_ID
+, DRAFT_APPROVAL
+, DRAFT_DOC
+, DRAFT_CURRENCY
+, DRAFT_FORMAT
+, DD_BU
+, DD_ID
+, DD_STATUS
+, DD_PROFILE_ID
+, DD_CURRENCY
+, DD_AMT
+, DD_AMT_BASE
+, DRAFT_TYPE
+, DRAFT_AMT_BASE
+, BANK_SETID
+, BANK_CD
+, BANK_ACCT_KEY
+, DOUBTFUL
+, SALES_PERSON
+, SALES_PERSON2
+, REGION_CD
+, REVALUE_FLAG
+, DRAFT_BUSN_EVENT
+, DRAFT_SUB_EVENT
+, PACKSLIP_NO
+, SBI_NUM
+, LC_ID
+, VAT_ADVPAY_FLG
+, CONTROL_AMT
+, CONTROL_AMT_BASE
+, DST_ID_MAINT_CTL
+, MRL_STATUS
+, MRL_TAX_AMT
+, CONTROL_CURRENCY
+, CONTROL_CURR_BASE
+, CONTROL_RATE_MULT
+, CONTROL_RATE_DIV
+, CONTROL_RT_TYPE
+, PPRC_PROMO_CD
+, CLAIM_NO
+, AR_SPECIALIST
+, BROKER_ID
+, CARRIER_ID
+, CLAIM_DT
+, CLASS_OF_TRADE
+, DEDUCTION_STATUS
+, DEDUCTION_DT
+, DIVISION
+, DT_INVOICED
+, INV_PROD_FAM_CD
+, INVOICE
+, INVOICE_BU
+, MAJOR_CLASS
+, MEMO_STATUS_CD
+, MERCH_TYPE
+, PROOF_OF_DELIVERY
+, SHIP_FROM_BU
+, SHIP_TO_ADDR_NUM
+, SHIP_TO_CUST_ID
+, SOLD_TO_ADDR_NUM
+, SOLD_TO_CUST_ID
+, DISPUTE_STATUS
+, COLLECTION_STATUS
+, PHYSICAL_NATURE
+, COUNTRY_LOC_BUYER
+, STATE_LOC_BUYER
+, COUNTRY_LOC_SELLER
+, STATE_LOC_SELLER
+, VAT_SVC_SUPPLY_FLG
+, VAT_SERVICE_TYPE
+, COUNTRY_VAT_PERFRM
+, STATE_VAT_PERFRM
+, COUNTRY_VAT_SUPPLY
+, STATE_VAT_SUPPLY
+, STATE_SHIP_FROM
+, STATE_SHIP_TO
+, VAT_RPT_CNTRY_SRC
+, STATE_VAT_DEFAULT
+, BUSINESS_UNIT_BI
+, CONVERS_EXISTS
+, ADDRESS_SEQ_NUM
+, AG_REF_NBR
+FROM PS_WS_ITEM_TMP
+WHERE WS_BU  = $select-business-unit 
+  AND WS_ID  = $group-id
+end-sql
+
+display 'delete ws_item_tmp'
+begin-SQL on-error=SQL-Error
+DELETE FROM PS_WS_ITEM_TMP
+WHERE WS_BU = $select-business-unit 
+  AND WS_ID = $group-id
+end-sql
+
+display 'select ws_item'
+begin-select ON-ERROR = SQL-error
+COUNT(*)     &WS-COUNT
+
+  let #ws-count    = &WS-COUNT
+  
+FROM PS_WS_ITEM
+WHERE WS_BU = $select-business-unit
+  AND WS_ID = $group-id
+end-select
+
+begin-select ON-ERROR = SQL-error
+COUNT(*)     &WS-CONTROL
+
+   let #ws-control = &WS-CONTROL
+ 
+FROM PS_WS_ITEM
+WHERE WS_BU = $select-business-unit
+  AND WS_ID = $group-id
+  and item_selected = 'Y' 
+end-select
+
+begin-select ON-ERROR = SQL-error
+SUM(BAL_AMT)        &WS-NET
+
+   let #ws-net = &WS-NET
+   
+FROM PS_WS_ITEM
+WHERE WS_BU = $select-business-unit 
+  AND WS_ID = $group-id
+  AND ITEM_SELECTED = 'Y'
+  AND ENTRY_USE_ID  = 'MT-01'
+end-select
+
+begin-select ON-ERROR = SQL-error
+SUM(BAL_AMT)        &WS-TOTAL-CR
+    
+   let #ws-total-cr = &WS-TOTAL-CR
+
+FROM PS_WS_ITEM
+WHERE WS_BU = $select-business-unit
+AND WS_ID   = $group-id
+AND ITEM_SELECTED = 'Y'
+AND ENTRY_USE_ID = 'MT-01'
+AND BAL_AMT < 0
+end-select
+
+begin-select ON-ERROR = SQL-error
+SUM(BAL_AMT)        &WS-TOTAL-DR
+    
+   let #ws-total-dr = &WS-TOTAL-DR
+
+FROM PS_WS_ITEM
+WHERE WS_BU = $select-business-unit
+AND WS_ID   = $group-id
+AND ITEM_SELECTED = 'Y'
+AND ENTRY_USE_ID = 'MT-01'
+AND BAL_AMT > 0
+end-select
+
+display 'update ws_control'
+begin-SQL on-error=SQL-Error
+UPDATE PS_WS_CONTROL
+SET WS_COUNT    = #ws-count, 
+    WS_DTTM     = SYSDATE,
+    WS_TOTAL_DR = #ws-total-dr,
+    WS_TOTAL_CR = #ws-total-cr,
+    WS_NET      = #ws-net,
+    oprid       = $opr-ar,
+    CONTROL_CNT = #ws-control,
+    ENTERED_CNT = #ws-count
+WHERE WS_BU = $select-business-untit
+  AND WS_ID = $deposit-id
+end-sql
+
+display 'update ws_item'
+begin-SQL on-error=SQL-Error
+UPDATE PS_WS_ITEM 
+SET ITEM_SELECTED  ='Y',
+    ENTRY_USE_ID   = $entry-use-id,
+    ENTRY_TYPE     = $entry-type,
+    ENTRY_REASON   = $entry-reason,
+    REQUIRE_REASON = $require-reason,
+    ACCOUNTING_DT  = TO_DATE($TODAY,'DD-MM-YYYY'),
+    SETID          = 'COLCO'
+WHERE WS_BU         = $select-business-unit
+  AND WS_ID         = $group-id
+  AND BUSINESS_UNIT = $business-unit
+  AND CUST_ID       = $cust-id
+  AND ITEM          = $item
+  AND ITEM_LINE     = #item-line
+  AND WS_SEQ        = 0
+end-sql
+
+display 'update ws_control'
+begin-SQL on-error=SQL-Error
+UPDATE PS_WS_CONTROL
+SET BAL_STATUS       = 'I',
+    CONTROL_AMT      = #amount*-1,
+    CONTROL_CNT      = 1,
+    ENTERED_AMT      = #amount*-1,
+    ENTERED_CNT      = 1,
+    ENTRY_USE_ID     = $entry-use-id,
+    ENTRY_TYPE       = $entry-type,
+    REQUIRE_REASON   = $require-reason,
+    WS_TOTAL_REF     = #amount,
+    CURRENCY_CD      = $txn_currency_cd,
+    POST_ACTION      = 'L',
+    CREATE_DST_BATCH = 'Y'
+WHERE WS_BU= $select-business-unit
+  AND WS_ID= $group-id
+end-sql
+end-procedure !create-worksheet
+
+!**********************************************************************
+!----------------------------------------------------------------------
+! Procedure: get-subcust
+! Descr: Se obtienen los calificadores del cliente
+!----------------------------------------------------------------------
+begin-procedure get-subcust
+display 'get-subcust'
+begin-select ON-ERROR = SQL-error
+C.SUBCUST_QUAL1
+C.SUBCUST_QUAL2 
+
+    let $subcust-qual1 = &C.SUBCUST_QUAL1
+    let $subcust-qual2 = &C.SUBCUST_QUAL2
+
+from ps_customer C
+where c.cust_status = 'A' 
+  and c.cust_id     = $cust-id 
+  and c.setid       = $customer-setid
+end-select
+end-procedure !get-subcust
+
+!**********************************************************************
+!------------------------------------------------------------------!
+! procedure: insert-log                                                !
+! desc:      Se inserta el registro para auditoria del proceso         !
+!----------------------------------------------------------------------!
+begin-procedure insert-log
+display 'insert-log'
+show '$invoice_id: ' $invoice_id  ' $cust-id: ' $cust-id ' $item: ' $item ' $entry-tp: ' $entry-tp ' $bill-type: ' $bill-type !linea soporte 12/09/2016
+if #saldo-ini > 0 and $sent-ap = 'Y' 
+   let #saldo-log = #saldo-act + #gross_amt
+else
+   let #saldo-log = #saldo-act
+end-if
+
+let $existe = ' '
+
+begin-select ON-ERROR = SQL-error
+cc.PROCESS_INSTANCE
+	let $existe = 'Y'
+FROM sysadm.ps_ck_log_ar_ap cc
+where cc.PROCESS_INSTANCE = #prcs_process_instance
+  and cc.BUSINESS_UNIT = $business-unit
+  and cc.CUST_ID = $cust-id
+  and cc.ITEM = $item
+  and cc.ITEM_LINE = #item-line
+end-select
+
+
+if $existe <> 'Y' 
+begin-SQL on-error=SQL-Error
+INSERT INTO PS_CK_LOG_AR_AP
+values
+(#prcs_process_instance,
+$business-unit,
+$cust-id,
+$item,
+#item-line,
+$entry-tp,
+$bill-type,
+$original-invoice,       
+TO_DATE($due-dt-orig,'DD-MM-YYYY'),
+TO_DATE($due-dt-calc,'DD-MM-YYYY'),
+$deposit-id,
+$group-id,
+#gross_amt,
+#saldo-log,
+#saldo-venc,
+$hold,
+#cnt-hold,
+#val-hold,
+$sent-AP,
+$business-unit-ap,
+$vendor_setid,
+$vendor_id,
+$invoice_id,!23
+' ',
+$ECTRANSID,
+$ECTRANSINOUTSW,
+#ecqinstance,
+$prcs_oprid,
+SYSDATE)
+end-sql
+end-if
+end-procedure !insert-log
+
+!**********************************************************************
+!----------------------------------------------------------------------
+! Procedure: update-voucher-id
+! Descr: Se actualiza en la tabla de log el voucher generado en AP
+!----------------------------------------------------------------------
+begin-procedure update-voucher-id
+display 'update-voucher-id'
+begin-SQL on-error=SQL-Error
+update PS_CK_LOG_AR_AP A
+  set A.VOUCHER_ID = (select B.VOUCHER_ID from PS_VOUCHER B  
+where B.BUSINESS_UNIT   = $business-unit-ap
+  and B.BUSINESS_UNIT   = A.BUSINESS_UNIT_AP
+  and B.VENDOR_SETID    = A.VENDOR_SETID
+  and B.VENDOR_ID       = A.VENDOR_ID
+  and B.INVOICE_ID      = A.INVOICE_ID  
+  and B.ECTRANSID       = A.ECTRANSID
+  and B.ECTRANSINOUTSW  = A.ECTRANSINOUTSW
+  and B.ECQUEUEINSTANCE = A.ECQUEUEINSTANCE)
+where A.BUSINESS_UNIT    = $select-business-unit
+  and A.BUSINESS_UNIT_AP = $business-unit-ap
+  and A.SENT_TO_AP = 'Y'
+  and A.VOUCHER_ID = ' '
+  and EXISTS (SELECT 'X' FROM PS_VOUCHER C
+  where C.BUSINESS_UNIT   = $business-unit-ap
+    and C.BUSINESS_UNIT   = A.BUSINESS_UNIT_AP
+    and C.VENDOR_SETID    = A.VENDOR_SETID
+    and C.VENDOR_ID       = A.VENDOR_ID
+    and C.INVOICE_ID      = A.INVOICE_ID  
+    and C.ECTRANSID       = A.ECTRANSID
+    and C.ECTRANSINOUTSW  = A.ECTRANSINOUTSW
+    and C.ECQUEUEINSTANCE = A.ECQUEUEINSTANCE)
+end-sql
+end-procedure !update-voucher-id
+
+!**********************************************************************
+!----------------------------------------------------------------------
+! Procedure: get-process-flag
+! Descr: Se determina si la nota crédito corresponde a una factura ya procesada
+!----------------------------------------------------------------------
+begin-procedure get-process-flag
+display 'get-process-flag'
+if #PS=1
+begin-select ON-ERROR = SQL-error
+'X'                     &X1
+
+   let $process-flag = 'Y'
+
+FROM PS_CK_LOG_AR_AP A
+WHERE A.BUSINESS_UNIT = $business-unit
+  AND A.CUST_ID       = $cust-id
+  AND A.ITEM          = $original-invoice
+  AND A.SENT_TO_AP    = 'Y'
+end-select
+end-if
+if #PS=0
+begin-select ON-ERROR = SQL-error
+'X'                     &X0
+
+   let $process-flag = 'Y'
+
+FROM PS_CK_LOG_AR_AP A
+WHERE A.BUSINESS_UNIT     = $business-unit
+  AND A.CUST_ID           = $cust-id
+  ! Inicio 013
+  !AND SUBSTR(A.ITEM,1,14) = substr($original-invoice,1,14)
+  AND (SUBSTR(A.ITEM,1,14) = substr($original-invoice,1,14) OR SUBSTR(A.ITEM,1,13) = substr($original-invoice,1,13))
+  ! Fin 013
+  AND A.SENT_TO_AP        = 'Y'
+end-select
+end-if
+
+! Inicio 023
+if $entry-tp = 'NCC'
+begin-select ON-ERROR = SQL-error
+'X'                     &X2C
+   let $process-flag = 'Y'
+FROM SYSADM.PS_BI_HDR BICC 
+WHERE  BICC.BUSINESS_UNIT = $unidadNegocioBI
+  AND BICC.BILL_TO_CUST_ID = $cust-id
+  AND BICC.ORIGINAL_INVOICE = $original-invoice  
+end-select
+end-if
+! Fin 023
+end-procedure !get-process-flag
+
+!Inicio 011
+!*************************************************************************************************
+!--------------------------------------------------------------------------------------------
+! Procedure: get-valida-nc-parametrizada
+! Descr: Se determina si la nota crédito esta parametrizada para no realizar devolucion
+!--------------------------------------------------------------------------------------------
+begin-procedure get-valida-nc-parametrizada
+Show 'Entra get-valida-nc-parametrizada'
+Show '	$business-unit' $business-unit
+Show '	$entry-tp' $entry-tp
+Show '	$entry-rsn' $entry-rsn
+begin-select ON-ERROR = SQL-error
+'X'                     &XC
+
+   let $valida-nc-parametrizada = 'Y'
+
+FROM PS_CK_ARAP_NCDV_LN V1
+WHERE V1.BUSINESS_UNIT = $business-unit 
+  AND V1.ENTRY_TYPE    = $entry-tp
+  AND V1.ENTRY_REASON  = $entry-rsn
+  AND V1.EFFDT =  (SELECT MAX(F_ED.EFFDT) FROM PS_CK_ARAP_NCDV_LN F_ED
+                       WHERE V1.BUSINESS_UNIT =   F_ED.BUSINESS_UNIT
+                         AND V1.ENTRY_TYPE    =   F_ED.ENTRY_TYPE
+                         AND V1.ENTRY_REASON  =   F_ED.ENTRY_REASON
+                         AND F_ED.EFFDT   <= SYSDATE)
+end-select
+end-procedure !get-valida-nc-parametrizada
+!Fin 011
+
+!Inicio 010
+!**********************************************************************
+!----------------------------------------------------------------------
+! Procedure: Read-CK_WS_ITEM_TMP
+! Descr: Lectura de la CK_WS_ITEM_TMP. Devolución AR-AP
+!----------------------------------------------------------------------
+!Inicio 010
+Begin-Procedure Read-CK_WS_ITEM_TMP
+
+begin-select ON-ERROR = SQL-error
+
+ITEMTMP.ITEM
+ITEMTMP.ITEM_ENTRY_TYPE
+        
+        Let $sText254 = ' '
+	Let $sItem = &ITEMTMP.ITEM
+	Let $sItemEntryType = &ITEMTMP.ITEM_ENTRY_TYPE
+	! 012
+	if $sItemEntryType = 'NC' OR $sItemEntryType = 'NCC'
+	   Do GetDescrHdrNote
+	else
+	   Let $sText254 = 'Devoluciones AR-AP'
+	End-if
+	Do Insert-CK_WS_ITEM
+	
+FROM PS_WS_ITEM_TMP ITEMTMP
+WHERE ITEMTMP.WS_BU  = $select-business-unit 
+  AND ITEMTMP.WS_ID  = $group-id
+  
+end-select
+End-Procedure
+
+!**********************************************************************
+!----------------------------------------------------------------------
+! Procedure: Insert-CK_WS_ITEM
+! Descr: Insertar en la tabla CK_WS_ITEM. Devolución AR-AP
+!----------------------------------------------------------------------
+begin-Procedure Insert-CK_WS_ITEM
+
+display 'insert ck_ws_item: ' noline
+display $sItem
+
+begin-SQL on-error=SQL-Error
+INSERT INTO PS_CK_WS_ITEM
+(WS_BU
+, WS_ID
+! , SUB_GROUP_ID
+, BUSINESS_UNIT
+, CUST_ID
+, ITEM
+, ITEM_LINE
+, WS_SEQ
+, ITEM_SELECTED
+, ENTRY_USE_ID
+, ENTRY_TYPE
+, BAL_AMT
+, BAL_AMT_BASE
+, ACCOUNTING_DT
+, DOCUMENT
+, ITEM_ENTRY_TYPE
+, TEXT254
+, OPRID
+, RUN_CNTL_ID
+, DT_TIMESTAMP)
+SELECT DISTINCT 
+WS_BU
+, WS_ID
+! , SUB_GROUP_ID
+, BUSINESS_UNIT
+, CUST_ID
+, ITEM
+, ITEM_LINE
+, WS_SEQ
+, ITEM_SELECTED
+, ENTRY_USE_ID
+, ENTRY_TYPE
+, BAL_AMT
+, BAL_AMT_BASE
+, ACCOUNTING_DT
+, DOCUMENT
+, ITEM_ENTRY_TYPE
+, $sText254
+, $prcs_oprid
+, $prcs_run_cntl_id
+! YSN, OPRID
+! YSN, RUN_CNTL_ID
+, SYSDATE
+FROM PS_WS_ITEM_TMP
+WHERE WS_BU  = $select-business-unit 
+  AND WS_ID  = $group-id
+  AND ITEM   = $sItem
+end-sql
+
+end-procedure
+
+
+!**********************************************************************
+!----------------------------------------------------------------------
+! Procedure: GetDescrHdrNote
+! Descr: Obtener Descr HdrNote - BI-NC
+!----------------------------------------------------------------------
+Begin-Procedure GetDescrHdrNote
+Let $bContinue = 'True'
+Begin-Select
+TBLBI.BUSINESS_UNIT 
+
+	Let $sBusUnitBi = &TBLBI.BUSINESS_UNIT 
+	if $bContinue = 'True'
+		Do WhileBusUnitBi
+        else
+        	exit-select
+	End-if
+	
+FROM PS_BUS_UNIT_TBL_BI TBLBI
+WHERE TBLBI.BUSINESS_UNIT_AR = $select-business-unit
+End-Select
+
+End-Procedure
+
+
+!**********************************************************************
+!----------------------------------------------------------------------
+! Procedure: WhileBusUnitBi
+! Descr: Recorrer BU -BI
+!----------------------------------------------------------------------
+Begin-Procedure WhileBusUnitBi
+
+Begin-Select
+HDRNOTE.TEXT254 
+
+	Let $sText254 = &HDRNOTE.TEXT254
+	Let $bContinue = 'False'
+	
+FROM PS_BI_HDR_NOTE HDRNOTE
+WHERE HDRNOTE.BUSINESS_UNIT = $sBusUnitBi  
+AND HDRNOTE.INVOICE = $sItem
+AND HDRNOTE.TEXT254 <> ' '
+End-select
+
+End-Procedure
+
+!Fin 010
+
+
+!**********************************************************************
+!----------------------------------------------------------------------!
+! procedure: end process                                               !
+! desc:      update the process scheduler run control                  !
+!----------------------------------------------------------------------!
+begin-procedure end-process
+
+    if $prcs_process_instance <> ''
+        do update-prcs-run-status
+        do Commit-Transaction
+    end-if
+
+end-procedure !end-process
+
+!----------------------------------------------------------------------!
+! Called SQC Procedures                                                !
+!----------------------------------------------------------------------!
+#include 'ckcobroar.sqc' !Genera cobro automático en AR
+#include 'number.sqc'
+#include 'reset.sqc'     !Reset Printer Procedure
+#include 'curdttim.sqc'  !Get Current Date Time
+#include 'datetime.sqc'  !Routines for date and time formatting
+#include 'prcsapi.sqc'   !update process request api
+#include 'prcsdef.sqc'   !update process request variable declare
