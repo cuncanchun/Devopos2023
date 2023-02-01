@@ -1,0 +1,4293 @@
+!-----------------------------------------------------------------------
+! <Reporte|Proceso>: CK_CARRE.SQR - <Distribuidor por medio de pago>
+! Versiones: V<001> Modificado <18/02/2002>-<JC>.
+!-----------------------------------------------------------------------
+! Desc Programa: 
+!
+!-----------------------------------------------------------------------
+! Parámetros: Los parámetros de entrada son la Unidad de Negocios y el
+!             cliente
+!-----------------------------------------------------------------------
+! Tablas referenciadas:
+!
+!-----------------------------------------------------------------------
+
+!**************************************************************************************************************
+! Listado de Modificaciones
+!--------------------------------------------------------------------------------------------------------------
+! Proyecto/Caso		Ref. 	Desarrollador	Fecha		Descripcion
+!--------------------------------------------------------------------------------------------------------------
+! CS7828         	#001    CER      	16/09/2011      Se ajusta para cuando las direcciones sean muy largas esta se muestre completa
+! CS7860         	#002    CER      	30/09/2011      Se ajusta para que no se salte a la otra pagina solo la firma
+! 8739				#003	FSB			02/04/2012		Se trae la información de Dirección Principal y !
+!														teléfono de la nueva estructura de Cartera      !
+!CK_CS_AR_10523_EHA	#004    EHA         24/01/2014      Ajuste para que permita ejecutar el informe para varios clientes.
+!CK_CS_AR_11596_CEM #005	CEM			13/04/2015		se modifican las cuentas Bancolombia para 5988880026-0 dimed 0640003892-0 dical
+!														Por cuenta corriente de BANCOLOMBIA, 04490094309 Convenio 1163 
+!CK_CS_AR_13767_NPM #006	NPM			09/01/2018		Se modifica datos Abogada.
+!--------------------------------------------------------------------------------------------------------------
+
+
+
+! Realiza los include necesarios  
+
+#include 'setenv.sqc'      ! Incializa el entorno
+begin-setup
+  #include 'setupdb.sqc' ! Database specific setup
+  #define PAGE_ORIENTATION PORTRAIT
+  #define PAGE_MAX_COLS    170
+  #define PAGE_MAX_LINES   120
+  #define PAGE_PAPER_SIZE (LETTER)
+  #define PAGE_LEFT_MARG 0.160
+  #define PAGE_TOP_MARG  0.812
+  
+  declare-layout DEFAULT
+    paper-size={PAGE_PAPER_SIZE}
+    orientation={PAGE_ORIENTATION}
+    max-columns={PAGE_MAX_COLS}
+    max-lines={PAGE_MAX_LINES}
+    left-margin={PAGE_LEFT_MARG}
+    top-margin={PAGE_TOP_MARG}
+    line-height=9                         ! 72/printer_point-size
+    char-width=4.32                        ! points, to handle max cols
+  end-declare
+  
+end-setup
+
+begin-program
+  show ' entro Init-DateTime '
+  do Init-DateTime
+  show ' entro Init-Number '
+  do Init-Number
+  show 'imprime encabezado'
+  show ' entro Inicializar-Reporte '
+  do Inicializar-Reporte
+  show ' entro  Proceso-Principal '  
+     do Proceso-Principal
+  do Terminar-Proceso
+end-program
+
+begin-heading 2
+!Do  Impresion-Titulo-Cartas-Reclamacion
+! page-number (2,110) 'Página '
+! last-page   () ' de ' 
+end-heading
+
+begin-footing 3
+   !alter-printer point-size=6 font=4
+   !Print 'Cll 10A No 31A-42 Tel 4055421  Fax 2017981- 3649789 Linea Gratuita 018000524066' (1,20)
+   !Print 'SANTAFE DE BOGOTA, D.C. -COLOMBIA'(+1,25)
+end-footing
+
+begin-procedure Impresion-Pie-Pagina-Cartas
+alter-printer point-size=8 font=4
+
+   if $Opcion_Unidad = 'T'
+	   	let $Business_Unit = $BU_Def_Usu
+   end-if
+
+        
+    let $dDatos = $aAddress || ',' 
+    let $dDatos = $dDatos || 'TEL.' ||' ' ||$pPhone 
+    
+    IF $eExt1<> ' '
+	     	LET $dDatos1 = ' ' ||'EXT' ||' ' || $eExt1 
+    END-IF
+    
+    IF $fFax  <> ' '
+    	LET $dDatos2 = ' ' ||'FAX' ||' ' || $fFax 
+    END-IF
+    
+    
+    IF $eExt2 <> ' '
+    	LET $dDatos3 = ' ' ||'EXT' ||' ' || $eExt2
+    END-IF
+    
+    if $pPbx <> ' '
+     LET $dDatos4 =   ' '||'PBX '||' '|| $pPbx 
+    end-if
+    
+    LET $dDatos5 =  ',' ||$cCity    
+    
+    
+    if $pPhone <> ' ' and $eExt1 <> ' ' and $fFax <> ' ' and $eExt2 <> ' ' and $pPbx <> ' '
+	     
+	   let $dDatos_P1 = $dDatos || $dDatos1 || $dDatos2 || $dDatos3 
+	   let $dDatos_P2 = $dDatos4 || $dDatos5
+	   print $dDatos_P1 (75,25) bold
+	   
+	   if $lLinea_grt <> ' '
+			 
+			   let $dDatos_P2 = $dDatos_P2 || 'Linea Gratuita Fuera de Bogotá' ||' '|| $lLinea_grt
+			 				 
+	 	end-if
+	 	
+	   print $dDatos_P2 (+1,30) bold
+	     		
+	 else
+	     
+	  let $dDatos = $dDatos || $dDatos1 || $dDatos2 || $dDatos3 || $dDatos4 || $dDatos5
+	  
+	  print $dDatos (75,25) bold
+	  
+		if $lLinea_grt <> ' '
+	  	 
+	  	   let $dDatos_P = 'Linea Gratuita Fuera de Bogotá' ||' '|| $lLinea_grt
+	  	 	Print  $dDatos_P (+1,45) bold
+	  	 
+		end-if
+	  
+	end-if
+			 
+
+   
+   print $prcs_oprid (+1,12)
+   print '-'			(,24)
+   print $Descr_opr  (,26)
+   
+end-procedure Impresion-Pie-Pagina-Cartas
+
+begin-procedure Impresion-Titulo-Cartas-Reclamacion
+alter-printer point-size=8 font=4
+   
+   if $Opcion_Unidad = 'T'
+   	let $Business_Unit = $BU_Def_Usu
+   end-if
+   
+	    
+	    let $iInfo_Tot = $cCity  || ','
+	    
+    Print $iInfo_Tot  			(12,10,15)  bold
+
+   
+   Print $Asoftoday          (,+2,11) bold
+   Print 'Señor(a)'          (+4,10,8)  bold
+   Print 'Apreciado Cliente' (+8,10,17) bold  
+end-procedure   Impresion-Titulo-Cartas-Reclamacion
+
+
+!***********************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Inicializar-Reporte                                       !
+! Descr:     Solicita parametros para la ejecucion del reporte.        !
+!----------------------------------------------------------------------!
+begin-procedure Inicializar-Reporte
+    do  Define-Prcs-Vars
+    do  Get-Run-Control-Parms
+    Let $Process_Instance = $PRCS_PROCESS_INSTANCE
+    Do  Seleccionar-Parametros
+    Do  Buscar-Setid-Customer ('CUSTOMER',$Business_Unit,$Setid_tbl) 
+    Do  Busca-Datos-Unidad
+Begin-select
+A.SETID
+    
+  let $setid = rtrim(&A.SETID, ' ')
+    
+FROM PS_SET_CNTRL_REC A
+WHERE A.RECNAME       = 'ENTRY_TYPE_TBL' AND
+      A.SETCNTRLVALUE = $Business_Unit
+End-Select
+
+let #winstance = to_number($prcs_process_instance)
+let $Unidad = 'P:'
+
+begin-SELECT On-Error=SQL-Error
+proc.PARMLIST
+
+   let $Unidad = substr(&proc.PARMLIST,1,2)
+
+FROM  PSPRCSPARMS proc 
+WHERE proc.PRCSINSTANCE = #winstance
+end-SELECT
+
+begin-SELECT On-Error=SQL-Error
+PSURLDEFN.URL
+	Let $URL = &PSURLDEFN.URL
+	show ' $URL ' $URL
+from PSURLDEFN PSURLDEFN
+where PSURLDEFN.URL_ID='IMAGENES_ALKOSTO'
+end-SELECT
+
+Begin-select
+PS_SET_CNTRL_REC.SETID
+
+  let $setid = rtrim(&PS_SET_CNTRL_REC.SETID, ' ')
+	
+FROM PS_SET_CNTRL_REC PS_SET_CNTRL_REC
+WHERE PS_SET_CNTRL_REC.RECNAME       = 'ENTRY_TYPE_TBL' AND
+      PS_SET_CNTRL_REC.SETCNTRLVALUE = $Business_Unit
+End-Select
+end-procedure
+
+!***********************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Seleccionar-Parametros                                    !
+! Descr:     Captura los parametros desde PeopleSoft.                  !
+!----------------------------------------------------------------------!
+begin-procedure Seleccionar-Parametros
+BEGIN-SELECT
+ck_run_cntl_ar_sp.ck_extcli
+ck_run_cntl_ar_sp.business_unit
+ck_run_cntl_ar_sp.cust_id_frm
+ck_run_cntl_ar_sp.cust_id_to
+ck_run_cntl_ar_sp.ck_zona_desde
+ck_run_cntl_ar_sp.ck_zona_hasta
+ck_run_cntl_ar_sp.support_team_mbr
+ck_run_cntl_ar_sp.setid
+ck_run_cntl_ar_sp.ck_tipcar
+ck_run_cntl_ar_sp.ck_opcuni
+ck_run_cntl_ar_sp.from_dt
+ck_run_cntl_ar_sp.to_dt
+
+   let $Opcion_CarReg = rtrim(&ck_run_cntl_ar_sp.ck_extcli,' ')
+   let $Business_Unit = rtrim(&ck_run_cntl_ar_sp.business_unit,' ')
+   let $Desde_cliente = rtrim(&ck_run_cntl_ar_sp.cust_id_frm,' ')
+   let $Hasta_cliente = rtrim(&ck_run_cntl_ar_sp.cust_id_to,' ')
+   let $Desde_Zona    = rtrim(&ck_run_cntl_ar_sp.ck_zona_desde,' ')
+   let $Hasta_Zona    = rtrim(&ck_run_cntl_ar_sp.ck_zona_hasta,' ')
+   let $Supervisor    = rtrim(&ck_run_cntl_ar_sp.support_team_mbr,' ')
+   let $Compañia      = rtrim(&ck_run_cntl_ar_sp.setid,' ')
+   let $TipCar        = rtrim(&ck_run_cntl_ar_sp.ck_tipcar,' ')
+   let $Desde_Fecha   = rtrim(&ck_run_cntl_ar_sp.from_dt,' ')
+   let $Hasta_Fecha   = rtrim(&ck_run_cntl_ar_sp.to_dt,' ')
+   let $Opcion_Unidad = rtrim(&ck_run_cntl_ar_sp.ck_opcuni,' ')
+   
+from ps_ck_run_cntl_ar ck_run_cntl_ar_sp
+where ck_run_cntl_ar_sp.oprid       = $prcs_oprid
+  and ck_run_cntl_ar_sp.run_cntl_id = $prcs_run_cntl_id
+END-SELECT
+
+
+if $Opcion_Unidad = 'T'
+   let $Business_Unit = ' '
+   SHOW '$Opcion_Unidad = T'
+   SHOW $Business_Unit
+Begin-Select ON-ERROR=SQL-ERROR
+DEF_USU.BUSINESS_UNIT
+
+	LET $BU_Def_Usu = &DEF_USU.BUSINESS_UNIT
+
+from ps_opr_def_tbl_fs DEF_USU
+where DEF_USU.oprid=$prcs_oprid
+end-select
+
+lET $Business_Unit = $BU_Def_Usu
+end-if
+ SHOW '$BU_Def_Usu' $BU_Def_Usu
+ 
+ 
+Begin-Select ON-ERROR=SQL-ERROR
+TO_CHAR(SYSDATE,'YYYY-MM-DD-HH24.MI.SS')   &Begin_dt
+ 
+    let $Fecha_Sistema = &Begin_dt
+    
+FROM PS_BUS_UNIT_TBL_IN A
+WHERE A.BUSINESS_UNIT = $Business_Unit
+end-select
+ 
+ 
+Begin-select
+B.SETID
+
+   let $setid = rtrim(&B.SETID, ' ')
+    
+FROM PS_SET_CNTRL_REC B
+WHERE B.RECNAME       = 'ENTRY_TYPE_TBL' 
+AND   B.SETCNTRLVALUE = $Business_Unit
+End-Select
+show ' $Business_Unit ' $Business_Unit
+ if isblank($Business_Unit)
+     let $UniNegCli_Uno = ' AND 1=1'
+     let $UniNegCli_Dos = ' AND 1=1'
+     let $UniNegCli_Tre = ' AND 1=1'    
+     let $UniNegCli_Tod = ' AND 1=1'        
+ else    
+    let $UniNegCli_Uno = 'AND SDUNO.BUSINESS_UNIT = '  || ''''||$Business_Unit||''''
+    let $UniNegCli_Dos = 'AND SDDOS.BUSINESS_UNIT = '  || ''''||$Business_Unit||''''
+    let $UniNegCli_Tre = 'AND SDTRE.BUSINESS_UNIT = '  || ''''||$Business_Unit||''''
+    let $UniNegCli_Tod = 'AND TODAS.BUSINESS_UNIT = '  || ''''||$Business_Unit||''''
+ end-if
+ if $Opcion_CarReg = 'Z'
+    if $Desde_Zona <> ' ' AND $Hasta_Zona <> ' ' 
+       let $DesHasZn_Uno  = 'AND ZNUNO.SUBCUST_QUAL1 >= ' ||''''|| $Desde_Zona ||''''|| 'AND ZNUNO.SUBCUST_QUAL1 <= ' ||''''|| $Hasta_Zona ||'''' 
+       let $DesHasZn_Dos  = 'AND ZNDOS.SUBCUST_QUAL1 >= ' ||''''|| $Desde_Zona ||''''|| 'AND ZNDOS.SUBCUST_QUAL1 <= ' ||''''|| $Hasta_Zona ||''''
+       let $DesHasZn_Tre  = 'AND ZNTRE.SUBCUST_QUAL1 >= ' ||''''|| $Desde_Zona ||''''|| 'AND ZNTRE.SUBCUST_QUAL1 <= ' ||''''|| $Hasta_Zona ||''''
+       let $DesHasZn_Tod  = 'AND ZNTOD.SUBCUST_QUAL1 >= ' ||''''|| $Desde_Zona ||''''|| 'AND ZNTOD.SUBCUST_QUAL1 <= ' ||''''|| $Hasta_Zona ||''''
+    else
+       let $DesHasZn_Uno  = ' AND 1=1' 
+       let $DesHasZn_Dos  = ' AND 1=1'
+       let $DesHasZn_Tre  = ' AND 1=1'
+       let $DesHasZn_Tod  = ' AND 1=1'
+    end-if
+    if $Opcion_Unidad = 'T'
+       let $UniNegCli_Uno = ' AND 1=1'
+       let $UniNegCli_Dos = ' AND 1=1'
+       let $UniNegCli_Tre = ' AND 1=1'    
+       let $UniNegCli_Tod = ' AND 1=1'        
+    else
+       let $UniNegCli_Uno = 'AND ZNUNO.BUSINESS_UNIT = '  || ''''||$Business_Unit||''''
+       let $UniNegCli_Dos = 'AND ZNDOS.BUSINESS_UNIT = '  || ''''||$Business_Unit||''''
+       let $UniNegCli_Tre = 'AND ZNTRE.BUSINESS_UNIT = '  || ''''||$Business_Unit||''''
+       let $UniNegCli_Tod = 'AND ZNTOD.BUSINESS_UNIT = '  || ''''||$Business_Unit||''''    
+    end-if
+ end-if
+ if $Opcion_CarReg = 'U'
+    if $Business_Unit <> ' '
+       let $UniNegUni_Uno = ' AND UDUNO.BUSINESS_UNIT = '  || ''''||$Business_Unit||''''
+       let $UniNegUni_Dos = ' AND UNDOS.BUSINESS_UNIT = '  || ''''||$Business_Unit||''''
+       let $UniNegUni_Tre = ' AND UNTRE.BUSINESS_UNIT = '  || ''''||$Business_Unit||''''
+       let $UniNegUni_Tod = ' AND UNTOD.BUSINESS_UNIT = '  || ''''||$Business_Unit||''''
+    else
+       let $UniNegUni_Uno = ' AND 1=1'
+       let $UniNegUni_Dos = ' AND 1=1'
+       let $UniNegUni_Tre = ' AND 1=1'
+       let $UniNegUni_Tod = ' AND 1=1'
+    end-if    
+ end-if  
+ if $Opcion_CarReg = 'G'
+    let $DesHaTCl_Uno  = ' AND TCUNO.CUST_ID >= ' ||''''|| $Desde_cliente ||''''|| ' AND TCUNO.CUST_ID <= ' ||''''|| $Hasta_cliente ||'''' 
+    let $DesHaTCl_Dos  = ' AND TCDOS.CUST_ID >= ' ||''''|| $Desde_cliente ||''''|| ' AND TCDOS.CUST_ID <= ' ||''''|| $Hasta_cliente ||'''' 
+    let $DesHaTCl_Tre  = ' AND TCTRE.CUST_ID >= ' ||''''|| $Desde_cliente ||''''|| ' AND TCTRE.CUST_ID <= ' ||''''|| $Hasta_cliente ||''''      
+    let $DesHaTCl_Tod  = ' AND TCTOD.CUST_ID >= ' ||''''|| $Desde_cliente ||''''|| ' AND TCTOD.CUST_ID <= ' ||''''|| $Hasta_cliente ||''''
+ else   
+    let $DesHaTCl_Uno  = ' AND 1=1' 
+    let $DesHaTCl_Dos  = ' AND 1=1'
+    let $DesHaTCl_Tre  = ' AND 1=1'
+    let $DesHaTCl_Tod  = ' AND 1=1'
+ end-if
+ if $Opcion_CarReg = 'S'
+    if $Business_Unit <> ' '
+       let $UniNegSup_Uno = ' AND SPUNO.BUSINESS_UNIT = '  || ''''||$Business_Unit||''''
+       let $UniNegSup_Dos = ' AND SPDOS.BUSINESS_UNIT = '  || ''''||$Business_Unit||''''
+       let $UniNegSup_Tre = ' AND SPTRE.BUSINESS_UNIT = '  || ''''||$Business_Unit||''''
+       let $UniNegSup_Tod = ' AND SPTOD.BUSINESS_UNIT = '  || ''''||$Business_Unit||''''
+     else
+       let $UniNegSup_Uno = ' AND 1=1'
+       let $UniNegSup_Dos = ' AND 1=1'
+       let $UniNegSup_Tre = ' AND 1=1'
+       let $UniNegSup_Tod = ' AND 1=1'
+     end-if    
+ end-if  
+ if $Opcion_CarReg = 'D'
+     if $Business_Unit <> ' '
+        let $UniNegChd_Uno = ' AND CDUNO.BUSINESS_UNIT = '  || ''''||$Business_Unit||''''
+        let $UniNegChd_Dos = ' AND CDDOS.BUSINESS_UNIT = '  || ''''||$Business_Unit||''''
+        let $UniNegChd_Tre = ' AND CDTRE.BUSINESS_UNIT = '  || ''''||$Business_Unit||''''
+        let $UniNegChd_Tod = ' AND CDTOD.BUSINESS_UNIT = '  || ''''||$Business_Unit||''''                
+      else
+        let $UniNegChd_Uno = ' AND 1=1'
+        let $UniNegChd_Dos = ' AND 1=1'
+        let $UniNegChd_Tre = ' AND 1=1'
+        let $UniNegChd_Tod = ' AND 1=1'
+      end-if
+ end-if
+ if $TipCar = 'U' 
+    let #Tip_Car = 1   
+ end-if
+ if $TipCar = 'D'
+    let #Tip_Car = 2   
+ end-if
+ if $TipCar = 'T'
+    let #Tip_Car = 3   
+ end-if
+ if $TipCar = 'G'
+    let #Tip_Car = 4  
+ end-if 
+ 
+ 
+Begin-Select 
+OPRDEFN.OPRDEFNDESC
+
+	LET $Descr_opr = &OPRDEFN.OPRDEFNDESC
+
+FROM PSOPRDEFN OPRDEFN
+WHERE OPRDEFN.OPRID=$prcs_oprid
+End-Select
+
+
+end-procedure
+
+!********************************************************************
+!CK2008 - 31/07/2008 -RA
+!DESCR: Busca los datos de acuerdo a la Unidad en la tabla
+!		  Ck_Dat_Un_Param
+!Inicia Modificación
+!********************************************************************
+begin-procedure Busca-Datos-Unidad
+
+begin-select
+param.city
+param.state_name
+param.address
+param.phone1
+param.ck_extens1
+param.ck_extens2
+param.fax
+param.ck_pbx
+param.ck_firma
+param.ck_phone_alt
+
+			let $cCity 	 	= &param.city
+			let $sState   	= &param.state_name
+			let $aAddress 	= &param.address
+			let $pPhone   	= &param.phone1
+         let $eExt2	  	= &param.ck_extens2
+			let $eExt1    	= &param.ck_extens1
+         let $fFax     	= &param.fax
+         let $pPbx     	= &param.ck_pbx         
+			let $fFirma   	= &param.ck_firma
+			let $lLinea_grt= &param.ck_phone_alt
+			
+FROM Ps_Ck_Dat_Un_Param param
+where param.business_unit=$Business_Unit
+end-select
+
+end-procedure Busca-Datos-Unidad
+
+!********************************************************************
+!Ck2008 - 31/07/2008 - RA
+!Fin Modificación
+!********************************************************************
+
+
+begin-procedure Buscar-Setid-Customer ($Recname,$Business_unit,:$Setid_tbl)
+show 'entro Buscar-Setid-Customer'
+
+begin-select
+SCUS.SETID
+   
+   let $Setid_tbl = &SCUS.SETID
+   
+from  PS_SET_CNTRL_REC SCUS  
+where SCUS.SETCNTRLVALUE = $Business_unit
+and   SCUS.RECNAME       = $Recname
+end-select
+show '$Setid_tbl'  $Setid_tbl
+show 'salio Buscar-Setid-Customer'
+end-procedure   Buscar-Setid-Customer
+
+begin-procedure Buscar-Clientes-Cartas-Reclamacion
+show ' entro Buscar-Clientes-Cartas-Reclamacion '
+show '$Setid_tbl'   $Setid_tbl
+let $Client_Tb_Det = ' '
+let $codcli_id_pnl = ' '
+let #Pri_Lec_Cli   = 0
+if $Opcion_CarReg = 'N' OR $Opcion_CarReg = 'C'
+   let $Desde_Zona    = ' '
+   let $Hasta_Zona    = ' '
+   let $Supervisor    = ' '
+   let $Compañia      = ' '
+end-if
+SHOW ' $Opcion_CarReg ' $Opcion_CarReg
+Do  Borrar-Tabla-Temporal
+let $date_in = $asoftoday
+Do  Convert-To-DTU-Date($date_in, $dtu_date)
+let $fecha     = $dtu_date
+
+begin-select
+CK_RUN_CARREC.cust_id
+  
+   let $Client_Tb_Det = &CK_RUN_CARREC.cust_id
+   if  #Pri_Lec_Cli = 0
+       let $codcli_id_pnl = $Client_Tb_Det
+       Let #Pri_Lec_Cli   = 1
+   end-if
+   show ' $Client_Tb_Det ' $Client_Tb_Det   
+   show ' $codcli_id_pnl ' $codcli_id_pnl
+   if  $codcli_id_pnl <> $Client_Tb_Det
+       Do  Proceso-Principal-Por-Cliente_Cartas-Reclamacion
+       let $codcli_id_pnl = $Client_Tb_Det
+   end-if
+
+from ps_CK_RUN_CARREC CK_RUN_CARREC
+where  CK_RUN_CARREC.run_cntl_id = $prcs_run_cntl_id
+order by CK_RUN_CARREC.cust_id  
+end-select
+
+       Do Proceso-Principal-Por-Cliente_Cartas-Reclamacion
+
+show ' salio Buscar-Clientes-Cartas-Reclamacion '   
+end-procedure   Buscar-Clientes-Cartas-Reclamacion
+
+!***********************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Proceso-Principal                                         !
+! Descr:                    !
+!----------------------------------------------------------------------!
+begin-procedure Proceso-Principal-Por-Cliente_Cartas-Reclamacion
+   show ' #Tip_Car ' #Tip_Car
+   if  #Tip_Car = 1
+       Do Buscar-Clientes-Cartas-Reclamacion-Uno
+   end-if  
+   if  #Tip_Car = 2
+       Do Buscar-Clientes-Cartas-Reclamacion-Dos
+   end-if  
+   if  #Tip_Car = 3
+       Do Buscar-Clientes-Cartas-Reclamacion-Tres
+   end-if  
+   if  #Tip_Car = 4
+       Do Buscar-Clientes-Cartas-Reclamacion-Todas
+   end-if  
+End-procedure Proceso-Principal-Por-Cliente_Cartas-Reclamacion
+
+
+!***********************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Proceso-Principal                                         !
+! Descr:                                                               !
+!----------------------------------------------------------------------!
+begin-procedure Proceso-Principal
+   !*********************
+   ! Tipo: $Opcion_CarReg
+   ! N --> Cliente
+   !<Inicio #004>
+   ! C --> Varios Clientes
+   !<Fin #004>
+   ! S --> Supervisor
+   ! T --> Compañia
+   ! U --> Unidad Negocio
+   ! Z --> Zona
+   !*********************
+   if $Opcion_CarReg = 'G'
+      let $Desde_Zona    = ' '
+      let $Hasta_Zona    = ' '
+      let $Supervisor    = ' '
+      let $Compañia      = ' '
+      let $Desde_Fecha   = ''
+      let $Hasta_Fecha   = ''
+   end-if
+   if $Opcion_CarReg = 'S'
+      let $Desde_cliente = ' '
+      let $Hasta_cliente = ' '
+      let $Desde_Zona    = ' '
+      let $Hasta_Zona    = ' '
+      let $Desde_Fecha   = ''
+      let $Hasta_Fecha   = ''
+   end-if
+   if $Opcion_CarReg = 'T'
+      let $Desde_cliente = ' '
+      let $Hasta_cliente = ' '
+      let $Desde_Zona    = ' '
+      let $Hasta_Zona    = ' '
+      let $Supervisor    = ' '
+      let $Desde_Fecha   = ''
+      let $Hasta_Fecha   = ''
+   end-if
+   if $Opcion_CarReg = 'U'
+      let $Desde_cliente = ' '
+      let $Hasta_cliente = ' '
+      let $Supervisor    = ' '
+      let $Compañia      = ' '
+      let $Desde_Fecha   = ''
+      let $Hasta_Fecha   = ''
+   end-if
+   if $Opcion_CarReg = 'Z'
+      let $Desde_cliente = ' '
+      let $Hasta_cliente = ' '
+      let $Supervisor    = ' '
+      let $Compañia      = ' '
+      let $Desde_Fecha   = ''
+      let $Hasta_Fecha   = ''
+   end-if
+   if $Opcion_CarReg = 'N' or $Opcion_CarReg = 'C'
+      let $Desde_Zona    = ' '
+      let $Hasta_Zona    = ' '
+      let $Supervisor    = ' '
+      let $Compañia      = ' '
+      let $Desde_Fecha   = ''
+      let $Hasta_Fecha   = ''
+   end-if
+   if $Opcion_CarReg = 'D'
+      let $Desde_Zona    = ' '
+      let $Hasta_Zona    = ' '
+      let $Supervisor    = ' '
+      let $Compañia      = ' '
+      let $Desde_cliente = ' '
+      let $Hasta_cliente = ' '
+   end-if
+   SHOW ' $Opcion_CarReg ' $Opcion_CarReg
+   Do  Borrar-Tabla-Temporal
+   let $date_in = $asoftoday
+   Do  Convert-To-DTU-Date($date_in, $dtu_date)
+   let $fecha     = $dtu_date
+   show ' #Tip_Car ' #Tip_Car
+   let #imprime_encabezado = 0
+
+   if $Opcion_CarReg = 'Z'
+      if  #Tip_Car = 1       
+          Do Buscar-Clientes-Cartas-Reclamacion-Uno-Zona
+          Do Impresion-CarRec-Clientes-Carta-Uno
+      end-if          
+      if  #Tip_Car = 2      
+          Do Buscar-Clientes-Cartas-Reclamacion-Dos-Zona
+          Do Impresion-CarRec-Clientes-Carta-Dos
+      end-if        
+      if  #Tip_Car = 3      
+          Do Buscar-Clientes-Cartas-Reclamacion-Tres-Zona
+          Do Impresion-CarRec-Clientes-Carta-Tre
+      end-if        
+      if  #Tip_Car = 4      
+          Do Buscar-Clientes-Cartas-Reclamacion-Todas-Zona
+          Do Impresion-CarRec-Clientes-Carta-Uno
+          Do Impresion-CarRec-Clientes-Carta-Dos
+          Do Impresion-CarRec-Clientes-Carta-Tre
+      end-if  
+   end-if        
+   if $Opcion_CarReg = 'S'
+      Do  buscar-setid-team-code-un-supervisor
+      if  #Tip_Car = 1             
+          Do Buscar-Cliente-Cartas-Reclamacion-Uno-Supervisor
+          Do Impresion-CarRec-Clientes-Carta-Uno          
+      end-if
+      if  #Tip_Car = 2       
+          Do Buscar-Cliente-Cartas-Reclamacion-Dos-Supervisor
+          Do Impresion-CarRec-Clientes-Carta-Dos          
+      end-if
+      if  #Tip_Car = 3             
+          Do Buscar-Cliente-Cartas-Reclamacion-Tre-Supervisor
+          Do Impresion-CarRec-Clientes-Carta-Tre          
+      end-if
+      if  #Tip_Car = 4             
+          Do Buscar-Cliente-Cartas-Reclamacion-Todas-Supervisor
+          Do Impresion-CarRec-Clientes-Carta-Uno
+          Do Impresion-CarRec-Clientes-Carta-Dos
+          Do Impresion-CarRec-Clientes-Carta-Tre
+      end-if      
+   end-if   
+   if $Opcion_CarReg = 'U'
+      if  #Tip_Car = 1       
+          Do Buscar-Clientes-Cartas-Reclamacion-Uno-Unidad
+          Do Impresion-CarRec-Clientes-Carta-Uno
+      end-if          
+      if  #Tip_Car = 2      
+          Do Buscar-Clientes-Cartas-Reclamacion-Dos-Unidad
+          Do Impresion-CarRec-Clientes-Carta-Dos
+      end-if        
+      if  #Tip_Car = 3      
+          Do Buscar-Clientes-Cartas-Reclamacion-Tres-Unidad
+          Do Impresion-CarRec-Clientes-Carta-Tre
+      end-if        
+      if  #Tip_Car = 4      
+          Do Buscar-Clientes-Cartas-Reclamacion-Todas-Unidad
+          Do Impresion-CarRec-Clientes-Carta-Uno
+          Do Impresion-CarRec-Clientes-Carta-Dos
+          Do Impresion-CarRec-Clientes-Carta-Tre
+      end-if  
+   end-if 
+   if $Opcion_CarReg = 'T'
+      if  #Tip_Car = 1       
+          Do Buscar-Clientes-Cartas-Reclamacion-Uno-Compañia
+          Do Impresion-CarRec-Clientes-Carta-Uno
+      end-if          
+      if  #Tip_Car = 2      
+          Do Buscar-Clientes-Cartas-Reclamacion-Dos-Compañia
+          Do Impresion-CarRec-Clientes-Carta-Dos
+      end-if        
+      if  #Tip_Car = 3      
+          Do Buscar-Clientes-Cartas-Reclamacion-Tres-Compañia
+          Do Impresion-CarRec-Clientes-Carta-Tre
+      end-if        
+      if  #Tip_Car = 4      
+          Do Buscar-Clientes-Cartas-Reclamacion-Todas-Compañia
+          Do Impresion-CarRec-Clientes-Carta-Uno
+          Do Impresion-CarRec-Clientes-Carta-Dos
+          Do Impresion-CarRec-Clientes-Carta-Tre
+      end-if     
+   end-if 
+   if $Opcion_CarReg = 'G'
+      if  #Tip_Car = 1       
+          Do Buscar-Clientes-Cartas-Reclamacion-Uno-TotCli
+          Do Impresion-CarRec-Clientes-Carta-Uno
+      end-if          
+      if  #Tip_Car = 2      
+          Do Buscar-Clientes-Cartas-Reclamacion-Dos-TotCli
+          Do Impresion-CarRec-Clientes-Carta-Dos
+      end-if        
+      if  #Tip_Car = 3      
+          Do Buscar-Clientes-Cartas-Reclamacion-Tres-TotCli
+          Do Impresion-CarRec-Clientes-Carta-Tre
+      end-if        
+      if  #Tip_Car = 4      
+          Do Buscar-Clientes-Cartas-Reclamacion-Todas-TotCli
+          Do Impresion-CarRec-Clientes-Carta-Uno
+          Do Impresion-CarRec-Clientes-Carta-Dos
+          Do Impresion-CarRec-Clientes-Carta-Tre
+      end-if  
+   end-if
+   if $Opcion_CarReg = 'D'
+      if #Tip_Car = 1
+         Do Buscar-Clientes-Cartas-Reclamacion-Cheque-Devuelto-Uno      
+         Do Impresion-CarRec-Clientes-Carta-Uno         
+      end-if      
+      if #Tip_Car = 2         
+         Do Buscar-Clientes-Cartas-Reclamacion-Cheque-Devuelto-Dos
+         Do Impresion-CarRec-Clientes-Carta-Dos         
+      end-if            
+      if #Tip_Car = 3      
+         Do Buscar-Clientes-Cartas-Reclamacion-Cheque-Devuelto-Tre
+         Do Impresion-CarRec-Clientes-Carta-Tre         
+      end-if            
+      if #Tip_Car = 4      
+         Do Buscar-Clientes-Cartas-Reclamacion-Cheque-Devuelto-Todas
+         Do Impresion-CarRec-Clientes-Carta-Uno-Cheque-Devuelto   
+      end-if            
+   end-if  
+   
+  if $Opcion_CarReg = 'N' or $Opcion_CarReg = 'C'
+
+    Do  Buscar-Clientes-Cartas-Reclamacion
+    if  #Tip_Car = 1
+        Do Impresion-CarRec-Clientes-Carta-Uno
+    end-if  
+    if  #Tip_Car = 2
+        Do Impresion-CarRec-Clientes-Carta-Dos
+    end-if  
+    if  #Tip_Car = 3
+        Do Impresion-CarRec-Clientes-Carta-Tre         
+    end-if  
+    if  #Tip_Car = 4
+        Do Impresion-CarRec-Clientes-Carta-Uno
+        Do Impresion-CarRec-Clientes-Carta-Dos
+        Do Impresion-CarRec-Clientes-Carta-Tre
+   end-if
+  end-if 
+End-procedure Proceso-Principal
+
+Begin-procedure Buscar-Clientes-Cartas-Reclamacion-Uno
+show ' ENTRO Buscar-Clientes-Cartas-Reclamacion-Uno '
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = ' '
+show ' $UniNegCli_Uno     ' $UniNegCli_Uno
+show ' $DesHasCl_Uno  ' $DesHasCl_Uno
+Begin-select DISTINCT
+SDUNO.BUSINESS_UNIT,
+SDUNO.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(SDUNO.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &SDUNO.DIA_VEN_FAC
+
+
+  let $Uni_Neg_Sel = &SDUNO.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &SDUNO.CUST_ID
+  let #Dia_Ven_Sel = &SDUNO.DIA_VEN_FAC
+  show ' #Dia_Ven_Sel ' #Dia_Ven_Sel
+  if  #Dia_Ven_Sel > 30 and #Dia_Ven_Sel <= 60
+      let $Tip_Gen_Car = '1'
+      if $Opcion_Unidad = 'T' 
+       Do Buscar-Setid-Customer ('CUSTOMER',$Uni_Neg_Sel,$Setid_tbl)
+      end-if 
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+
+FROM PS_ITEM SDUNO
+WHERE SDUNO.ITEM_STATUS   = 'O'
+AND SDUNO.BAL_AMT         > 0
+AND SDUNO.DISPUTE_STATUS  = ' '
+[$UniNegCli_Uno]
+AND SDUNO.CUST_ID         = $codcli_id_pnl
+GROUP BY SDUNO.BUSINESS_UNIT, SDUNO.CUST_ID
+ORDER BY 3
+End-select
+show 'SALIO Buscar-Clientes-Cartas-Reclamacion-Uno'
+End-procedure   Buscar-Clientes-Cartas-Reclamacion-Uno
+
+Begin-procedure Buscar-Clientes-Cartas-Reclamacion-Dos
+show ' ENTRO Buscar-Clientes-Cartas-Reclamacion-Dos '
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = ' '
+show ' $UniNegCli ' $UniNegCli
+show ' $DesHasCl  ' $DesHasCl_Dos
+Begin-select DISTINCT
+SDDOS.BUSINESS_UNIT,
+SDDOS.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(SDDOS.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &SDDOS.DIA_VEN_FAC
+
+
+  let $Uni_Neg_Sel = &SDDOS.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &SDDOS.CUST_ID
+  let #Dia_Ven_Sel = &SDDOS.DIA_VEN_FAC
+  show ' #Dia_Ven_Sel ' #Dia_Ven_Sel
+  if  #Dia_Ven_Sel > 60 and #Dia_Ven_Sel <= 90
+      let $Tip_Gen_Car = '2'
+      if $Opcion_Unidad = 'T' 
+       Do Buscar-Setid-Customer ('CUSTOMER',$Uni_Neg_Sel,$Setid_tbl)
+      end-if 
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+
+FROM PS_ITEM SDDOS
+WHERE SDDOS.ITEM_STATUS   = 'O'
+  AND SDDOS.BAL_AMT       > 0
+  AND SDDOS.DISPUTE_STATUS  = ' '
+[$UniNegCli_Dos]
+  AND SDDOS.CUST_ID         = $codcli_id_pnl
+GROUP BY SDDOS.BUSINESS_UNIT, SDDOS.CUST_ID
+ORDER BY 3
+End-select
+show 'SALIO Buscar-Clientes-Cartas-Reclamacion-Dos'
+End-procedure   Buscar-Clientes-Cartas-Reclamacion-Dos
+
+Begin-procedure Buscar-Clientes-Cartas-Reclamacion-Tres
+show ' ENTRO Buscar-Clientes-Cartas-Reclamacion-Tres '
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = ' '
+show ' $UniNegCli ' $UniNegCli
+show ' $DesHasCl  ' $DesHasCl_Dos
+SHOW '$UniNegCli_Tre' $UniNegCli_Tre
+Begin-select DISTINCT
+SDTRE.BUSINESS_UNIT,
+SDTRE.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(SDTRE.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &SDTRE.DIA_VEN_FAC
+
+  let $Uni_Neg_Sel = &SDTRE.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &SDTRE.CUST_ID
+  let #Dia_Ven_Sel = &SDTRE.DIA_VEN_FAC
+  show ' #Dia_Ven_Sel ' #Dia_Ven_Sel
+  if  #Dia_Ven_Sel > 91 
+      let $Tip_Gen_Car = '3'
+      if $Opcion_Unidad = 'T' 
+       Do Buscar-Setid-Customer ('CUSTOMER',$Uni_Neg_Sel,$Setid_tbl)
+      end-if 
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+
+FROM PS_ITEM SDTRE
+WHERE SDTRE.ITEM_STATUS   = 'O'
+AND SDTRE.BAL_AMT         > 0
+AND SDTRE.DISPUTE_STATUS  = ' '
+AND SDTRE.COLLECTION_STATUS NOT IN ('DEU','MOR','JUD')
+[$UniNegCli_Tre]
+AND SDTRE.CUST_ID         = $codcli_id_pnl
+GROUP BY SDTRE.BUSINESS_UNIT, SDTRE.CUST_ID
+ORDER BY 3
+End-select
+show 'SALIO Buscar-Clientes-Cartas-Reclamacion-Tres'
+End-procedure   Buscar-Clientes-Cartas-Reclamacion-Tres
+
+Begin-procedure Buscar-Clientes-Cartas-Reclamacion-Todas
+show ' ENTRO Buscar-Clientes-Cartas-Reclamacion-Todas '
+show '$Setid_tbl'  $Setid_tbl
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = ' '
+show ' $UniNegCli_Tod ' $UniNegCli_Tod
+show ' DesHasCl_Tod   ' $DesHasCl_Tod
+show '$codcli_id_pnl' $codcli_id_pnl
+Begin-select DISTINCT
+TODAS.BUSINESS_UNIT,
+TODAS.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(TODAS.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &TODAS.DIA_VEN_FAC
+
+  let $Uni_Neg_Sel = &TODAS.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &TODAS.CUST_ID
+  let #Dia_Ven_Sel = &TODAS.DIA_VEN_FAC
+  show ' $Cod_Cli_Sel ' $Cod_Cli_Sel
+  show ' #Dia_Ven_Sel ' #Dia_Ven_Sel
+  if $Opcion_Unidad = 'T' 
+          Do Buscar-Setid-Customer ('CUSTOMER',$Uni_Neg_Sel,$Setid_tbl)
+  end-if 
+  if  #Dia_Ven_Sel > 30 and #Dia_Ven_Sel <= 60
+      let $Tip_Gen_Car = '1'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+  if  #Dia_Ven_Sel > 60 and #Dia_Ven_Sel <= 90
+      let $Tip_Gen_Car = '2'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+  if  #Dia_Ven_Sel > 91
+      let $Tip_Gen_Car = '3'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+
+FROM PS_ITEM TODAS
+WHERE TODAS.ITEM_STATUS   = 'O'
+AND TODAS.BAL_AMT         > 0
+AND TODAS.DISPUTE_STATUS  = ' '
+[$UniNegCli_Tod]
+AND TODAS.CUST_ID         = $codcli_id_pnl
+GROUP BY TODAS.BUSINESS_UNIT, TODAS.CUST_ID
+ORDER BY 3
+End-select
+show 'SALIO Buscar-Clientes-Cartas-Reclamacion-Todas'
+End-procedure   Buscar-Clientes-Cartas-Reclamacion-Todas
+
+Begin-procedure Buscar-Clientes-Cartas-Reclamacion-Uno-Zona
+show ' ENTRO Buscar-Clientes-Cartas-Reclamacion-Uno-Zona '
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = ' '
+show ' $UniNegCli     ' $UniNegCli
+show ' $DesHasCl_Uno  ' $DesHasCl_Uno
+Begin-select DISTINCT
+ZNUNO.BUSINESS_UNIT,
+ZNUNO.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(ZNUNO.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &ZNUNO.DIA_VEN_FAC
+
+  let $Uni_Neg_Sel = &ZNUNO.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &ZNUNO.CUST_ID
+  let #Dia_Ven_Sel = &ZNUNO.DIA_VEN_FAC
+  show ' #Dia_Ven_Sel ' #Dia_Ven_Sel
+  if  #Dia_Ven_Sel > 30 and #Dia_Ven_Sel <= 60
+      let $Tip_Gen_Car = '1'
+      Do  Buscar-Setid-Customer-Todas-Unidades
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+
+FROM PS_ITEM ZNUNO
+WHERE ZNUNO.ITEM_STATUS   = 'O'
+AND ZNUNO.BAL_AMT         > 0
+AND ZNUNO.DISPUTE_STATUS  = ' '
+[$UniNegCli_Uno]
+[$DesHasZn_Uno]
+GROUP BY ZNUNO.BUSINESS_UNIT, ZNUNO.CUST_ID
+ORDER BY 3
+End-select
+show 'SALIO Buscar-Clientes-Cartas-Reclamacion-Uno-Zona'
+End-procedure   Buscar-Clientes-Cartas-Reclamacion-Uno-Zona
+
+Begin-procedure Buscar-Clientes-Cartas-Reclamacion-Dos-Zona
+show ' ENTRO Buscar-Clientes-Cartas-Reclamacion-Dos-Zona '
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = ' '
+show ' $UniNegCli ' $UniNegCli
+show ' $DesHasCl  ' $DesHasCl_Dos
+Begin-select DISTINCT
+ZNDOS.BUSINESS_UNIT,
+ZNDOS.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(ZNDOS.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &ZNDOS.DIA_VEN_FAC
+
+  let $Uni_Neg_Sel = &ZNDOS.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &ZNDOS.CUST_ID
+  let #Dia_Ven_Sel = &ZNDOS.DIA_VEN_FAC
+  show ' #Dia_Ven_Sel ' #Dia_Ven_Sel
+  if  #Dia_Ven_Sel > 60 and #Dia_Ven_Sel <= 90
+      let $Tip_Gen_Car = '2'
+      Do  Buscar-Setid-Customer-Todas-Unidades
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+
+FROM PS_ITEM ZNDOS
+WHERE ZNDOS.ITEM_STATUS   = 'O'
+[$UniNegCli_Dos]
+[$DesHasZn_Dos]
+AND ZNDOS.BAL_AMT         > 0
+AND ZNDOS.DISPUTE_STATUS  = ' '
+GROUP BY ZNDOS.BUSINESS_UNIT, ZNDOS.CUST_ID
+ORDER BY 3
+End-select
+show 'SALIO Buscar-Clientes-Cartas-Reclamacion-Dos-Zona'
+End-procedure   Buscar-Clientes-Cartas-Reclamacion-Dos-Zona
+
+Begin-procedure Buscar-Clientes-Cartas-Reclamacion-Tres-Zona 
+show ' ENTRO Buscar-Clientes-Cartas-Reclamacion-Tres-Zona '
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = ' '
+show ' $UniNegCli ' $UniNegCli
+show ' $DesHasCl  ' $DesHasZn_Tre
+Begin-select DISTINCT
+ZNTRE.BUSINESS_UNIT,
+ZNTRE.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(ZNTRE.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &ZNTRE.DIA_VEN_FAC
+
+  let $Uni_Neg_Sel = &ZNTRE.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &ZNTRE.CUST_ID
+  let #Dia_Ven_Sel = &ZNTRE.DIA_VEN_FAC
+  show ' #Dia_Ven_Sel ' #Dia_Ven_Sel
+  if  #Dia_Ven_Sel > 91 
+      let $Tip_Gen_Car = '3'
+      Do  Buscar-Setid-Customer-Todas-Unidades
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+
+FROM PS_ITEM ZNTRE
+WHERE ZNTRE.ITEM_STATUS = 'O'
+[$UniNegCli_Tre]
+[$DesHasZn_Tre]
+AND ZNTRE.BAL_AMT > 0
+AND ZNTRE.DISPUTE_STATUS  = ' '
+GROUP BY ZNTRE.BUSINESS_UNIT, ZNTRE.CUST_ID
+ORDER BY 3
+End-select
+show 'SALIO Buscar-Clientes-Cartas-Reclamacion-Tres-Zona'
+End-procedure   Buscar-Clientes-Cartas-Reclamacion-Tres-Zona
+
+Begin-procedure Buscar-Clientes-Cartas-Reclamacion-Todas-Zona
+show ' ENTRO Buscar-Clientes-Cartas-Reclamacion-Todas-Zona '
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = ' '
+show ' $UniNegCli_Tod ' $UniNegCli_Tod
+show ' DesHasCl_Tod   ' $DesHasCl_Tod
+Begin-select DISTINCT
+ZNTOD.BUSINESS_UNIT,
+ZNTOD.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(ZNTOD.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &ZNTOD.DIA_VEN_FAC
+
+  let $Uni_Neg_Sel = &ZNTOD.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &ZNTOD.CUST_ID
+  let #Dia_Ven_Sel = &ZNTOD.DIA_VEN_FAC
+  show ' #Dia_Ven_Sel ' #Dia_Ven_Sel
+  if  #Dia_Ven_Sel > 30 and #Dia_Ven_Sel <= 60
+      let $Tip_Gen_Car = '1'
+      Do  Buscar-Setid-Customer-Todas-Unidades
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+  if  #Dia_Ven_Sel > 60 and #Dia_Ven_Sel <= 90
+      let $Tip_Gen_Car = '2'
+      Do  Buscar-Setid-Customer-Todas-Unidades
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+  if  #Dia_Ven_Sel > 91
+      let $Tip_Gen_Car = '3'
+      Do  Buscar-Setid-Customer-Todas-Unidades
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+
+FROM PS_ITEM ZNTOD
+WHERE ZNTOD.ITEM_STATUS = 'O'
+[$UniNegCli_Tod]
+[$DesHasZn_Tod]
+AND ZNTOD.BAL_AMT > 0
+AND ZNTOD.DISPUTE_STATUS  = ' '  
+GROUP BY ZNTOD.BUSINESS_UNIT, ZNTOD.CUST_ID
+ORDER BY 3
+End-select
+show 'SALIO Buscar-Clientes-Cartas-Reclamacion-Todas-Zona'
+End-procedure   Buscar-Clientes-Cartas-Reclamacion-Todas-Zona
+
+begin-procedure Buscar-Setid-Customer-Todas-Unidades
+begin-select
+SCUSTU.SETID
+
+   let $Setid_tbl = &SCUSTU.SETID
+   
+from  PS_SET_CNTRL_REC SCUSTU  
+where SCUSTU.SETCNTRLVALUE = $Uni_Neg_Sel
+and   SCUSTU.RECNAME       = 'CUSTOMER'
+end-select
+SHOW ' $Setid_tbl ' $Setid_tbl
+end-procedure   Buscar-Setid-Customer-Todas-Unidades
+
+Begin-procedure Buscar-Clientes-Cartas-Reclamacion-Uno-Unidad
+show ' ENTRO Buscar-Clientes-Cartas-Reclamacion-Uno-Unidad '
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = ' '
+show ' $UniNegCli     ' $UniNegCli
+Begin-select DISTINCT
+UDUNO.BUSINESS_UNIT,
+UDUNO.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(UDUNO.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &UDUNO.DIA_VEN_FAC
+
+  let $Uni_Neg_Sel = &UDUNO.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &UDUNO.CUST_ID
+  let #Dia_Ven_Sel = &UDUNO.DIA_VEN_FAC
+  show ' #Dia_Ven_Sel ' #Dia_Ven_Sel
+  if  #Dia_Ven_Sel > 30 and #Dia_Ven_Sel <= 60
+      let $Tip_Gen_Car = '1'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+
+FROM PS_ITEM UDUNO
+WHERE UDUNO.ITEM_STATUS = 'O'
+[$UniNegUni_Uno]
+AND UDUNO.BAL_AMT > 0
+AND UDUNO.DISPUTE_STATUS  = ' '
+GROUP BY UDUNO.BUSINESS_UNIT, UDUNO.CUST_ID
+ORDER BY 3
+End-select
+show 'SALIO Buscar-Clientes-Cartas-Reclamacion-Uno-Unidad'
+End-procedure   Buscar-Clientes-Cartas-Reclamacion-Uno-Unidad
+
+Begin-procedure Buscar-Clientes-Cartas-Reclamacion-Dos-Unidad
+show ' ENTRO Buscar-Clientes-Cartas-Reclamacion-Dos-Unidad '
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = ' '
+show ' $UniNegCli ' $UniNegCli
+show ' $DesHasCl  ' $DesHasCl_Dos
+Begin-select DISTINCT
+UNDOS.BUSINESS_UNIT,
+UNDOS.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(UNDOS.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &UNDOS.DIA_VEN_FAC
+
+  let $Uni_Neg_Sel = &UNDOS.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &UNDOS.CUST_ID
+  let #Dia_Ven_Sel = &UNDOS.DIA_VEN_FAC
+  show ' #Dia_Ven_Sel ' #Dia_Ven_Sel
+  if  #Dia_Ven_Sel > 60 and #Dia_Ven_Sel <= 90
+      let $Tip_Gen_Car = '2'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+
+FROM PS_ITEM UNDOS
+WHERE UNDOS.ITEM_STATUS = 'O'
+[$UniNegUni_Dos]
+AND UNDOS.BAL_AMT > 0
+AND UNDOS.DISPUTE_STATUS  = ' '
+GROUP BY UNDOS.BUSINESS_UNIT, UNDOS.CUST_ID
+ORDER BY 3
+End-select
+show 'SALIO Buscar-Clientes-Cartas-Reclamacion-Dos-Unidad'
+End-procedure   Buscar-Clientes-Cartas-Reclamacion-Dos-Unidad
+
+Begin-procedure Buscar-Clientes-Cartas-Reclamacion-Tres-Unidad 
+show ' ENTRO Buscar-Clientes-Cartas-Reclamacion-Tres-Unidad '
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = ' '
+show ' $UniNegCli ' $UniNegCli
+show ' $DesHasCl  ' $DesHasZn_Tre
+Begin-select DISTINCT
+UNTRE.BUSINESS_UNIT,
+UNTRE.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(UNTRE.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &UNTRE.DIA_VEN_FAC
+
+  let $Uni_Neg_Sel = &UNTRE.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &UNTRE.CUST_ID
+  let #Dia_Ven_Sel = &UNTRE.DIA_VEN_FAC
+  show ' #Dia_Ven_Sel ' #Dia_Ven_Sel
+  if  #Dia_Ven_Sel > 91 
+      let $Tip_Gen_Car = '3'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+
+FROM PS_ITEM UNTRE
+WHERE UNTRE.ITEM_STATUS = 'O'
+[$UniNegUni_Tre]
+AND UNTRE.BAL_AMT > 0
+AND UNTRE.DISPUTE_STATUS  = ' '
+GROUP BY UNTRE.BUSINESS_UNIT, UNTRE.CUST_ID
+ORDER BY 3
+End-select
+show 'SALIO Buscar-Clientes-Cartas-Reclamacion-Tres-Unidad'
+End-procedure   Buscar-Clientes-Cartas-Reclamacion-Tres-Unidad
+
+Begin-procedure Buscar-Clientes-Cartas-Reclamacion-Todas-Unidad
+show ' ENTRO Buscar-Clientes-Cartas-Reclamacion-Todas-Unidad '
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = ' '
+show ' $UniNegCli_Tod ' $UniNegCli_Tod
+show ' DesHasCl_Tod   ' $DesHasCl_Tod
+Begin-select DISTINCT
+UNTOD.BUSINESS_UNIT,
+UNTOD.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(UNTOD.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &UNTOD.DIA_VEN_FAC
+
+  let $Uni_Neg_Sel = &UNTOD.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &UNTOD.CUST_ID
+  let #Dia_Ven_Sel = &UNTOD.DIA_VEN_FAC
+  show ' #Dia_Ven_Sel ' #Dia_Ven_Sel
+  if  #Dia_Ven_Sel > 30 and #Dia_Ven_Sel <= 60
+      let $Tip_Gen_Car = '1'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+  if  #Dia_Ven_Sel > 60 and #Dia_Ven_Sel <= 90
+      let $Tip_Gen_Car = '2'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+  if  #Dia_Ven_Sel > 91
+      let $Tip_Gen_Car = '3'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+
+FROM PS_ITEM UNTOD
+WHERE UNTOD.ITEM_STATUS = 'O'
+[$UniNegUni_Tod]
+AND UNTOD.BAL_AMT > 0
+AND UNTOD.DISPUTE_STATUS  = ' '
+GROUP BY UNTOD.BUSINESS_UNIT, UNTOD.CUST_ID
+ORDER BY 3
+End-select
+show 'SALIO Buscar-Clientes-Cartas-Reclamacion-Todas-Unidad'
+End-procedure   Buscar-Clientes-Cartas-Reclamacion-Todas-Unidad
+
+Begin-procedure Buscar-Clientes-Cartas-Reclamacion-Uno-TotCli
+show ' ENTRO Buscar-Clientes-Cartas-Reclamacion-Uno-TotCli '
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = ' '
+show ' $UniNegCli     ' $UniNegCli
+show ' $DesHasCl_Uno  ' $DesHasCl_Uno
+Begin-select DISTINCT
+TCUNO.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(TCUNO.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &TCUNO.DIA_VEN_FAC
+
+  !let $Uni_Neg_Sel = &TCUNO.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &TCUNO.CUST_ID
+  let #Dia_Ven_Sel = &TCUNO.DIA_VEN_FAC
+  show ' #Dia_Ven_Sel ' #Dia_Ven_Sel
+  if  #Dia_Ven_Sel > 30 and #Dia_Ven_Sel <= 60
+      let $Tip_Gen_Car = '1'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera-TotCli 
+      let $Tip_Gen_Car = ' '
+  end-if
+
+FROM PS_ITEM TCUNO
+WHERE TCUNO.ITEM_STATUS = 'O'
+[$DesHaTCl_Uno]
+AND TCUNO.BAL_AMT > 0
+AND TCUNO.DISPUTE_STATUS  = ' '
+GROUP BY TCUNO.CUST_ID
+ORDER BY 2
+End-select
+show 'SALIO Buscar-Clientes-Cartas-Reclamacion-Uno-TotCli'
+End-procedure   Buscar-Clientes-Cartas-Reclamacion-Uno-TotCli
+
+Begin-procedure Buscar-Clientes-Cartas-Reclamacion-Dos-TotCli
+show ' ENTRO Buscar-Clientes-Cartas-Reclamacion-Dos-TotCli '
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = ' '
+show ' $UniNegCli ' $UniNegCli
+show ' $DesHasCl  ' $DesHasCl_Dos
+Begin-select DISTINCT
+TCDOS.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(TCDOS.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &TCDOS.DIA_VEN_FAC
+
+  let $Cod_Cli_Sel = &TCDOS.CUST_ID
+  let #Dia_Ven_Sel = &TCDOS.DIA_VEN_FAC
+  show ' #Dia_Ven_Sel ' #Dia_Ven_Sel
+  if  #Dia_Ven_Sel > 60 and #Dia_Ven_Sel <= 90
+      let $Tip_Gen_Car = '2'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera-TotCli 
+      let $Tip_Gen_Car = ' '
+  end-if
+
+FROM PS_ITEM TCDOS
+WHERE TCDOS.ITEM_STATUS   = 'O'
+[$DesHaTCl_Dos]
+AND TCDOS.BAL_AMT         > 0
+AND TCDOS.DISPUTE_STATUS  = ' '
+GROUP BY TCDOS.CUST_ID
+ORDER BY 2
+End-select
+show 'SALIO Buscar-Clientes-Cartas-Reclamacion-Dos-TotCli'
+End-procedure   Buscar-Clientes-Cartas-Reclamacion-Dos-TotCli
+
+Begin-procedure Buscar-Clientes-Cartas-Reclamacion-Tres-TotCli 
+show ' ENTRO Buscar-Clientes-Cartas-Reclamacion-Tres-TotCli '
+show ' $DesHaTCl_Tre '
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = ' '
+show ' $UniNegCli ' $UniNegCli
+show ' $DesHasCl  ' $DesHasZn_Tre
+Begin-select DISTINCT
+TCTRE.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(TCTRE.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &TCTRE.DIA_VEN_FAC
+
+ let $Cod_Cli_Sel = &TCTRE.CUST_ID
+  let #Dia_Ven_Sel = &TCTRE.DIA_VEN_FAC
+  show ' #Dia_Ven_Sel ' #Dia_Ven_Sel
+  if  #Dia_Ven_Sel > 91 
+      let $Tip_Gen_Car = '3'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera-TotCli 
+      let $Tip_Gen_Car = ' '
+  end-if
+
+FROM PS_ITEM TCTRE
+WHERE TCTRE.ITEM_STATUS   = 'O'
+[$DesHaTCl_Tre]
+AND TCTRE.BAL_AMT         > 0
+AND TCTRE.DISPUTE_STATUS  = ' '
+GROUP BY TCTRE.CUST_ID
+ORDER BY 2
+End-select
+show 'SALIO Buscar-Clientes-Cartas-Reclamacion-Tres-TotCli'
+End-procedure   Buscar-Clientes-Cartas-Reclamacion-Tres-TotCli
+
+Begin-procedure Buscar-Clientes-Cartas-Reclamacion-Todas-TotCli
+show ' ENTRO Buscar-Clientes-Cartas-Reclamacion-Todas-TotCli '
+show '$Setid_tbl'  $Setid_tbl
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = ' '
+show ' $DesHaTCl_Tod   ' $DesHaTCl_Tod
+Begin-select DISTINCT
+TCTOD.BUSINESS_UNIT,
+TCTOD.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(TCTOD.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &TCTOD.DIA_VEN_FAC
+
+  !let $Uni_Neg_Sel = &TCTOD.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &TCTOD.CUST_ID
+  let #Dia_Ven_Sel = &TCTOD.DIA_VEN_FAC
+  let $Uni_Neg_Sel = &TCTOD.BUSINESS_UNIT
+  show ' #Dia_Ven_Sel ' #Dia_Ven_Sel
+  if $Opcion_Unidad = 'T' 
+  	  Do Buscar-Setid-Customer ('CUSTOMER',$Uni_Neg_Sel,$Setid_tbl)
+  end-if
+  if  #Dia_Ven_Sel > 30 and #Dia_Ven_Sel <= 60
+      SHOW ' ESTAMOS POR ESTOS LADOS '
+      let $Tip_Gen_Car = '1'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera-TotCli 
+      let $Tip_Gen_Car = ' '
+  end-if
+  if  #Dia_Ven_Sel > 60 and #Dia_Ven_Sel <= 90
+      SHOW ' AHORA SI SE VINO POR AQUI'
+      let $Tip_Gen_Car = '2'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera-TotCli 
+      let $Tip_Gen_Car = ' '
+  end-if
+  if  #Dia_Ven_Sel > 91
+      SHOW ' DONDE ESTARA EL DESCNTROL '
+      let $Tip_Gen_Car = '3'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera-TotCli 
+      let $Tip_Gen_Car = ' '
+  end-if
+
+FROM PS_ITEM TCTOD
+WHERE TCTOD.ITEM_STATUS   = 'O'
+AND TCTOD.BAL_AMT         > 0
+AND TCTOD.DISPUTE_STATUS  = ' '
+[$DesHaTCl_Tod]
+GROUP BY TCTOD.BUSINESS_UNIT,TCTOD.CUST_ID
+ORDER BY 2
+End-select
+show 'SALIO Buscar-Clientes-Cartas-Reclamacion-Todas-TotCli'
+End-procedure   Buscar-Clientes-Cartas-Reclamacion-Todas-TotCli
+
+Begin-procedure Buscar-Clientes-Facturas-Cartera-TotCli
+show 'entro Buscar-Clientes-Facturas-Cartera-TotCli '
+let $Bus_Uni_Car = ' '
+let $Cod_Cli_Car = ' '
+let $Num_Fac_Car = ' '
+let $Tip_Reg_Car = ' '
+let #Vlr_Fac_Car = 0
+let $Fec_Vto_Car = ''
+let $Num_Leg_Car = ' '
+let $Num_DiV_Car = ' '
+let $Fec_Fta_Car = ''
+let $Con_Pag_Car = ' '
+let $Zon_Fac_Car = ' '
+let $Sel_Std_Car = ' '
+let $Sel_Sup_Car = ' '
+
+Begin-select DISTINCT
+BFCTC.BUSINESS_UNIT, 
+BFCTC.CUST_ID, 
+BFCTC.ITEM, 
+BFCTC.ENTRY_TYPE, 
+BFCTC.BAL_AMT, 
+BFCTC.DUE_DT, 
+BFCTC.USER1,
+BFCTC.ACCOUNTING_DT,
+BFCTC.PYMNT_TERMS_CD,
+BFCTC.SUBCUST_QUAL1,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(BFCTC.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &BFCTC.DIA_VEN_FAC
+
+  let $Bus_Uni_Car = &BFCTC.BUSINESS_UNIT
+  let $Cod_Cli_Car = &BFCTC.CUST_ID
+  let $Num_Fac_Car = &BFCTC.ITEM
+  let $Tip_Reg_Car = &BFCTC.ENTRY_TYPE
+  let #Vlr_Fac_Car = &BFCTC.BAL_AMT
+  let $Fec_Vto_Car = &BFCTC.DUE_DT
+  let $Num_Leg_Car = &BFCTC.USER1
+  let $Num_DiV_Car = &BFCTC.DIA_VEN_FAC
+  let $Fec_Fta_Car = &BFCTC.ACCOUNTING_DT
+  let $Con_Pag_Car = &BFCTC.PYMNT_TERMS_CD
+  let $Zon_Fac_Car = &BFCTC.SUBCUST_QUAL1
+  SHOW ' $Cod_Cli_Car ' $Cod_Cli_Car
+  SHOW ' $Num_Fac_Car ' $Num_Fac_Car
+  Do  InsInf-TblTmp-CliCre
+
+FROM PS_ITEM BFCTC
+WHERE BFCTC.CUST_ID         = $Cod_Cli_Sel
+  AND BFCTC.ITEM_STATUS     = 'O'
+  AND BFCTC.BAL_AMT         > 0
+  AND BFCTC.DISPUTE_STATUS  = ' '
+  AND BFCTC.DUE_DT <= $Asoftoday
+  AND BFCTC.DISPUTE_STATUS = ' ' !<> 'OMD'
+  AND BFCTC.COLLECTION_STATUS NOT IN ('DEU','MOR','JUD')  
+GROUP BY BFCTC.BUSINESS_UNIT, BFCTC.CUST_ID, BFCTC.ITEM, BFCTC.ENTRY_TYPE, BFCTC.BAL_AMT, BFCTC.DUE_DT, BFCTC.USER1, 
+         BFCTC.ACCOUNTING_DT, BFCTC.PYMNT_TERMS_CD, BFCTC.SUBCUST_QUAL1  
+End-select
+show 'salio Buscar-Clientes-Facturas-Cartera-TotCli'
+End-procedure   Buscar-Clientes-Facturas-Cartera-TotCli
+
+Begin-procedure Buscar-Clientes-Cartas-Reclamacion-Uno-Compañia
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = ' '
+show ' $UniNegCli     ' $UniNegCli
+show ' $DesHasCl_Uno  ' $DesHasCl_Uno
+
+Begin-select DISTINCT
+CPUNO.BUSINESS_UNIT,
+CPUNO.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(CPUNO.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &CPUNO.DIA_VEN_FAC
+
+  let $Uni_Neg_Sel = &CPUNO.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &CPUNO.CUST_ID
+  let #Dia_Ven_Sel = &CPUNO.DIA_VEN_FAC
+  show ' #Dia_Ven_Sel ' #Dia_Ven_Sel
+  if  #Dia_Ven_Sel > 30 and #Dia_Ven_Sel <= 60
+      let $Tip_Gen_Car = '1'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+    
+FROM PS_CUSTOMER CCUNO, PS_ITEM CPUNO
+WHERE CCUNO.SETID           = $Compañia
+  AND CCUNO.CUST_ID         = CPUNO.CUST_ID
+  AND CPUNO.ITEM_STATUS     = 'O'
+  AND CPUNO.BAL_AMT         > 0
+  AND CPUNO.DISPUTE_STATUS  = ' '
+GROUP BY CPUNO.BUSINESS_UNIT, CPUNO.CUST_ID
+ORDER BY 3
+End-select
+End-procedure Buscar-Clientes-Cartas-Reclamacion-Uno-Compañia
+
+Begin-procedure Buscar-Clientes-Cartas-Reclamacion-Dos-Compañia
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = ' '
+show ' $UniNegCli     ' $UniNegCli
+show ' $DesHasCl_Uno  ' $DesHasCl_Uno
+show ' $Compañia ' $Compañia
+
+Begin-select DISTINCT
+CPDOS.BUSINESS_UNIT,
+CPDOS.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(CPDOS.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &CPDOS.DIA_VEN_FAC
+
+  let $Uni_Neg_Sel = &CPDOS.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &CPDOS.CUST_ID
+  let #Dia_Ven_Sel = &CPDOS.DIA_VEN_FAC
+  show ' #Dia_Ven_Sel ' #Dia_Ven_Sel
+  if  #Dia_Ven_Sel > 60 and #Dia_Ven_Sel <= 90
+      let $Tip_Gen_Car = '2'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+  show ' $Uni_Neg_Sel ' $Uni_Neg_Sel
+  show ' $Cod_Cli_Sel ' $Cod_Cli_Sel
+    
+FROM PS_CUSTOMER CCDOS, PS_ITEM CPDOS
+WHERE CCDOS.SETID           = $Compañia
+  AND CCDOS.CUST_ID         = CPDOS.CUST_ID
+  AND CPDOS.ITEM_STATUS     = 'O'
+  AND CPDOS.BAL_AMT         > 0
+  AND CPDOS.DISPUTE_STATUS  = ' '
+GROUP BY CPDOS.BUSINESS_UNIT, CPDOS.CUST_ID
+ORDER BY 3
+End-select
+End-procedure Buscar-Clientes-Cartas-Reclamacion-Dos-Compañia
+
+Begin-procedure Buscar-Clientes-Cartas-Reclamacion-Tres-Compañia
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = ' '
+show ' $UniNegCli     ' $UniNegCli
+show ' $DesHasCl_Uno  ' $DesHasCl_Uno
+
+Begin-select DISTINCT
+CPTRE.BUSINESS_UNIT,
+CPTRE.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(CPTRE.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &CPTRE.DIA_VEN_FAC
+
+  let $Uni_Neg_Sel = &CPTRE.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &CPTRE.CUST_ID
+  let #Dia_Ven_Sel = &CPTRE.DIA_VEN_FAC
+  show ' #Dia_Ven_Sel ' #Dia_Ven_Sel
+  if  #Dia_Ven_Sel > 91
+      let $Tip_Gen_Car = '3'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+    
+FROM PS_CUSTOMER CCTRE, PS_ITEM CPTRE
+WHERE CCTRE.SETID           = $Compañia
+  AND CCTRE.CUST_ID         = CPTRE.CUST_ID
+  AND CPTRE.ITEM_STATUS     = 'O'
+  AND CPTRE.BAL_AMT         > 0
+  AND CPTRE.DISPUTE_STATUS  = ' '
+GROUP BY CPTRE.BUSINESS_UNIT, CPTRE.CUST_ID
+ORDER BY 3
+End-select
+End-procedure Buscar-Clientes-Cartas-Reclamacion-Tres-Compañia
+
+Begin-procedure Buscar-Clientes-Cartas-Reclamacion-Todas-Compañia
+SHOW 'ENTRO Buscar-Clientes-Cartas-Reclamacion-Uno-Compañia'
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = ' '
+show ' $UniNegCli     ' $UniNegCli
+show ' $DesHasCl_Uno  ' $DesHasCl_Uno
+
+Begin-select DISTINCT
+CPTOT.BUSINESS_UNIT,
+CPTOT.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(CPTOT.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &CPTOT.DIA_VEN_FAC
+
+  let $Uni_Neg_Sel = &CPTOT.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &CPTOT.CUST_ID
+  let #Dia_Ven_Sel = &CPTOT.DIA_VEN_FAC
+  show ' #Dia_Ven_Sel ' #Dia_Ven_Sel
+  if  #Dia_Ven_Sel > 30 and #Dia_Ven_Sel <= 60
+      let $Tip_Gen_Car = '1'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+  if  #Dia_Ven_Sel > 60 and #Dia_Ven_Sel <= 90
+      let $Tip_Gen_Car = '2'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+  if  #Dia_Ven_Sel > 91
+      let $Tip_Gen_Car = '3'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+    
+FROM PS_CUSTOMER CCTOT, PS_ITEM CPTOT
+WHERE CCTOT.SETID           = $Compañia
+  AND CCTOT.CUST_ID         = CPTOT.CUST_ID
+  AND CPTOT.ITEM_STATUS     = 'O'
+  AND CPTOT.BAL_AMT         > 0
+  AND CPTOT.DISPUTE_STATUS  = ' '
+GROUP BY CPTOT.BUSINESS_UNIT, CPTOT.CUST_ID
+ORDER BY 3
+End-select
+End-procedure Buscar-Clientes-Cartas-Reclamacion-Todas-Compañia
+
+Begin-procedure Buscar-Clientes-Cartas-Reclamacion-Cheque-Devuelto-Uno
+show ' ENTRO Buscar-Clientes-Cartas-Reclamacion-Cheque-Devuelto-Uno '
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = '1'
+show ' $UniNegChd_Uno ' $UniNegChd_Uno
+Begin-select DISTINCT
+CDUNO.BUSINESS_UNIT,
+CDUNO.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(CDUNO.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &CDUNO.DIA_VEN_FAC
+
+  let $Uni_Neg_Sel = &CDUNO.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &CDUNO.CUST_ID
+  let #Dia_Ven_Sel = &CDUNO.DIA_VEN_FAC
+  Do Buscar-Datos-Personales-Cliente
+  Do Buscar-Clientes-Facturas-Cartera 
+
+FROM PS_ITEM CDUNO
+WHERE CDUNO.ITEM_STATUS   = 'O'
+AND CDUNO.BAL_AMT         >  0
+AND CDUNO.ENTRY_TYPE      = 'ND'
+AND CDUNO.ENTRY_REASON    = 'CHDEV'
+AND CDUNO.DISPUTE_STATUS  = ' '
+AND CDUNO.ACCOUNTING_DT BETWEEN $Desde_Fecha AND $Hasta_Fecha
+[$UniNegChd_Uno]
+GROUP BY CDUNO.BUSINESS_UNIT, CDUNO.CUST_ID
+ORDER BY 3
+End-select
+show 'SALIO Buscar-Clientes-Cartas-Reclamacion-Cheque-Devuelto-Uno '
+End-procedure   Buscar-Clientes-Cartas-Reclamacion-Cheque-Devuelto-Uno
+
+Begin-procedure Buscar-Clientes-Cartas-Reclamacion-Cheque-Devuelto-Dos
+show ' ENTRO Buscar-Clientes-Cartas-Reclamacion-Cheque-Devuelto-Dos '
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = '2'
+show ' $UniNegChd_Dos ' $UniNegChd_Dos
+Begin-select DISTINCT
+CDDOS.BUSINESS_UNIT,
+CDDOS.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(CDDOS.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &CDDOS.DIA_VEN_FAC
+
+  let $Uni_Neg_Sel = &CDDOS.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &CDDOS.CUST_ID
+  let #Dia_Ven_Sel = &CDDOS.DIA_VEN_FAC
+  Do  Buscar-Datos-Personales-Cliente
+  Do  Buscar-Clientes-Facturas-Cartera
+
+FROM PS_ITEM CDDOS
+WHERE CDDOS.ITEM_STATUS   = 'O'
+AND CDDOS.BAL_AMT         > 0
+AND CDDOS.ENTRY_TYPE      = 'ND'
+AND CDDOS.ENTRY_REASON    = 'CHDEV'
+AND CDDOS.DISPUTE_STATUS  = ' '
+AND CDDOS.ACCOUNTING_DT BETWEEN $Desde_Fecha AND $Hasta_Fecha
+[$UniNegChd_Dos]
+GROUP BY CDDOS.BUSINESS_UNIT, CDDOS.CUST_ID
+ORDER BY 3
+End-select
+show 'SALIO Buscar-Clientes-Cartas-Reclamacion-Cheque-Devuelto-Dos '
+End-procedure   Buscar-Clientes-Cartas-Reclamacion-Cheque-Devuelto-Dos
+
+Begin-procedure Buscar-Clientes-Cartas-Reclamacion-Cheque-Devuelto-Tre
+show ' ENTRO Buscar-Clientes-Cartas-Reclamacion-Cheque-Devuelto-Tre '
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = '3'
+show ' $UniNegChd_Tre ' $UniNegChd_Tre
+Begin-select DISTINCT
+CDTRE.BUSINESS_UNIT,
+CDTRE.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(CDTRE.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &CDTRE.DIA_VEN_FAC
+
+  let $Uni_Neg_Sel = &CDTRE.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &CDTRE.CUST_ID
+  let #Dia_Ven_Sel = &CDTRE.DIA_VEN_FAC
+  Do  Buscar-Datos-Personales-Cliente
+  Do  Buscar-Clientes-Facturas-Cartera 
+
+FROM PS_ITEM CDTRE
+WHERE CDTRE.ITEM_STATUS   = 'O'
+AND CDTRE.BAL_AMT         > 0
+AND CDTRE.ENTRY_TYPE      = 'ND'
+AND CDTRE.ENTRY_REASON    = 'CHDEV'
+AND CDTRE.DISPUTE_STATUS  = ' '
+AND CDTRE.ACCOUNTING_DT BETWEEN $Desde_Fecha AND $Hasta_Fecha
+[$UniNegChd_Tre]
+GROUP BY CDTRE.BUSINESS_UNIT, CDTRE.CUST_ID
+ORDER BY 3
+End-select
+show 'SALIO Buscar-Clientes-Cartas-Reclamacion-Uno-Cheque-Devuelto-Tre '
+End-procedure   Buscar-Clientes-Cartas-Reclamacion-Cheque-Devuelto-Tre
+
+Begin-procedure Buscar-Clientes-Cartas-Reclamacion-Cheque-Devuelto-Todas
+show ' ENTRO Buscar-Clientes-Cartas-Reclamacion-Cheque-Devuelto-Todas '
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = '1'
+show ' $UniNegChd_Tod ' $UniNegChd_Tod
+Begin-select DISTINCT
+CDTOD.BUSINESS_UNIT,
+CDTOD.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(CDTOD.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &CDTOD.DIA_VEN_FAC
+
+  let $Uni_Neg_Sel = &CDTOD.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &CDTOD.CUST_ID
+  let #Dia_Ven_Sel = &CDTOD.DIA_VEN_FAC
+  Do  Buscar-Datos-Personales-Cliente
+  Do  Buscar-Clientes-Facturas-Cartera 
+
+FROM PS_ITEM CDTOD
+WHERE CDTOD.ITEM_STATUS   = 'O'
+AND CDTOD.BAL_AMT         > 0
+AND CDTOD.ENTRY_TYPE      = 'ND'
+AND CDTOD.ENTRY_REASON    = 'CHDEV'
+AND CDTOD.DISPUTE_STATUS  = ' '
+AND CDTOD.ACCOUNTING_DT BETWEEN $Desde_Fecha AND $Hasta_Fecha
+[$UniNegChd_Tod]
+GROUP BY CDTOD.BUSINESS_UNIT, CDTOD.CUST_ID
+ORDER BY 3
+End-select
+show 'SALIO Buscar-Clientes-Cartas-Reclamacion-Cheque-Devuelto-Todas '
+End-procedure   Buscar-Clientes-Cartas-Reclamacion-Cheque-Devuelto-Todas
+
+Begin-procedure Buscar-Datos-Personales-Cliente
+show ' entro Buscar-Datos-Personales-Cliente'
+show '$Setid_tbl'  $Setid_tbl
+show '$Cod_Cli_Sel'  $Cod_Cli_Sel
+let $Nom_Cli_Dtp = ' '
+let $Dir_Cli_Dtp = ' '
+let $Est_Cli_Dtp = ' '
+let $Est_Cli_Dtp = ' '
+let $Bar_Cli_Dtp = ' '
+let $Ciu_Cli_Dtp = ' '
+let $Tel_Cli_Dtp = ' '
+
+Let $Cod_ClC_Dtp = ' '
+let $Nom_ClC_Dtp = ' '
+let $Dir_ClC_Dtp = ' '
+let $Est_ClC_Dtp = ' '
+let $Est_ClC_Dtp = ' '
+let $Ciu_ClC_Dtp = ' '
+let $Tel_ClC_Dtp = ' '
+
+Begin-select DISTINCT
+ADP.CUST_ID, 
+ADP.NAME1, 
+BDP.ADDRESS1, 
+BDP.STATE,
+BDP.COUNTY, 
+BDP.CITY,
+BDP.PHONE,
+COO.CK_CUST_ID,
+COO.CK_NOM_PROVEE, 
+COO.ADDRESS1, 
+COO.STATE, 
+COO.CITY,
+COO.PHONE
+
+  let $Nom_Cli_Dtp = &ADP.NAME1
+  let $Dir_Cli_Dtp = &BDP.ADDRESS1
+  let $Est_Cli_Dtp = &BDP.STATE
+  let $Ciu_Cli_Dtp = &BDP.CITY
+  let $Bar_Cli_Dtp = &BDP.COUNTY
+  let $Tel_Cli_Dtp = &BDP.PHONE
+  let $Cod_ClC_Dtp = &COO.CK_CUST_ID
+  let $Nom_ClC_Dtp = &COO.CK_NOM_PROVEE
+  let $Dir_ClC_Dtp = &COO.ADDRESS1
+  let $Est_ClC_Dtp = &COO.STATE
+  let $Ciu_ClC_Dtp = &COO.CITY
+  let $Tel_ClC_Dtp = &COO.PHONE
+  show 'Nombre del Cliente'   $Nom_Cli_Dtp 
+
+FROM PS_CUSTOMER ADP, PS_CK_CUST_ADDR_AR BDP, PS_CK_REQ_CREDITOS CDP, PS_CK_DET_COOD_TBL COO
+WHERE ADP.SETID       = $Setid_tbl
+  AND ADP.CUST_ID     = $Cod_Cli_Sel
+  AND ADP.CUST_STATUS = 'A'
+  AND ADP.SETID       = BDP.SETID
+  AND ADP.CUST_ID     = BDP.CUST_ID
+  AND BDP.ADDRESS_SEQ_NUM = 1
+  AND BDP.EFFDT       = (SELECT MAX(B_ED1.EFFDT) FROM PS_CK_CUST_ADDR_AR B_ED1
+                          WHERE BDP.SETID           = B_ED1.SETID
+                            AND BDP.CUST_ID         = B_ED1.CUST_ID
+                            AND BDP.ADDRESS_SEQ_NUM = B_ED1.ADDRESS_SEQ_NUM
+                            AND B_ED1.EFFDT       <= SYSDATE)
+  AND BDP.SETID       =  CDP.SETID(+)
+  AND BDP.CUST_ID     =  CDP.CUST_ID(+)
+  AND BDP.SETID       = COO.SETID(+)
+  AND BDP.CUST_ID     = COO.CUST_ID(+)
+End-select
+show 'salio Buscar-Datos-Personales-Cliente'
+End-procedure   Buscar-Datos-Personales-Cliente
+
+Begin-procedure Buscar-Clientes-Facturas-Cartera
+show 'entro Buscar-Clientes-Facturas-Cartera '
+let $Bus_Uni_Car = ' '
+let $Cod_Cli_Car = ' '
+let $Num_Fac_Car = ' '
+let $Tip_Reg_Car = ' '
+let #Vlr_Fac_Car = 0
+let $Fec_Vto_Car = ''
+let $Num_Leg_Car = ' '
+let $Num_DiV_Car = ' '
+let $Fec_Fta_Car = ''
+let $Con_Pag_Car = ' '
+let $Zon_Fac_Car = ' '
+let $Sel_Std_Car = ' '
+let $Sel_Sup_Car = ' '
+show ' $Uni_Neg_Sel ' $Uni_Neg_Sel
+show ' $Cod_Cli_Sel ' $Cod_Cli_Sel
+
+Begin-select DISTINCT
+BFC.BUSINESS_UNIT, 
+BFC.CUST_ID, 
+BFC.ITEM, 
+BFC.ENTRY_TYPE, 
+BFC.BAL_AMT, 
+BFC.DUE_DT, 
+BFC.USER1,
+BFC.ACCOUNTING_DT,
+BFC.PYMNT_TERMS_CD,
+BFC.SUBCUST_QUAL1,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(BFC.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &BFC.DIA_VEN_FAC
+
+  let $Bus_Uni_Car = &BFC.BUSINESS_UNIT
+  let $Cod_Cli_Car = &BFC.CUST_ID
+  let $Num_Fac_Car = &BFC.ITEM
+  let $Tip_Reg_Car = &BFC.ENTRY_TYPE
+  let #Vlr_Fac_Car = &BFC.BAL_AMT
+  let $Fec_Vto_Car = &BFC.DUE_DT
+  let $Num_Leg_Car = &BFC.USER1
+  let $Num_DiV_Car = &BFC.DIA_VEN_FAC
+  let $Fec_Fta_Car = &BFC.ACCOUNTING_DT
+  let $Con_Pag_Car = &BFC.PYMNT_TERMS_CD
+  let $Zon_Fac_Car = &BFC.SUBCUST_QUAL1
+  SHOW ' $Cod_Cli_Car ' $Cod_Cli_Car
+  SHOW ' $Num_Fac_Car ' $Num_Fac_Car
+  Do  InsInf-TblTmp-CliCre
+
+FROM PS_ITEM BFC
+WHERE BFC.BUSINESS_UNIT   = $Uni_Neg_Sel
+  AND BFC.CUST_ID         = $Cod_Cli_Sel
+  AND BFC.ITEM_STATUS     = 'O'
+  AND BFC.BAL_AMT         > 0
+  AND BFC.DISPUTE_STATUS  = ' ' !<> 'OMD'
+  AND BFC.COLLECTION_STATUS NOT IN ('DEU','MOR','JUD')  
+  AND BFC.DUE_DT <= $Asoftoday
+GROUP BY BFC.BUSINESS_UNIT, BFC.CUST_ID, BFC.ITEM, BFC.ENTRY_TYPE, BFC.BAL_AMT, BFC.DUE_DT, BFC.USER1, 
+         BFC.ACCOUNTING_DT, BFC.PYMNT_TERMS_CD, BFC.SUBCUST_QUAL1 
+End-select
+show 'salio Buscar-Clientes-Facturas-Cartera'
+End-procedure   Buscar-Clientes-Facturas-Cartera
+
+
+begin-procedure InsInf-TblTmp-CliCre
+SHOW ' InsInf-TblTmp-CliCre ' 
+show ' $Tip_Gen_Car ' $Tip_Gen_Car
+if  isblank($Cod_ClC_Dtp)
+    let $Cod_ClC_Dtp = 'NINGUNO'
+end-if
+if  isblank($Nom_ClC_Dtp)
+    let $Nom_ClC_Dtp = 'NINGUNO'
+end-if
+if  isblank($Dir_ClC_Dtp)
+    let $Dir_ClC_Dtp = 'NINGUNO'
+end-if
+if  isblank($Est_ClC_Dtp) 
+    let $Est_ClC_Dtp = '0' 
+end-if
+if  isblank($Ciu_ClC_Dtp)
+    let $Ciu_ClC_Dtp = '0' 
+end-if
+if  isblank($Tel_ClC_Dtp)
+    let $Tel_ClC_Dtp = '0'
+end-if
+show $Bus_Uni_Car
+show $Cod_Cli_Car
+show $Num_Fac_Car
+show $Nom_Cli_Dtp
+show $Dir_Cli_Dtp
+show $Tel_Cli_Dtp
+show $Est_Cli_Dtp
+show $Bar_Cli_Dtp
+show $Ciu_Cli_Dtp
+show $Num_Leg_Car
+show #Vlr_Fac_Car
+show $Fec_Fta_Car
+show $Fec_Vto_Car                         
+show $Num_DiV_Car
+show $Tip_Reg_Car
+show $Con_Pag_Car
+show $Cod_ClC_Dtp
+show $Nom_ClC_Dtp
+show $Dir_ClC_Dtp
+show $Est_ClC_Dtp
+show $Ciu_ClC_Dtp
+show $Sel_Std_Car
+show $Sel_Sup_Car
+show $Zon_Fac_Car
+show $Tip_Gen_Car
+show $Tel_ClC_Dtp
+
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CK_TMPCAT_RECLA
+VALUES
+($Bus_Uni_Car,
+$Cod_Cli_Car,
+$Num_Fac_Car,
+$Nom_Cli_Dtp,
+$Tel_Cli_Dtp,
+$Dir_Cli_Dtp,
+$Est_Cli_Dtp,
+$Bar_Cli_Dtp,
+$Ciu_Cli_Dtp,
+$Num_Leg_Car,
+#Vlr_Fac_Car,
+$Fec_Fta_Car,
+$Fec_Vto_Car,                         
+$Num_DiV_Car,
+$Tip_Reg_Car,
+$Con_Pag_Car,
+$Cod_ClC_Dtp,
+$Nom_ClC_Dtp,
+$Dir_ClC_Dtp,
+$Est_ClC_Dtp,
+$Ciu_ClC_Dtp,
+$Sel_Std_Car,
+$Sel_Sup_Car,
+$Zon_Fac_Car,
+$Tip_Gen_Car,
+$Tel_ClC_Dtp) 
+end-sql
+SHOW ' SALIO InsInf-TblTmp-CliCre '
+end-procedure InsInf-TblTmp-CliCre
+
+begin-procedure Impresion-CarRec-Clientes-Carta-Uno
+SHOW ' ENTRO Impresion-CarRec-Clientes-Carta-Uno '
+let $Cod_Cli_Tmp = ' '
+let $Nom_Cli_Tmp = ' '
+let $Dir_Cli_Tmp = ' '
+let $Sta_Cli_Tmp = ' '
+let $Cit_Cli_Tmp = ' '
+let $Tel_Cli_Tmp = ' '
+let $Cou_Cli_Tmp = ' '
+let $Num_Fac_Tmp = ' '
+let $Num_Leg_Tmp = ' '
+let #Vlr_Fac_Tmp = 0
+let $FcV_Fac_Tmp = ''
+let #Dia_Ret_Tmp = 0
+let $Tip_Ent_Tmp = ' '
+let #Pri_Vez_Lec = 0
+let $Cli_Ant_Tmp = ' '
+let $Nom_Ant_Tmp = ' '
+let $Tip_Ubi_Tmp = ' '
+let $Ck_Cust_Tmp = ' '
+let $Ck_CusA_Tmp = ' '
+let #Privez      = 0
+let #Acu_Vlr_Cli = 0
+let $Men_Cre =  'CARTA1'
+
+begin-select
+CTR_UNO.BUSINESS_UNIT,
+CTR_UNO.CUST_ID,
+CTR_UNO.ITEM,
+CTR_UNO.NAME1,
+CTR_UNO.ADDRESS1,
+CTR_UNO.STATE,
+CTR_UNO.COUNTY,
+CTR_UNO.CITY,
+CTR_UNO.PHONE,
+CTR_UNO.USER1,
+CTR_UNO.BAL_AMT,
+CTR_UNO.ACCOUNTING_DT,
+CTR_UNO.DUE_DT,
+CTR_UNO.DAYS_LATE2,
+CTR_UNO.ENTRY_TYPE,
+CTR_UNO.CK_TIPCAR,
+CTR_UNO.CK_CUST_ID
+
+   let $Cod_Cli_Tmp = &CTR_UNO.CUST_ID
+   let $Num_Fac_Tmp = &CTR_UNO.ITEM
+   let $Nom_Cli_Tmp = &CTR_UNO.NAME1
+   let $Dir_Cli_Tmp = &CTR_UNO.ADDRESS1
+   let $Sta_Cli_Tmp = &CTR_UNO.STATE
+   let $Cit_Cli_Tmp = &CTR_UNO.CITY
+   let $Tel_Cli_Tmp = &CTR_UNO.PHONE
+   let $Cou_Cli_Tmp = &CTR_UNO.COUNTY
+   let $Num_Leg_Tmp = &CTR_UNO.USER1
+   let #Vlr_Fac_Tmp = &CTR_UNO.BAL_AMT
+   let $FcV_Fac_Tmp = &CTR_UNO.DUE_DT
+   let #Dia_Ret_Tmp = &CTR_UNO.DAYS_LATE2
+   let $Tip_Ent_Tmp = &CTR_UNO.ENTRY_TYPE
+   let $Tip_Ubi_Tmp = &CTR_UNO.CK_TIPCAR
+   let $Ck_Cust_Tmp = &CTR_UNO.CK_CUST_ID
+   SHOW ' $Cod_Cli_Tmp ' $Cod_Cli_Tmp
+   show '$Nom_Cli_Tmp  ' $Nom_Cli_Tmp
+   if  #Pri_Vez_Lec = 0
+       let $Cli_Ant_Tmp = $Cod_Cli_Tmp
+       let $Nom_Ant_Tmp = $Nom_Cli_Tmp
+       let $Ck_CusA_Tmp = $Ck_Cust_Tmp
+       let #Pri_Vez_Lec = 1
+   end-if
+   if  $Cod_Cli_Tmp <> $Cli_Ant_Tmp
+       Do  Impresion-Acumul-Cliente
+       Do  Impresion-InfFin-CarReg-Cliente-Uno
+       if $Opcion_CarReg <> 'D'
+       if $Opcion_Unidad = 'T' 
+        Do Buscar-Setid-Customer ('CUSTOMER',&CTR_UNO.BUSINESS_UNIT,$Setid_tbl)
+       end-if 
+         Do  Buscar-Existe-Mensaje-Cliente
+         if  #Exi_Men_Cli = 0
+             if $Opcion_CarReg <> 'U'
+                if $Opcion_Unidad = 'T' 
+		 Do Buscar-Setid-Customer ('CUSTOMER',&CTR_UNO.BUSINESS_UNIT,$Setid_tbl)
+		else
+		 Do Buscar-Setid-Customer ('CUSTOMER',$Business_Unit,$Setid_tbl)
+                end-if 
+                Do Buscar-NumMaxi-MenClie
+                Do Insert-Mensaje-Cliente-Cust-Msg
+                Do Insert-Mensaje-Cliente-Auditoria
+             else
+                Do Buscar-NumMaxi-MenClie
+                Do Insert-Mensaje-Cliente-Cust-Msg
+                Do Insert-Mensaje-Cliente-Auditoria                
+             end-if
+         end-if
+       end-if  
+       let #Privez = 0
+       new-page
+       show ' $Ck_CusA_Tmp ' $Ck_CusA_Tmp
+       if  $Ck_CusA_Tmp <> 'NINGUNO' and $Ck_CusA_Tmp <> ' '
+           Do  Impresion-CarRec-Coudeudor-Carta
+           Do  Impresion-InfFin-CarReg-Coodedor
+           new-page
+       end-if
+       let #Privez      = 0
+       let #Acu_Vlr_Cli = 0
+       Do  Impresion-Datos-Carta-Reclamacion-Cliente  
+       let $Cli_Ant_Tmp = $Cod_Cli_Tmp
+       let $Nom_Ant_Tmp = $Nom_Cli_Tmp       
+       let $Ck_CusA_Tmp = $Ck_Cust_Tmp       
+   else
+     Do  Impresion-Datos-Carta-Reclamacion-Cliente   
+   end-if    
+       
+   
+FROM PS_CK_TMPCAT_RECLA CTR_UNO
+WHERE CTR_UNO.CK_TIPCAR = '1'
+ORDER BY CTR_UNO.CUST_ID, CTR_UNO.ITEM
+end-select
+   if  #Acu_Vlr_Cli <> 0
+       let #Privez = 0
+       Do  Impresion-Acumul-Cliente
+       Do  Impresion-InfFin-CarReg-Cliente-Uno
+       new-page 
+     if $Opcion_CarReg <> 'D'
+       if $Opcion_Unidad = 'T' 
+        Do Buscar-Setid-Customer ('CUSTOMER',&CTR_UNO.BUSINESS_UNIT,$Setid_tbl)
+       end-if
+       Do  Buscar-Existe-Mensaje-Cliente
+       if  #Exi_Men_Cli = 0
+           if $Opcion_CarReg <> 'U'
+              if $Opcion_Unidad = 'T' 
+	       Do Buscar-Setid-Customer ('CUSTOMER',&CTR_UNO.BUSINESS_UNIT,$Setid_tbl)
+	      else
+	       Do Buscar-Setid-Customer ('CUSTOMER',$Business_Unit,$Setid_tbl)
+              end-if 
+              Do Buscar-NumMaxi-MenClie
+              Do Insert-Mensaje-Cliente-Cust-Msg
+              Do Insert-Mensaje-Cliente-Auditoria
+           else
+              Do Buscar-NumMaxi-MenClie
+              Do Insert-Mensaje-Cliente-Cust-Msg
+              Do Insert-Mensaje-Cliente-Auditoria
+           end-if
+       end-if
+     end-if  
+   end-if
+   show ' $Ck_CusA_Tmp ' $Ck_CusA_Tmp
+   if  $Ck_CusA_Tmp <> 'NINGUNO' and $Ck_CusA_Tmp <> ' ' 
+       Do  Impresion-CarRec-Coudeudor-Carta
+       Do  Impresion-InfFin-CarReg-Coodedor
+       new-page
+   end-if    
+end-procedure   Impresion-CarRec-Clientes-Carta-Uno
+
+begin-procedure Impresion-CarRec-Clientes-Carta-Dos
+SHOW 'ENTRO Impresion-CarRec-Clientes-Carta-Dos '
+let $Cod_Cli_Tmp = ' '
+let $Nom_Cli_Tmp = ' '
+let $Dir_Cli_Tmp = ' '
+let $Sta_Cli_Tmp = ' '
+let $Cit_Cli_Tmp = ' '
+let $Tel_Cli_Tmp = ' '
+let $Cou_Cli_Tmp = ' '
+let $Num_Fac_Tmp = ' '
+let $Num_Leg_Tmp = ' '
+let #Vlr_Fac_Tmp = 0
+let $FcV_Fac_Tmp = ''
+let #Dia_Ret_Tmp = 0
+let $Tip_Ent_Tmp = ' '
+let #Pri_Vez_Lec = 0
+let $Cli_Ant_Tmp = ' '
+let $Nom_Ant_Tmp = ' '
+let $Tip_Ubi_Tmp = ' '
+let $Ck_Cust_Tmp = ' '
+let $Ck_CusA_Tmp = ' '
+let #Privez      = 0
+let #Acu_Vlr_Cli = 0
+let $Men_Cre =  'CARTA2'
+
+begin-select
+CTR_DOS.BUSINESS_UNIT,
+CTR_DOS.CUST_ID,
+CTR_DOS.ITEM,
+CTR_DOS.NAME1,
+CTR_DOS.ADDRESS1,
+CTR_DOS.STATE,
+CTR_DOS.COUNTY,
+CTR_DOS.CITY,
+CTR_DOS.PHONE,
+CTR_DOS.USER1,
+CTR_DOS.BAL_AMT,
+CTR_DOS.ACCOUNTING_DT,
+CTR_DOS.DUE_DT,
+CTR_DOS.DAYS_LATE2,
+CTR_DOS.ENTRY_TYPE,
+CTR_DOS.CK_TIPCAR,
+CTR_DOS.CK_CUST_ID
+
+   let $Cod_Cli_Tmp = &CTR_DOS.CUST_ID
+   let $Num_Fac_Tmp = &CTR_DOS.ITEM
+   let $Nom_Cli_Tmp = &CTR_DOS.NAME1
+   let $Dir_Cli_Tmp = &CTR_DOS.ADDRESS1
+   let $Sta_Cli_Tmp = &CTR_DOS.STATE
+   let $Cit_Cli_Tmp = &CTR_DOS.CITY
+   let $Tel_Cli_Tmp = &CTR_DOS.PHONE   
+   let $Cou_Cli_Tmp = &CTR_DOS.COUNTY
+   let $Num_Leg_Tmp = &CTR_DOS.USER1
+   let #Vlr_Fac_Tmp = &CTR_DOS.BAL_AMT
+   let $FcV_Fac_Tmp = &CTR_DOS.DUE_DT
+   let #Dia_Ret_Tmp = &CTR_DOS.DAYS_LATE2
+   let $Tip_Ent_Tmp = &CTR_DOS.ENTRY_TYPE
+   let $Tip_Ubi_Tmp = &CTR_DOS.CK_TIPCAR   
+   let $Ck_Cust_Tmp = &CTR_DOS.CK_CUST_ID   
+   show '$Cod_Cli_Tmp ' $Cod_Cli_Tmp
+   show '$Num_Fac_Tmp ' $Num_Fac_Tmp
+   show '$Num_Leg_Tmp ' $Num_Leg_Tmp 
+   show '$Cli_Ant_Tmp ' $Cli_Ant_Tmp
+   show 'Nombre Cliente' $Nom_Cli_Tmp
+   if  #Pri_Vez_Lec = 0
+       let $Cli_Ant_Tmp = $Cod_Cli_Tmp
+       let $Nom_Ant_Tmp = $Nom_Cli_Tmp       
+       let #Pri_Vez_Lec = 1
+       let $Ck_CusA_Tmp = $Ck_Cust_Tmp       
+   end-if
+   if  $Cod_Cli_Tmp <> $Cli_Ant_Tmp
+       show ' clientes <> ojo '
+       Do  Impresion-Acumul-Cliente
+       Do  Impresion-InfFin-CarReg-Cliente-Dos
+     if $Opcion_CarReg <> 'D'  
+       if $Opcion_Unidad = 'T' 
+        Do Buscar-Setid-Customer ('CUSTOMER',&CTR_DOS.BUSINESS_UNIT,$Setid_tbl)
+       end-if
+       Do  Buscar-Existe-Mensaje-Cliente
+       if  #Exi_Men_Cli = 0
+           if $Opcion_CarReg <> 'U'
+              if $Opcion_Unidad = 'T' 
+	       Do Buscar-Setid-Customer ('CUSTOMER',&CTR_DOS.BUSINESS_UNIT,$Setid_tbl)
+	      else
+	       Do Buscar-Setid-Customer ('CUSTOMER',$Business_Unit,$Setid_tbl)
+              end-if  
+              Do Buscar-NumMaxi-MenClie
+              Do Insert-Mensaje-Cliente-Cust-Msg
+              Do Insert-Mensaje-Cliente-Auditoria
+           else
+              Do Buscar-NumMaxi-MenClie
+              Do Insert-Mensaje-Cliente-Cust-Msg
+              Do Insert-Mensaje-Cliente-Auditoria
+           end-if
+       end-if
+      end-if  
+       let #Privez = 0
+       new-page
+       SHOW ' $Ck_CusA_Tmp ' $Ck_CusA_Tmp
+       if  $Ck_CusA_Tmp <> 'NINGUNO' and $Ck_CusA_Tmp <> ' '  
+           Do  Impresion-CarRec-Coudeudor-Carta
+           Do  Impresion-InfFin-CarReg-Coodedor
+           new-page
+       end-if
+       let #Privez      = 0
+       let #Acu_Vlr_Cli = 0
+       Do  Impresion-Datos-Carta-Reclamacion-Cliente               
+       let $Cli_Ant_Tmp = $Cod_Cli_Tmp
+       let $Nom_Ant_Tmp = $Nom_Cli_Tmp
+       let $Ck_CusA_Tmp = $Ck_Cust_Tmp       
+   else    
+       Do  Impresion-Datos-Carta-Reclamacion-Cliente           
+   end-if    
+   
+FROM PS_CK_TMPCAT_RECLA CTR_DOS
+WHERE CTR_DOS.CK_TIPCAR = '2'
+ORDER BY CTR_DOS.CUST_ID, CTR_DOS.ITEM
+end-select
+   if  #Acu_Vlr_Cli <> 0 
+       Do  Impresion-Acumul-Cliente
+       Do  Impresion-InfFin-CarReg-Cliente-Dos
+     if $Opcion_CarReg <> 'D'  
+              if $Opcion_Unidad = 'T' 
+	       Do Buscar-Setid-Customer ('CUSTOMER',&CTR_DOS.BUSINESS_UNIT,$Setid_tbl)
+              end-if
+              Do  Buscar-Existe-Mensaje-Cliente
+              if  #Exi_Men_Cli = 0
+                  if $Opcion_CarReg <> 'U'
+                     if $Opcion_Unidad = 'T' 
+	              Do Buscar-Setid-Customer ('CUSTOMER',&CTR_DOS.BUSINESS_UNIT,$Setid_tbl)
+	             else
+	              Do Buscar-Setid-Customer ('CUSTOMER',$Business_Unit,$Setid_tbl)
+                     end-if 
+                     Do Buscar-NumMaxi-MenClie
+                     Do Insert-Mensaje-Cliente-Cust-Msg
+                     Do Insert-Mensaje-Cliente-Auditoria
+                  else
+                     Do Buscar-NumMaxi-MenClie
+                     Do Insert-Mensaje-Cliente-Cust-Msg
+                     Do Insert-Mensaje-Cliente-Auditoria
+                  end-if
+              end-if
+      end-if        
+       let #Privez = 0
+       new-page   
+   end-if    
+   if  $Ck_CusA_Tmp <> 'NINGUNO' and $Ck_CusA_Tmp <> ' '
+       Do  Impresion-CarRec-Coudeudor-Carta
+       Do  Impresion-InfFin-CarReg-Coodedor
+       new-page
+   end-if    
+show ' salio Impresion-CarRec-Clientes-Carta-Dos '   
+end-procedure   Impresion-CarRec-Clientes-Carta-Dos
+
+begin-procedure Impresion-CarRec-Clientes-Carta-Tre
+SHOW 'entro Impresion-CarRec-Clientes-Carta-Tre '
+let $Cod_Cli_Tmp = ' '
+let $Nom_Cli_Tmp = ' '
+let $Dir_Cli_Tmp = ' '
+let $Sta_Cli_Tmp = ' '
+let $Cit_Cli_Tmp = ' '
+let $Tel_Cli_Tmp = ' '
+let $Cou_Cli_Tmp = ' '
+let $Num_Fac_Tmp = ' '
+let $Num_Leg_Tmp = ' '
+let #Vlr_Fac_Tmp = 0
+let $FcV_Fac_Tmp = ''
+let #Dia_Ret_Tmp = 0
+let $Tip_Ent_Tmp = ' '
+let #Pri_Vez_Lec = 0
+let $Cli_Ant_Tmp = ' '
+let $Nom_Ant_Tmp = ' '
+let $Tip_Ubi_Tmp = ' '
+let $Ck_Cust_Tmp = ' '
+let $Ck_CusA_Tmp = ' '
+let #Privez      = 0
+let #Acu_Vlr_Cli = 0
+let $Men_Cre =  'CARTA3'
+
+begin-select
+CTR_TRE.BUSINESS_UNIT,
+CTR_TRE.CUST_ID,
+CTR_TRE.ITEM,
+CTR_TRE.NAME1,
+CTR_TRE.ADDRESS1,
+CTR_TRE.STATE,
+CTR_TRE.COUNTY,
+CTR_TRE.CITY,
+CTR_TRE.PHONE,
+CTR_TRE.USER1,
+CTR_TRE.BAL_AMT,
+CTR_TRE.ACCOUNTING_DT,
+CTR_TRE.DUE_DT,
+CTR_TRE.DAYS_LATE2,
+CTR_TRE.ENTRY_TYPE,
+CTR_TRE.CK_TIPCAR,
+CTR_TRE.CK_CUST_ID
+
+   let $Cod_Cli_Tmp = &CTR_TRE.CUST_ID
+   let $Num_Fac_Tmp = &CTR_TRE.ITEM
+   let $Nom_Cli_Tmp = &CTR_TRE.NAME1
+   let $Dir_Cli_Tmp = &CTR_TRE.ADDRESS1
+   let $Sta_Cli_Tmp = &CTR_TRE.STATE
+   let $Cit_Cli_Tmp = &CTR_TRE.CITY
+   let $Tel_Cli_Tmp = &CTR_TRE.PHONE   
+   let $Cou_Cli_Tmp = &CTR_TRE.COUNTY
+   let $Num_Leg_Tmp = &CTR_TRE.USER1
+   let #Vlr_Fac_Tmp = &CTR_TRE.BAL_AMT
+   let $FcV_Fac_Tmp = &CTR_TRE.DUE_DT
+   let #Dia_Ret_Tmp = &CTR_TRE.DAYS_LATE2
+   let $Tip_Ent_Tmp = &CTR_TRE.ENTRY_TYPE
+   let $Tip_Ubi_Tmp = &CTR_TRE.CK_TIPCAR   
+   let $Ck_Cust_Tmp = &CTR_TRE.CK_CUST_ID   
+   let $Uni_Neg_cli = &CTR_TRE.BUSINESS_UNIT
+   show ' $Cli_Ant_Tmp ' $Cli_Ant_Tmp
+   show ' $Cod_Cli_Tmp ' $Cod_Cli_Tmp  
+   if  #Pri_Vez_Lec = 0
+       let $Cli_Ant_Tmp = $Cod_Cli_Tmp
+       let $Nom_Ant_Tmp = $Nom_Cli_Tmp       
+       let #Pri_Vez_Lec = 1
+       let $Ck_CusA_Tmp = $Ck_Cust_Tmp       
+   end-if
+   if  $Cod_Cli_Tmp <> $Cli_Ant_Tmp
+       Do  Impresion-Acumul-Cliente
+       Do  Impresion-InfFin-CarReg-Cliente-Tre
+     if $Opcion_CarReg <> 'D' 
+       if $Opcion_Unidad = 'T' 
+         Do Buscar-Setid-Customer ('CUSTOMER',&CTR_TRE.BUSINESS_UNIT,$Setid_tbl)
+       end-if
+       Do  Buscar-Existe-Mensaje-Cliente
+       if  #Exi_Men_Cli = 0
+           if $Opcion_CarReg <> 'U'
+              if $Opcion_Unidad = 'T' 
+	       show 'entro aca'
+	       Do Buscar-Setid-Customer ('CUSTOMER',&CTR_TRE.BUSINESS_UNIT,$Setid_tbl)
+	      else
+	       Do Buscar-Setid-Customer ('CUSTOMER',$Business_Unit,$Setid_tbl)
+              end-if
+              Do Buscar-NumMaxi-MenClie
+              Do Insert-Mensaje-Cliente-Cust-Msg
+              Do Insert-Mensaje-Cliente-Auditoria
+           else
+              Do Buscar-NumMaxi-MenClie
+              Do Insert-Mensaje-Cliente-Cust-Msg
+              Do Insert-Mensaje-Cliente-Auditoria
+           end-if
+       end-if
+     end-if  
+       let #Privez = 0
+       new-page
+       SHOW ' $Ck_CusA_Tmp ' $Ck_CusA_Tmp       
+       if  $Ck_CusA_Tmp <> 'NINGUNO' and $Ck_CusA_Tmp <> ' '    
+           Do  Impresion-CarRec-Coudeudor-Carta
+           Do  Impresion-InfFin-CarReg-Coodedor
+           new-page
+       end-if
+       let #Privez      = 0
+       let #Acu_Vlr_Cli = 0
+       Do  Impresion-Datos-Carta-Reclamacion-Cliente       
+       let $Cli_Ant_Tmp = $Cod_Cli_Tmp
+       let $Nom_Ant_Tmp = $Nom_Cli_Tmp        
+       let $Ck_CusA_Tmp = $Ck_Cust_Tmp       
+   else
+       Do  Impresion-Datos-Carta-Reclamacion-Cliente       
+   end-if    
+   
+FROM PS_CK_TMPCAT_RECLA CTR_TRE
+WHERE CTR_TRE.CK_TIPCAR = '3'
+ORDER BY CTR_TRE.CUST_ID, CTR_TRE.ITEM
+end-select
+   if  #Acu_Vlr_Cli <> 0 
+       Do  Impresion-Acumul-Cliente
+       Do  Impresion-InfFin-CarReg-Cliente-Tre  
+      if $Opcion_CarReg <> 'D' 
+       if $Opcion_Unidad = 'T' 
+        Do Buscar-Setid-Customer ('CUSTOMER',&CTR_TRE.BUSINESS_UNIT,$Setid_tbl)
+       end-if
+       Do  Buscar-Existe-Mensaje-Cliente
+       if  #Exi_Men_Cli = 0
+           if $Opcion_CarReg <> 'U'
+           show 'entro despues del select'
+              if $Opcion_Unidad = 'T' 
+	       Do Buscar-Setid-Customer ('CUSTOMER',&CTR_TRE.BUSINESS_UNIT,$Setid_tbl)
+	      else
+	       Do Buscar-Setid-Customer ('CUSTOMER',$Business_Unit,$Setid_tbl)
+              end-if
+              Do Buscar-NumMaxi-MenClie
+              Do Insert-Mensaje-Cliente-Cust-Msg
+              Do Insert-Mensaje-Cliente-Auditoria
+           else
+              Do Buscar-NumMaxi-MenClie
+              Do Insert-Mensaje-Cliente-Cust-Msg
+              Do Insert-Mensaje-Cliente-Auditoria
+           end-if
+       end-if
+      end-if 
+       let #Privez = 0
+       new-page
+   end-if    
+   if  $Ck_CusA_Tmp <> 'NINGUNO' and $Ck_CusA_Tmp <> ' '
+       Do  Impresion-CarRec-Coudeudor-Carta
+       Do  Impresion-InfFin-CarReg-Coodedor
+   end-if    
+show ' sale Impresion-CarRec-Clientes-Carta-Tre '   
+end-procedure   Impresion-CarRec-Clientes-Carta-Tre
+
+begin-procedure Impresion-CarRec-Clientes-Carta-Uno-Cheque-Devuelto
+SHOW ' ENTRO Impresion-CarRec-Clientes-Carta-Uno-Cheque-Devuelto '
+let $Cod_Cli_Tmp = ' '
+let $Nom_Cli_Tmp = ' '
+let $Dir_Cli_Tmp = ' '
+let $Sta_Cli_Tmp = ' '
+let $Cit_Cli_Tmp = ' '
+let $Tel_Cli_Tmp = ' '
+let $Cou_Cli_Tmp = ' '
+let $Num_Fac_Tmp = ' '
+let $Num_Leg_Tmp = ' '
+let #Vlr_Fac_Tmp = 0
+let $FcV_Fac_Tmp = ''
+let #Dia_Ret_Tmp = 0
+let $Tip_Ent_Tmp = ' '
+let #Pri_Vez_Lec = 0
+let $Cli_Ant_Tmp = ' '
+let $Nom_Ant_Tmp = ' '
+let $Tip_Ubi_Tmp = ' '
+let $Ck_Cust_Tmp = ' '
+let $Ck_CusA_Tmp = ' '
+let #Privez      = 0
+let #Acu_Vlr_Cli = 0
+let $Men_Cre =  'CARTA1'
+
+begin-select
+CHD_UNO.BUSINESS_UNIT,
+CHD_UNO.CUST_ID,
+CHD_UNO.ITEM,
+CHD_UNO.NAME1,
+CHD_UNO.ADDRESS1,
+CHD_UNO.STATE,
+CHD_UNO.COUNTY,
+CHD_UNO.CITY,
+CHD_UNO.PHONE,
+CHD_UNO.USER1,
+CHD_UNO.BAL_AMT,
+CHD_UNO.ACCOUNTING_DT,
+CHD_UNO.DUE_DT,
+CHD_UNO.DAYS_LATE2,
+CHD_UNO.ENTRY_TYPE,
+CHD_UNO.CK_TIPCAR
+CHD_UNO.CK_CUST_ID
+
+   let $Cod_Cli_Tmp = &CHD_UNO.CUST_ID
+   let $Num_Fac_Tmp = &CHD_UNO.ITEM
+   let $Nom_Cli_Tmp = &CHD_UNO.NAME1
+   let $Dir_Cli_Tmp = &CHD_UNO.ADDRESS1
+   let $Sta_Cli_Tmp = &CHD_UNO.STATE
+   let $Cit_Cli_Tmp = &CHD_UNO.CITY
+   let $Tel_Cli_Tmp = &CHD_UNO.PHONE
+   let $Cou_Cli_Tmp = &CHD_UNO.COUNTY
+   let $Num_Leg_Tmp = &CHD_UNO.USER1
+   let #Vlr_Fac_Tmp = &CHD_UNO.BAL_AMT
+   let $FcV_Fac_Tmp = &CHD_UNO.DUE_DT
+   let #Dia_Ret_Tmp = &CHD_UNO.DAYS_LATE2
+   let $Tip_Ent_Tmp = &CHD_UNO.ENTRY_TYPE
+   let $Tip_Ubi_Tmp = &CHD_UNO.CK_TIPCAR
+   let $Ck_Cust_Tmp = &CHD_UNO.CK_CUST_ID
+   SHOW ' $Cod_Cli_Tmp ' $Cod_Cli_Tmp
+   if  #Pri_Vez_Lec = 0
+       let $Cli_Ant_Tmp = $Cod_Cli_Tmp
+       let $Nom_Ant_Tmp = $Nom_Cli_Tmp
+       let $Ck_CusA_Tmp = $Ck_Cust_Tmp
+       let #Pri_Vez_Lec = 1
+   end-if
+   if  $Cod_Cli_Tmp <> $Cli_Ant_Tmp
+       Do  Impresion-Acumul-Cliente
+       Do  Impresion-InfFin-CarReg-Cliente-Uno
+       let #Privez = 0
+       new-page
+       SHOW ' $Ck_CusA_Tmp ' $Ck_CusA_Tmp
+       if  $Ck_CusA_Tmp <> 'NINGUNO'
+           Do  Impresion-CarRec-Coudeudor-Carta
+           Do  Impresion-InfFin-CarReg-Coodedor
+           new-page
+       end-if    
+       Do  Impresion-CarRec-Clientes-Carta-Dos-Cheque-Devuelto
+       Do  Impresion-Acumul-Cliente
+       Do  Impresion-InfFin-CarReg-Cliente-Dos
+       let #Privez = 0
+       new-page
+       if  $Ck_CusA_Tmp <> 'NINGUNO'
+           let $Tip_Ubi_Tmp = '2'
+           Do  Impresion-CarRec-Coudeudor-Carta
+           Do  Impresion-InfFin-CarReg-Coodedor
+           new-page
+       end-if    
+       Do  Impresion-CarRec-Clientes-Carta-Tre-Cheque-Devuelto
+       Do  Impresion-Acumul-Cliente
+       Do  Impresion-InfFin-CarReg-Cliente-Tre
+       let #Privez = 0
+       new-page
+       if  $Ck_CusA_Tmp <> 'NINGUNO'
+           let $Tip_Ubi_Tmp = '3'       
+           Do  Impresion-CarRec-Coudeudor-Carta
+           Do  Impresion-InfFin-CarReg-Coodedor
+           new-page
+       end-if    
+       let $Cli_Ant_Tmp = $Cod_Cli_Tmp
+       let $Nom_Ant_Tmp = $Nom_Cli_Tmp
+       let $Ck_CusA_Tmp = $Ck_Cust_Tmp       
+       let #Privez      = 0
+       let #Acu_Vlr_Cli = 0
+       let $Tip_Ubi_Tmp = '1'       
+   end-if    
+   Do  Impresion-Datos-Carta-Reclamacion-Cliente    
+   
+FROM PS_CK_TMPCAT_RECLA CHD_UNO
+WHERE CHD_UNO.CK_TIPCAR = '1'
+ORDER BY CHD_UNO.CUST_ID, CHD_UNO.ITEM
+end-select
+   if  #Acu_Vlr_Cli <> 0
+       let #Privez = 0
+       Do  Impresion-Acumul-Cliente
+       Do  Impresion-InfFin-CarReg-Cliente-Uno
+       new-page   
+   end-if
+   show ' $Ck_CusA_Tmp ' $Ck_CusA_Tmp
+   if  $Ck_CusA_Tmp <> 'NINGUNO' and $Ck_CusA_Tmp <> ' ' 
+       Do  Impresion-CarRec-Coudeudor-Carta
+       Do  Impresion-InfFin-CarReg-Coodedor
+       new-page
+   end-if    
+       Do  Impresion-CarRec-Clientes-Carta-Dos-Cheque-Devuelto
+       Do  Impresion-Acumul-Cliente
+       Do  Impresion-InfFin-CarReg-Cliente-Dos
+       let #Privez = 0
+       new-page
+       if  $Ck_CusA_Tmp <> 'NINGUNO'
+           let $Tip_Ubi_Tmp = '2'       
+           Do  Impresion-CarRec-Coudeudor-Carta
+           Do  Impresion-InfFin-CarReg-Coodedor
+           new-page
+       end-if    
+       Do  Impresion-CarRec-Clientes-Carta-Tre-Cheque-Devuelto
+       Do  Impresion-Acumul-Cliente
+       Do  Impresion-InfFin-CarReg-Cliente-Tre
+       let #Privez = 0
+       new-page
+       if  $Ck_CusA_Tmp <> 'NINGUNO'
+           let $Tip_Ubi_Tmp = '3'       
+           Do  Impresion-CarRec-Coudeudor-Carta
+           Do  Impresion-InfFin-CarReg-Coodedor
+           new-page
+       end-if    
+end-procedure    Impresion-CarRec-Clientes-Carta-Uno-Cheque-Devuelto
+
+begin-procedure Impresion-CarRec-Clientes-Carta-Dos-Cheque-Devuelto
+SHOW 'ENTRO Impresion-CarRec-Clientes-Carta-Dos-Cheque-Devuelto '
+let $Cod_Cli_Tmp_ChdD = ' '
+let $Nom_Cli_Tmp_ChdD = ' '
+let $Dir_Cli_Tmp_ChdD = ' '
+let $Sta_Cli_Tmp_ChdD = ' '
+let $Cit_Cli_Tmp_ChdD = ' '
+let $Tel_Cli_Tmp_ChdD = ' '
+let $Num_Fac_Tmp_ChdD = ' '
+let $Num_Leg_Tmp_ChdD = ' '
+let #Vlr_Fac_Tmp_ChdD = 0
+let $FcV_Fac_Tmp_ChdD = ''
+let #Dia_Ret_Tmp_ChdD = 0
+let $Tip_Ent_Tmp_ChdD = ' '
+let #Pri_Vez_Lec_ChdD = 0
+let $Cli_Ant_Tmp_ChdD = ' '
+let $Nom_Ant_Tmp_ChdD = ' '
+let $Tip_Ubi_Tmp_ChdD = ' '
+let $Ck_Cust_Tmp_ChdD = ' '
+let $Ck_CusA_Tmp_ChdD = ' '
+let #Privez_ChdD      = 0
+let #Acu_Vlr_Cli_ChdD = 0
+let $Men_Cre =  'CARTA2'
+
+begin-select
+CTR_DOSCHD.BUSINESS_UNIT,
+CTR_DOSCHD.CUST_ID,
+CTR_DOSCHD.ITEM,
+CTR_DOSCHD.NAME1,
+CTR_DOSCHD.ADDRESS1,
+CTR_DOSCHD.STATE,
+CTR_DOSCHD.COUNTY,
+CTR_DOSCHD.CITY,
+CTR_DOSCHD.PHONE,
+CTR_DOSCHD.USER1,
+CTR_DOSCHD.BAL_AMT,
+CTR_DOSCHD.ACCOUNTING_DT,
+CTR_DOSCHD.DUE_DT,
+CTR_DOSCHD.DAYS_LATE2,
+CTR_DOSCHD.ENTRY_TYPE,
+CTR_DOSCHD.CK_TIPCAR,
+CTR_DOSCHD.CK_CUST_ID
+
+   let $Cod_Cli_Tmp_ChdD = &CTR_DOSCHD.CUST_ID
+   let $Num_Fac_Tmp_ChdD = &CTR_DOSCHD.ITEM
+   let $Nom_Cli_Tmp_ChdD = &CTR_DOSCHD.NAME1
+   let $Dir_Cli_Tmp_ChdD = &CTR_DOSCHD.ADDRESS1
+   let $Sta_Cli_Tmp_ChdD = &CTR_DOSCHD.STATE
+   let $Cit_Cli_Tmp_ChdD = &CTR_DOSCHD.CITY
+   let $Tel_Cli_Tmp_ChdD = &CTR_DOSCHD.PHONE   
+   let $Cou_Cli_Tmp_ChdD = &CTR_DOSCHD.COUNTY
+   let $Num_Leg_Tmp_ChdD = &CTR_DOSCHD.USER1
+   let #Vlr_Fac_Tmp_ChdD = &CTR_DOSCHD.BAL_AMT
+   let $FcV_Fac_Tmp_ChdD = &CTR_DOSCHD.DUE_DT
+   let #Dia_Ret_Tmp_ChdD = &CTR_DOSCHD.DAYS_LATE2
+   let $Tip_Ent_Tmp_ChdD = &CTR_DOSCHD.ENTRY_TYPE
+   let $Tip_Ubi_Tmp_ChdD = &CTR_DOSCHD.CK_TIPCAR   
+   let $Ck_Cust_Tmp_ChdD = &CTR_DOSCHD.CK_CUST_ID   
+   Do  Impresion-Datos-Carta-Reclamacion-Cliente-ChqDev-Dos    
+   
+FROM PS_CK_TMPCAT_RECLA CTR_DOSCHD
+WHERE CTR_DOSCHD.CUST_ID = $Cli_Ant_Tmp
+ORDER BY CTR_DOSCHD.CUST_ID, CTR_DOSCHD.ITEM
+end-select
+end-procedure   Impresion-CarRec-Clientes-Carta-Dos-Cheque-Devuelto
+
+begin-procedure Impresion-Datos-Carta-Reclamacion-Cliente-ChqDev-Dos
+alter-printer point-size=8 font=4
+SHOW ' ENTRO Impresion-Datos-Carta-Reclamacion-Cliente-ChqDev-Dos '
+   if #Privez_ChdD = 0
+      do ImprimirLogos
+      Print $Nom_Cli_Tmp_ChdD           (-4,10,35)  !bold
+      Print 'Nit: '                     (+1,10,5)   !bold
+      Print $Cod_Cli_Tmp_ChdD           (,+6,15)   !bold
+      Print $Dir_Cli_Tmp_ChdD           (+1,10,58)  !bold
+      Print 'Tel. Cliente:'             (,+11,13)  !bold
+      Print $Tel_Cli_Tmp_ChdD           (,+10,10)  !bold      
+      Print $Sta_Cli_Tmp_ChdD           (+1,10,16)  !bold
+      Do    Buscar-Descrip-Ciudad-ChdD      
+      Print $Descrip_Ciudad-ChdD        (,+40)     !bold
+ 
+      Let   #Imprir_lineas =  12
+      let   #Privez_ChdD   =  1
+      Print 'COLOMBIANA DE COMERCIO S.A. CORBETA, está  interesada en continuar las buenas relaciones con usted(es),por lo anterior nos permitimos' (+4,10,150)
+      Print 'informarle que a la fecha su estado de cuenta presenta la(s) siguiente(s) factura(s) vencida(s):                                     ' (+1,10)            
+      Print ' Item         ' (+2,10,22) !bold
+      Print ' No. Legal    ' (,+5,22) !bold
+      Print ' Saldo        ' (,+7,12) !bold
+      Print ' F vto.       ' (,+3,7)  !bold
+      Print ' Días Retraso ' (,+2,12)  !bold
+      Print ' T.Entrada    ' (,+3,12)  !bold
+   end-if
+   Print $Num_Fac_Tmp_ChdD     (#Imprir_lineas,10,22)
+   Print $Num_Leg_Tmp_ChdD     (,+6,22)
+   Print #Vlr_Fac_Tmp_ChdD     (,+1,17)   edit $$,$$$,$$$,$$$   
+   move  $FcV_Fac_Tmp_ChdD     to         $Fec_Fact_ChdD 'DD/MM/YY'
+   Print $Fec_Fact_ChdD        (,+5,8)
+   Print #Dia_Ret_Tmp_ChdD     (,+5,6)   edit 9999
+   Print $Tip_Ent_Tmp_ChdD     (,+13,4)
+   if   #Imprir_lineas = 43
+        Let #Imprir_lineas = 12
+        Let #Privez_ChdD        = 0
+        Let #Num_Pag       = #Num_Pag + 1
+        new-page
+   end-if 
+   let #Imprir_lineas = (#Imprir_lineas + 1)
+   let #Acu_Vlr_Cli_ChdD   = (#Acu_Vlr_Cli_ChdD   + #Vlr_Fac_Tmp_ChdD)
+SHOW ' SALIO Impresion-Datos-Carta-Reclamacion-Cliente-ChqDev-Dos '   
+end-procedure   Impresion-Datos-Carta-Reclamacion-Cliente-ChqDev-Dos
+
+begin-procedure Impresion-CarRec-Clientes-Carta-Tre-Cheque-Devuelto
+SHOW 'ENTRO Impresion-CarRec-Clientes-Carta-Tre-Cheque-Devuelto '
+let $Cod_Cli_Tmp_ChdD = ' '
+let $Nom_Cli_Tmp_ChdD = ' '
+let $Dir_Cli_Tmp_ChdD = ' '
+let $Sta_Cli_Tmp_ChdD = ' '
+let $Cit_Cli_Tmp_ChdD = ' '
+let $Tel_Cli_Tmp_ChdD = ' '
+let $Num_Fac_Tmp_ChdD = ' '
+let $Num_Leg_Tmp_ChdD = ' '
+let #Vlr_Fac_Tmp_ChdD = 0
+let $FcV_Fac_Tmp_ChdD = ''
+let #Dia_Ret_Tmp_ChdD = 0
+let $Tip_Ent_Tmp_ChdD = ' '
+let #Pri_Vez_Lec_ChdD = 0
+let $Cli_Ant_Tmp_ChdD = ' '
+let $Nom_Ant_Tmp_ChdD = ' '
+let $Tip_Ubi_Tmp_ChdD = ' '
+let $Ck_Cust_Tmp_ChdD = ' '
+let $Ck_CusA_Tmp_ChdD = ' '
+let #Privez_ChdD      = 0
+let #Acu_Vlr_Cli_ChdD = 0
+let $Men_Cre =  'CARTA3'
+
+begin-select
+CTR_DOSCHD3.BUSINESS_UNIT,
+CTR_DOSCHD3.CUST_ID,
+CTR_DOSCHD3.ITEM,
+CTR_DOSCHD3.NAME1,
+CTR_DOSCHD3.ADDRESS1,
+CTR_DOSCHD3.STATE,
+CTR_DOSCHD3.COUNTY,
+CTR_DOSCHD3.CITY,
+CTR_DOSCHD3.PHONE,
+CTR_DOSCHD3.USER1,
+CTR_DOSCHD3.BAL_AMT,
+CTR_DOSCHD3.ACCOUNTING_DT,
+CTR_DOSCHD3.DUE_DT,
+CTR_DOSCHD3.DAYS_LATE2,
+CTR_DOSCHD3.ENTRY_TYPE,
+CTR_DOSCHD3.CK_TIPCAR,
+CTR_DOSCHD3.CK_CUST_ID
+
+   let $Cod_Cli_Tmp_ChdD = &CTR_DOSCHD3.CUST_ID
+   let $Num_Fac_Tmp_ChdD = &CTR_DOSCHD3.ITEM
+   let $Nom_Cli_Tmp_ChdD = &CTR_DOSCHD3.NAME1
+   let $Dir_Cli_Tmp_ChdD = &CTR_DOSCHD3.ADDRESS1
+   let $Sta_Cli_Tmp_ChdD = &CTR_DOSCHD3.STATE
+   let $Cit_Cli_Tmp_ChdD = &CTR_DOSCHD3.CITY
+   let $Tel_Cli_Tmp_ChdD = &CTR_DOSCHD3.PHONE   
+   let $Cou_Cli_Tmp_ChdD = &CTR_DOSCHD3.COUNTY
+   let $Num_Leg_Tmp_ChdD = &CTR_DOSCHD3.USER1
+   let #Vlr_Fac_Tmp_ChdD = &CTR_DOSCHD3.BAL_AMT
+   let $FcV_Fac_Tmp_ChdD = &CTR_DOSCHD3.DUE_DT
+   let #Dia_Ret_Tmp_ChdD = &CTR_DOSCHD3.DAYS_LATE2
+   let $Tip_Ent_Tmp_ChdD = &CTR_DOSCHD3.ENTRY_TYPE
+   let $Tip_Ubi_Tmp_ChdD = &CTR_DOSCHD3.CK_TIPCAR   
+   let $Ck_Cust_Tmp_ChdD = &CTR_DOSCHD3.CK_CUST_ID   
+   Do  Impresion-Datos-Carta-Reclamacion-Cliente-ChqDev-Tre    
+   
+FROM PS_CK_TMPCAT_RECLA CTR_DOSCHD3
+WHERE CTR_DOSCHD3.CUST_ID = $Cli_Ant_Tmp
+ORDER BY CTR_DOSCHD3.CUST_ID, CTR_DOSCHD3.ITEM
+end-select
+end-procedure   Impresion-CarRec-Clientes-Carta-Tre-Cheque-Devuelto
+
+begin-procedure Buscar-Descrip-Ciudad-ChdD
+show ' $Cit_Cli_Tmp ' $Cit_Cli_Tmp
+let $Descrip_Ciudad-ChdD = ' '
+begin-select 
+DC2.DESCR
+
+   let $Descrip_Ciudad-ChdD = &DC2.DESCR
+
+FROM PS_MUNI_TBL_HO DC2
+WHERE DC2.MUNI_FLD_HO = $Cit_Cli_Tmp_ChdD
+End-select
+show 'Buscar-Descrip-Ciudad-ChdD - $Descrip_Ciudad-ChdD: ' $Descrip_Ciudad-ChdD
+end-procedure   Buscar-Descrip-Ciudad-ChdD
+
+begin-procedure Impresion-Datos-Carta-Reclamacion-Cliente-ChqDev-Tre
+alter-printer point-size=8 font=4
+SHOW ' ENTRO Impresion-Datos-Carta-Reclamacion-Cliente-ChqDev-Tre '
+   if #Privez_ChdD = 0
+	  Print ' LISSETT LAVERDE CADAVID ' (-6,66,25) !bold
+      Print '   ABOGADA T.P. 190937   ' (+1,68,25) !bold 
+      Print $Nom_Cli_Tmp_ChdD           (+1,10,35) ! bold
+      Print 'Nit: '                    (+1,10,5)   !bold
+      Print $Cod_Cli_Tmp_ChdD          (,+6,15)   !bold
+      Print $Dir_Cli_Tmp_ChdD          (+1,10,58)  !bold
+      Print 'Tel. Cliente:'            (,+11,13)  !bold
+      Print $Tel_Cli_Tmp_ChdD          (,+10,10)  !bold
+      Print $Sta_Cli_Tmp               (+1,10,16)  !bold
+      Do    Buscar-Descrip-Ciudad-ChdD      
+      Print $Descrip_Ciudad-ChdD       (,+40)     !bold
+      
+      Let   #Imprir_lineas =  11
+      let   #Privez_ChdD   =  1
+      Print 'A  la  fecha  su   estado  de  cuenta  presenta  la(s)  siguiente   Factura(s)  vencidas   COLOMBIANA'  (+4,10,120)
+      Print 'DE COMERCIO S.A. CORBETA  y  los  intereses   por   mora  seran  liquidados a la tasa  autorizada por'  (+1,10)
+      Print 'la Superbancaria, a partir de Fecha de vencimiento.                                                 '  (+1,10)            
+      Print ' Item         '           (+2,10,22) !bold
+      Print ' No. Legal    '           (,+5,22) !bold
+      Print ' Saldo        '           (,+7,12) !bold
+      Print ' F vto.       '           (,+3,7)  !bold
+      Print ' Días Retraso '           (,+2,12)  !bold
+      Print ' T.Entrada    '           (,+3,12)  !bold
+   end-if
+   Print $Num_Fac_Tmp_ChdD     (#Imprir_lineas,10,22)
+   Print $Num_Leg_Tmp_ChdD     (,+6,22)
+   Print #Vlr_Fac_Tmp_ChdD     (,+1,17)   edit $$,$$$,$$$,$$$   
+   move  $FcV_Fac_Tmp_ChdD     to         $Fec_Fact_ChdD 'DD/MM/YY'
+   Print $Fec_Fact_ChdD        (,+5,8)
+   Print #Dia_Ret_Tmp_ChdD     (,+5,6)   edit 9999
+   Print $Tip_Ent_Tmp_ChdD     (,+13,4)
+   
+   show 'Linea numero '#Imprir_lineas
+   show $Num_Fac_Tmp_ChdD ' ' #Vlr_Fac_Tmp_ChdD ' ' $Fec_Fact_ChdD ' ' #Dia_Ret_Tmp_ChdD ' ' $Tip_Ent_Tmp_ChdD
+   
+   
+   if   #Imprir_lineas = 43
+        show 'Entró, cambio de página ' #Imprir_lineas
+        Let #Imprir_lineas = 11
+        Let #Privez_ChdD        = 0
+        Let #Num_Pag       = #Num_Pag + 1
+        new-page
+   end-if 
+   let #Imprir_lineas = (#Imprir_lineas + 1)
+   let #Acu_Vlr_Cli_ChdD   = (#Acu_Vlr_Cli_ChdD   + #Vlr_Fac_Tmp_ChdD)
+SHOW ' SALIO Impresion-Datos-Carta-Reclamacion-Cliente-ChqDev-Tre '   
+end-procedure   Impresion-Datos-Carta-Reclamacion-Cliente-ChqDev-Tre
+
+begin-procedure Buscar-Existe-Mensaje-Cliente
+let  #Exi_Men_Cli = 0
+SHOW ' Buscar-Existe-Mensaje-Cliente '
+SHOW $Setid_tbl
+SHOW $Cli_Ant_Tmp
+SHOW $Men_Cre
+SHOW $ASOFTODAY
+begin-select
+B.SEQ_NUM, 
+B.MESSAGE_CD
+
+      let #Num_Seq_Men = &B.SEQ_NUM
+      let $Men_Cli_Tbl = &B.MESSAGE_CD
+      let #Exi_Men_Cli = 1
+      SHOW ' ENTRO CLIENTE MENSAJE '
+
+FROM PS_CUST_MSG B
+WHERE B.SETID      = $Setid_tbl
+  AND B.CUST_ID    = $Cli_Ant_Tmp
+  AND B.MESSAGE_CD = $Men_Cre
+  AND B.START_DT   = $ASOFTODAY
+end-select
+end-procedure   Buscar-Existe-Mensaje-Cliente
+
+begin-procedure Buscar-NumMaxi-MenClie
+let  #Max_Num_Seq = 0
+begin-select
+max(to_number(B1.SEQ_NUM)) &max_num_seq
+
+      let #Max_Num_Seq = &max_num_seq
+
+FROM PS_CUST_MSG B1
+WHERE B1.SETID      = $Setid_tbl
+  AND B1.CUST_ID    = $Cli_Ant_Tmp
+end-select
+   let #Max_Num_Seq = #Max_Num_Seq + 1
+end-procedure   Buscar-NumMaxi-MenClie
+
+begin-procedure Insert-Mensaje-Cliente-Cust-Msg
+SHOW ' Insert-Mensaje-Cliente-Cust-Msg '
+SHOW '$Uni_Neg_Sel: ' $Uni_Neg_Sel
+SHOW ' $Setid_tbl ' $Setid_tbl
+SHOW '$business_unit' $business_unit
+SHOW '$Business_Unit: ' $Business_Unit
+let $Fec_Fin_Mes      = '31122099'
+let #dtu_yr = to_number(substr($Fec_Fin_Mes, 5, 4))
+let #dtu_mo = to_number(substr($Fec_Fin_Mes, 3, 2))
+let #dtu_da = to_number(substr($Fec_Fin_Mes, 1, 2))
+do  dtu-format-date(#dtu_yr, #dtu_mo, #dtu_da, $dtu_fecha)
+do  Convert-From-DTU-Date($dtu_fecha, $fecha_out)
+let $fecha_out = upper($fecha_out)
+
+begin-sql ON-ERROR=SQL-Error
+INSERT INTO PS_CUST_MSG
+(SETID,        
+CUST_ID,        
+SEQ_NUM,        
+MESSAGE_CD,
+START_DT,       
+END_DT         
+)
+VALUES
+($Setid_tbl,                 
+$Cli_Ant_Tmp,               
+#Max_Num_Seq,
+$Men_Cre,          
+$asoftoday,
+$fecha_out)        
+end-sql
+end-procedure   Insert-Mensaje-Cliente-Cust-Msg
+
+begin-procedure Insert-Mensaje-Cliente-Auditoria
+begin-sql ON-ERROR=SQL-Error
+INSERT INTO PSAUDIT
+VALUES
+($prcs_oprid,                 
+TO_DATE($Fecha_Sistema,'YYYY-MM-DD-HH24.MI.SS'),               
+'A',
+'CUST_MSG',          
+'MESSAGE_CD',
+' ',
+$Men_Cre,
+$Setid_tbl,
+$Cli_Ant_Tmp,
+#Max_Num_Seq,
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ')        
+end-sql
+end-procedure   Insert-Mensaje-Cliente-Auditoria
+
+
+begin-procedure Impresion-Datos-Carta-Reclamacion-Cliente
+!Cesar encabezado
+alter-printer point-size=8 font=4
+SHOW ' ENTRO Impresion-Datos-Carta-Reclamacion-Cliente '
+show 'impreme_encabezado' #impreme_encabezado
+show '$Nom_Cli_Tmp'  $Nom_Cli_Tmp
+if #imprime_encabezado = 0 
+   if #Privez = 0 
+      IF $Tip_Ubi_Tmp = '1' OR $Tip_Ubi_Tmp = '2' 
+      Do Impresion-Titulo-Cartas-Reclamacion
+         do ImprimirLogos
+         Print $Nom_Cli_Tmp               (-6,10,35)  !bold
+         Print 'Nit: '                    (,+5)   !bold
+         Print $Cod_Cli_Tmp               (,+1)    !bold
+         Print $Dir_Cli_Tmp               (+1,10,58)  !bold
+         Print 'Tel. Cliente:'            (+1,10)   !bold
+         Print $Tel_Cli_Tmp               (,+3,10)   !bold
+         Print $Sta_Cli_Tmp               (+1,10,16)  !bold
+         Do    Buscar-Descrip-Ciudad      
+         Print $Descrip_Ciudad            (,+1)      !bold
+      ELSE
+         Do  Impresion-Titulo-Cartas-Reclamacion
+		 let $Direc = $URL || '/AbogLog.jpg' 
+	 		show ' $Direc1 ' $Direc
+	 		alter-printer point-size=8 font=4
+	 		print-image (1,50) type = 'JPEG-FILE' source = $Direc image-size=(40,10)
+         Print $Nom_Cli_Tmp               (18,10)  !bold
+		 Print 'Nit: '                    (,+5)   !bold
+		 Print $Cod_Cli_Tmp               (,+1)    !bold
+         !Print 'Nit:. '                    (+1,10,5)   !bold
+         !Print $Cod_Cli_Tmp               (,+6,15)    !bold
+         Print $Dir_Cli_Tmp               (+1,10,58)  !bold
+         Print 'Tel. Cliente:'            (+1,10)   !bold
+         Print $Tel_Cli_Tmp               (,+1)   !bold
+         Print $Sta_Cli_Tmp               (+1,10)  !bold
+         Do    Buscar-Descrip-Ciudad      
+         Print $Descrip_Ciudad            (,+4)      !bold
+      END-IF
+      Let   #Imprir_lineas =  33
+      let #impreme_encabezado = 1
+      let   #Privez        =  1
+      if    $Tip_Ubi_Tmp   = '1'
+            Print 'A la fecha su estado de cuenta presenta la(s) siguientes factura(s) vencidas con COLOMBIANA DE COMERCIO' (+5,10,120)
+            Print 'S.A. CORBETA                                                                                         ' (+1,10,98)
+            Print '                                                                                                     ' (+1,10,98)
+      end-if
+      if    $Tip_Ubi_Tmp   = '2'
+            Print 'COLOMBIANA  DE   COMERCIO  S.A.  CORBETA,  esta  interesada  en  continuar  las  buenas  relaciones con usted(es), por lo anterior nos' (+5,10,150)
+            Print 'permitimos informarle  que a la fecha  su  estado de cuenta presenta las siguientes Factura(s) vencidas y no canceladas, en caso de que ya' (+1,10)
+            Print 'hubiese generado el pago de las mismas, deberá remitir su soporte de pago al correo soporte.bancos@colcomercio.com.co ' (+1,10)            
+      end-if
+      if    $Tip_Ubi_Tmp   = '3'
+            Print 'COLOMBIANA DE COMERCIO S.A. CORBETA, está interesada en continuar las buenas relaciones con usted (es), por lo anterior    '  (+5,10,150)
+            Print 'nos permitimos informarle que a la fecha su estado de cuenta presenta la(s) siguiente(s) factura(s) vencidas y no canceladas,los '  (+1,10)
+			Print 'intereses por mora serán liquidados a la tasa autorizada por la Superintendencia, a partir de la fecha de vencimiento.'  (+1,10)
+			Print 'Por  lo  que  en  caso de que  ya  hubiese generado  el  pago  de  las  mismas,  deberá   remitir  su  soporte  de  pago  al  correo '  (+1,10)
+			Print 'soporte.bancos@colcomercio.com.co'  (+1,10)
+      end-if
+      Print ' Item         ' (+2,10,22) !bold
+      Print ' No. Legal    ' (,+5,22) !bold
+      Print ' Saldo        ' (,+7,12) !bold
+      Print ' F vto.       ' (,+3,7)  !bold
+      Print ' Días Retraso ' (,+2,12)  !bold
+      Print ' T.Entrada    ' (,+3,12)  !bold
+      Do Impresion-Pie-Pagina-Cartas
+   end-if
+end-if
+   
+   Print $Num_Fac_Tmp     (#Imprir_lineas,10,22)
+   Print $Num_Leg_Tmp     (,+6,22)
+   Print #Vlr_Fac_Tmp     (,+1,17)   edit $$,$$$,$$$,$$$   
+   move  $FcV_Fac_Tmp     to         $Fec_Fact 'DD/MM/YY'
+   Print $Fec_Fact        (,+5,8)
+   Print #Dia_Ret_Tmp     (,+5,6)   edit 9999
+   Print $Tip_Ent_Tmp     (,+13,4)
+   
+   show 'Linea numero '#Imprir_lineas
+   show $Num_Fac_Tmp ' ' $Num_Leg_Tmp ' ' #Vlr_Fac_Tmp ' ' $Fec_Fact ' ' #Dia_Ret_Tmp ' ' $Tip_Ent_Tmp
+   
+   if   #Imprir_lineas = 65
+        show 'Entro cambio de hoja ' #Imprir_lineas
+        Let #Imprir_lineas = 3
+        Let #Privez        = 1
+        Let #Num_Pag       = #Num_Pag + 1
+        new-page
+        Do Impresion-Pie-Pagina-Cartas
+        Print ' Item         ' (2,10,22) !bold
+	Print ' No. Legal    ' (,+5,22) !bold
+	Print ' Saldo        ' (,+7,12) !bold
+	Print ' F vto.       ' (,+3,7)  !bold
+	Print ' Días Retraso ' (,+2,12)  !bold
+        Print ' T.Entrada    ' (,+3,12)  !bold
+   end-if 
+   let #Imprir_lineas = (#Imprir_lineas + 1)
+   let #Acu_Vlr_Cli   = (#Acu_Vlr_Cli   + #Vlr_Fac_Tmp)
+SHOW ' SALIO Impresion-Datos-Carta-Reclamacion-Cliente '   
+end-procedure   Impresion-Datos-Carta-Reclamacion-Cliente
+
+begin-procedure Buscar-Descrip-Ciudad
+show ' $Cit_Cli_Tmp ' $Cit_Cli_Tmp
+let $Descrip_Ciudad = ' '
+begin-select 
+DC.DESCR
+
+   let $Descrip_Ciudad = &DC.DESCR
+
+FROM PS_MUNI_TBL_HO DC
+WHERE DC.MUNI_FLD_HO = $Cit_Cli_Tmp
+End-select
+show 'sale Buscar-Descrip-Ciudad - $Descrip_Ciudad: ' $Descrip_Ciudad
+end-procedure   Buscar-Descrip-Ciudad
+
+begin-procedure Buscar-Descrip-CiudadC
+show ' $Cit_ClC_Tmp ' $Cit_ClC_Tmp
+let $Descrip_Ciudad = ' '
+begin-select 
+DC1.DESCR
+
+   let $Descrip_Ciudad = &DC1.DESCR
+
+FROM PS_MUNI_TBL_HO DC1
+WHERE DC1.MUNI_FLD_HO = $Cit_ClC_Tmp
+End-select
+show 'sale Buscar-Descrip-Ciudad - $Descrip_CiudadC: ' $Descrip_Ciudad
+end-procedure   Buscar-Descrip-CiudadC
+
+
+begin-procedure Impresion-Acumul-Cliente
+alter-printer point-size=8 font=4
+  let #Imprir_lineas = #Imprir_lineas + 2
+  IF   #Acu_Vlr_Cli <> 0 
+       Print 'SALDO ACTUAL ES:'    (#Imprir_lineas,36,22)                     !bold
+       Print #Acu_Vlr_Cli          (,+19,18) edit $$$,$$$,$$$,$$$ !bold
+  END-IF     
+end-procedure   Impresion-Acumul-Cliente
+
+begin-procedure Impresion-CarRec-Coudeudor-Carta
+let $Cod_ClC_Tmp = ' '
+let $Nom_ClC_Tmp = ' '
+let $Dir_ClC_Tmp = ' '
+let $Sta_ClC_Tmp = ' '
+let $Cit_ClC_Tmp = ' '
+let $Tel_CCC_Tmp = ' '
+let $Num_FCC_Tmp = ' '
+let $Num_LCC_Tmp = ' '
+let #Vlr_FCC_Tmp = 0
+let $FcV_FCC_Tmp = ''
+let #Dia_RCC_Tmp = 0
+let $Tip_ECC_Tmp = ' '
+let $Fec_Fat_Tmp = ' '
+let $Tip_UCi_Tmp = ' '
+let #Imp_Cod_Ent = 0
+let $Tel_ClC_Dtp = ' '
+SHOW 'ENTRO Impresion-CarRec-Coudeudor-Carta '
+SHOW ' $Cli_Ant_Tmp ' $Cli_Ant_Tmp
+begin-select
+CTRC.BUSINESS_UNIT,
+CTRC.ITEM,
+CTRC.USER1,
+CTRC.BAL_AMT,
+CTRC.DUE_DT,
+CTRC.DAYS_LATE2,
+CTRC.ENTRY_TYPE,
+CTRC.CK_CUST_ID,
+CTRC.CK_NOM_PROVEE,
+CTRC.CK_ADDRESS1GEO,
+CTRC.CK_STATE,
+CTRC.CK_CITY,
+CTRC.CK_TIPCAR,
+CTRC.CK_TELEFONO
+
+   let $Cod_ClC_Tmp = &CTRC.CK_CUST_ID
+   let $Num_FCC_Tmp = &CTRC.ITEM
+   let $Nom_ClC_Tmp = &CTRC.CK_NOM_PROVEE
+   let $Dir_ClC_Tmp = &CTRC.CK_ADDRESS1GEO
+   let $Sta_ClC_Tmp = &CTRC.CK_STATE
+   let $Cit_ClC_Tmp = &CTRC.CK_CITY
+   let $Num_LCC_Tmp = &CTRC.USER1
+   let #Vlr_FCC_Tmp = &CTRC.BAL_AMT
+   let $FcV_FCC_Tmp = &CTRC.DUE_DT
+   let #Dia_RCC_Tmp = &CTRC.DAYS_LATE2
+   let $Tip_ECC_Tmp = &CTRC.ENTRY_TYPE
+   let $Tip_UCi_Tmp = &CTRC.CK_TIPCAR
+   let $Tel_ClC_Dtp = &CTRC.CK_TELEFONO  
+   SHOW ' ENTRO CARTA CODEUDOR '
+   SHOW ' $Cod_ClC_Tmp ' $Cod_ClC_Tmp
+   let #imprime_encabezado = 0
+   if  $Cod_ClC_Tmp <> 'NINGUNO' 
+       Do  Impresion-Datos-Carta-Reclamacion-Coodeudor    
+       let #Imp_Cod_Ent = 1       
+   end-if      
+   
+FROM PS_CK_TMPCAT_RECLA CTRC
+WHERE CTRC.CUST_ID = $Cli_Ant_Tmp
+ORDER BY CTRC.CUST_ID, CTRC.ITEM
+end-select
+  Do  Impresion-Acumul-Cliente
+end-procedure   Impresion-CarRec-Coudeudor-Carta
+
+begin-procedure Impresion-Datos-Carta-Reclamacion-Coodeudor
+alter-printer point-size=8 font=4
+if #imprime_encabezado = 0
+   if #Privez = 0
+      IF $Tip_Ubi_Tmp = '1' OR $Tip_Ubi_Tmp = '2' 
+         Do  Impresion-Titulo-Cartas-Reclamacion
+         do ImprimirLogos
+         Print $Nom_ClC_Tmp  (-4,10,35)  !bold
+         Print $Cod_ClC_Tmp  (+1,10,35)  !bold
+         Print $Dir_ClC_Tmp  (+1,10,58)  !bold
+         Print 'Tel. Cliente:' (,+11,13)   !bold
+         Print $Tel_ClC_Dtp    (,+10,14)   !bold
+         Print $Sta_ClC_Tmp  (+1,10,16)  !bold
+         Do    Buscar-Descrip-CiudadC      
+	 Print $Descrip_Ciudad            (,+40)      !bold
+
+      else
+         Do  Impresion-Titulo-Cartas-Reclamacion
+		 let $Direc = $URL || '/AbogLog.jpg'   
+	      show ' $Direc2 ' $Direc
+	      alter-printer point-size=8 font=4
+	      print-image (1,50) type = 'JPEG-FILE' source = $Direc image-size=(40,10)
+         Print $Nom_ClC_Tmp  (18,10,35)  !bold
+         Print $Cod_ClC_Tmp  (+1,10,35)  !bold
+         Print $Dir_ClC_Tmp  (+1,10,58)  !bold
+         Print 'Tel. Cliente:' (,+11,13)   !bold
+         Print $Tel_ClC_Dtp    (,+10,14)   !bold
+         Print $Sta_ClC_Tmp  (+1,10,16)  !bold
+         Do    Buscar-Descrip-CiudadC      
+	 Print $Descrip_Ciudad            (,+40)      !bold
+      end-if  
+      let #Imprir_lineas = 37
+      let #impreme_encabezado = 1
+      let   #Privez  = 1
+      Print 'Ref: OBLIGACIONES SOLIDARIAS A NOMBRE DE, NIT:'                                                                 (+4,10,55)  
+      Print  $Cli_Ant_Tmp                                                                                                    (,+5,15)
+      Print  $Nom_Ant_Tmp                                                                                                    (,+10,35)
+      Print 'Apreciado SEÑOR CODEUDOR'                                                                                       (+2,10,98)
+      if    $Tip_Ubi_Tmp   = '1'
+            Print 'A la fecha su estado de cuenta presenta la(s) siguientes Factura(s) vencidas COLOMBIANA  DE  COMERCIO'    (+2,10,120)
+            Print 'S.A. CORBETA                                                                                         '    (+1,10,98)
+      end-if
+      if    $Tip_Ubi_Tmp   = '2'     
+            Print 'COLOMBIANA  DE  COMERCIO S.A. CORBETA, esta interesada  en continuar las buenas relaciones '              (+2,10,120)
+            Print 'con   usted   (es), por  lo  anterior   nos   permitimos   informarle  que  a  la  fecha  su  estado  de' (+1,10)
+            Print 'cuenta presenta  la(s) siguientes Factura (s) vencidas:                                                 ' (+1,10)
+      end-if
+      if    $Tip_Ubi_Tmp   = '3'
+            Print 'A  la  fecha  su   estado  de  cuenta  presenta  la(s)  siguiente   Factura(s)  vencidas   COLOMBIANA'    (+2,10,120)
+            Print 'DE COMERCIO S.A. CORBETA  y  los  intereses   por   mora  seran  liquidados a la tasa  autorizada por'    (+1,10)
+            Print 'la Superbancaria, a partir de Fecha de vencimiento.                                                 '    (+1,10)            
+      end-if     
+      Print ' Item         ' (+2,10,22) !bold
+      Print ' No. Legal    ' (,+5,22) !bold
+      Print ' Saldo        ' (,+7,12) !bold
+      Print ' F vto.       ' (,+3,7)  !bold
+      Print ' Días Retraso ' (,+2,12)  !bold
+      Print ' T.Entrada    ' (,+3,12)  !bold
+      Do Impresion-Pie-Pagina-Cartas
+   end-if
+end-if   
+   Print $Num_FCC_Tmp     (#Imprir_lineas,10,22)
+   Print $Num_LCC_Tmp     (,+6,22)
+   Print #Vlr_FCC_Tmp     (,+1,17)   edit $$,$$$,$$$,$$$   
+   move  $FcV_FCC_Tmp     to         $Fec_Fat_Tmp 'DD/MM/YY'
+   Print $Fec_Fat_Tmp     (,+5,8)
+   Print #Dia_RCC_Tmp     (,+5,6)   edit 9999
+   Print $Tip_ECC_Tmp     (,+13,4)
+   if   #Imprir_lineas = 65
+        Let #Imprir_lineas = 3
+        Let #Privez        = 0
+        Let #Num_Pag       = #Num_Pag + 1
+        new-page
+        Print ' Item         ' (+2,10,22) !bold
+	Print ' No. Legal    ' (,+5,22) !bold
+	Print ' Saldo        ' (,+7,12) !bold
+	Print ' F vto.       ' (,+3,7)  !bold
+	Print ' Días Retraso ' (,+2,12)  !bold
+	Print ' T.Entrada    ' (,+3,12)  !bold
+        Do Impresion-Pie-Pagina-Cartas
+   end-if 
+   let #Imprir_lineas = #Imprir_lineas + 1 
+end-procedure   Impresion-Datos-Carta-Reclamacion-Coodeudor
+
+begin-procedure Impresion-InfFin-CarReg-Cliente-Uno
+alter-printer point-size=8 font=4
+
+
+    if (70 - (#Imprir_lineas + 6)) <= 0
+         Let #Imprir_lineas = 1
+         Let #Num_Pag       = #Num_Pag + 1
+       new-page
+   end-if
+
+
+ if isblank($Business_Unit)
+ 
+      let #Imprir_lineas = #Imprir_lineas + 4
+      Print 'Favor  cancelar de  inmediato consignando  en cualquiera de  las  siguientes  cuentas: BANCOLOMBIA  No.' (#Imprir_lineas,10,120) 
+      let #Imprir_lineas = #Imprir_lineas + 1
+      Print '044900943-09,   DAVIVIENDA    No.     0081-0004331-7,     BCO BOGOTA    No.   028-26049-5, y enviar via'(#Imprir_lineas,10,120) 
+      let $dDatos = 'Fax' || ' '|| $fFax || '. O acercarse a la '|| $aAddress || '.' || $cCity
+      
+      let #Imprir_lineas = #Imprir_lineas + 1
+      Print $dDatos (#Imprir_lineas,10,120)
+ else
+    
+    
+    if $Business_Unit = 'DIBOG'
+      let #Imprir_lineas = #Imprir_lineas + 4
+      Print 'Favor   cancelar   de inmediato consignando  en cualquiera de  las  siguientes  cuentas: BANCOLOMBIA No.' (#Imprir_lineas,10,120) 
+      let #Imprir_lineas = #Imprir_lineas + 1
+      Print '044900943-09,   DAVIVIENDA    No.     0081-0004331-7,     BCO BOGOTA    No.   028-26049-5. ' (#Imprir_lineas,10,120) 
+    end-if
+    if $Business_Unit = 'DICAL'
+      let #Imprir_lineas = #Imprir_lineas + 4
+      Print 'Favor   cancelar  de  inmediato  consignando  en  cualquiera de  las siguientes  cuentas: BANCOLOMBIA No.' (#Imprir_lineas,10,120) 
+      let #Imprir_lineas = #Imprir_lineas + 1
+      Print '04490094309 Convenio 1163, BCO. BOGOTA  No. 391057296,  BANCAFE   No. 12899009-0.'       (#Imprir_lineas,10,120) 
+    end-if
+    if $Business_Unit = 'DIMED'
+      let #Imprir_lineas = #Imprir_lineas + 4
+      Print 'Favor  cancelar  de    inmediato  consignando  en  cualquiera de  las siguientes  cuentas: GANADERO No.' (#Imprir_lineas,10,120) 
+      let #Imprir_lineas = #Imprir_lineas + 1
+      Print '55705471-5, BANCAFE No.41499148-9, LAS VILLAS No.506069855, BCO BOGOTA No.     43415994-3, BANCOLOMBIA  '       (#Imprir_lineas,10,120) 
+      let #Imprir_lineas = #Imprir_lineas + 1
+      Print 'No. 04490094309 Convenio 1163.' (#Imprir_lineas,10,120)
+     end-if
+    if $Business_Unit = 'DIPAS'
+      let #Imprir_lineas = #Imprir_lineas + 4
+      Print 'Favor  cancelar  de  inmediato  consignando  en  cualquiera de  las siguientes  cuentas: BANCOLOMBIA No.' (#Imprir_lineas,10,120) 
+      let #Imprir_lineas = #Imprir_lineas + 1
+      Print '074900943-09, BCO.AGRARIO No. 13030615010, BCO.GANADERO  No. 5570100054715.'       (#Imprir_lineas,10,120) 
+    end-if
+    if $Business_Unit = 'MOTOS'    
+      let #Imprir_lineas = #Imprir_lineas + 4
+      Print 'Favor  cancelar  de  inmediato  consignando  en cualquiera de  las siguientes  cuentas: BANCOLOMBIA No.' (#Imprir_lineas,10,120) 
+      let #Imprir_lineas = #Imprir_lineas + 1
+      Print '002-255125-35.             '            (#Imprir_lineas,10,120) 
+    end-if
+    
+	 if $fFax <> ' ' 
+		let $dDatos = 'Enviar Fax'||' ' ||$fFax || '.'||' '
+	 end-if
+
+	 let $dDatos =  $dDatos  ||'O acercarse a la' ||' ' ||$aAddress || ' '|| 'Tel' ||' '|| $pPhone
+
+	 if $eExt1 <> ' '
+		let $dDatos = $dDatos ||' '|| 'Ext' ||' '|| $eExt1
+	 end-if
+
+	 let $dDatos = $dDatos ||','|| $cCity ||'.'
+	    
+    let #Imprir_lineas = #Imprir_lineas + 1
+    Print $dDatos (+1,10,120)
+    
+    
+ end-if
+ 
+     if (70 - (#Imprir_lineas + 3)) <= 0
+          Let #Imprir_lineas = 1
+          Let #Num_Pag       = #Num_Pag + 1
+        new-page
+   end-if
+ 
+     let #Imprir_lineas = #Imprir_lineas + 2
+     Print 'El no pago sus obligaciones vencidas con la compañía, le generará el reporte de éstas en las diferentes centrales de riesgo.' (#Imprir_lineas,10,150) 
+     let #Imprir_lineas = #Imprir_lineas + 1
+     Print 'Toda mora ocasiona intereses mensuales sobre el saldo de la deuda.'        (#Imprir_lineas,10,120)
+     
+      if (70 - (#Imprir_lineas + 5)) <= 0
+           Let #Imprir_lineas = 1
+           Let #Num_Pag       = #Num_Pag + 1
+         new-page
+      end-if
+     
+     let #Imprir_lineas = #Imprir_lineas + 2
+     Print 'Si a la fecha se encuentra en mora, éste comunicado será el soporte de la notificación exigida por la Ley 1266 de 2008 "HABEAS DATA"'        (#Imprir_lineas,10,150) 
+     let #Imprir_lineas = #Imprir_lineas + 1
+     Print 'En caso de haber cancelado con anterioridad a la fecha de la presente comunicación o tener alguna inconsistencia, le ' (#Imprir_lineas,10)
+     let #Imprir_lineas = #Imprir_lineas + 1
+     Print 'rogamos comunicarse con nosotros al teléfono 4055421 - 3649758 o desde fuera de Bogotá puede llamar sin costo alguno a ' (#Imprir_lineas,10)
+     let #Imprir_lineas = #Imprir_lineas + 1
+     Print 'la línea 018000524066.' (#Imprir_lineas,10,120)  
+     
+     if (70 - (#Imprir_lineas + 5)) <= 0
+              Let #Imprir_lineas = 1
+              Let #Num_Pag       = #Num_Pag + 1
+            new-page
+     end-if
+ 
+ 
+ 
+     let #Imprir_lineas = #Imprir_lineas + 2
+     Print 'Señor   cliente,   si  por  alguna  eventualidad,  usted(es)  se  traslada(n),  vende(n),  cierra(n) o permuta(n)  su  establecimiento de comercio,'                (#Imprir_lineas,10)
+     let #Imprir_lineas = #Imprir_lineas + 1
+     Print 'es  su  responsabilidad  informar por escrito  al  Área de Cartera dicha novedad y confirmar  telefónicamente el recibido de su comunicación.'               (#Imprir_lineas,10)
+     let #Imprir_lineas = #Imprir_lineas + 1
+     Print 'La  omisión  de  éste  requisito  le  podría  generar  inconvenientes  de  tipo  legal,  si no deja(n)  totalmente aclarados sus saldos en cartera,'                (#Imprir_lineas,10)
+     let #Imprir_lineas = #Imprir_lineas + 1
+     Print 'tal como lo indica el Artículo 528 del Código de Comercio.'                                                                                             (#Imprir_lineas,10)
+ 
+ 
+     if (70 - (#Imprir_lineas + 10)) <= 0
+          Let #Imprir_lineas = 1
+          Let #Num_Pag       = #Num_Pag + 1
+        new-page
+   end-if
+ 
+ let #Imprir_lineas = #Imprir_lineas + 3
+ Print 'Atentamente,'                                                                                             (#Imprir_lineas,10) !bold 
+ let #Imprir_lineas = #Imprir_lineas + 7
+ print $fFirma (#Imprir_lineas,10) bold
+ 
+end-procedure   Impresion-InfFin-CarReg-Cliente-Uno
+
+!cesar carta 2
+begin-procedure Impresion-InfFin-CarReg-Cliente-Dos
+	
+	alter-printer point-size=8 font=4
+	
+	    if (70 - (#Imprir_lineas + 7)) <= 0
+	         Let #Imprir_lineas = 1
+	         Let #Num_Pag       = #Num_Pag + 1
+	       new-page
+            end-if
+ 
+ 	if isblank($Business_Unit)
+      	let #Imprir_lineas = #Imprir_lineas + 4
+      	Print 'Estas obligaciones en mora han  generado  el reporte en las diferentes centrales de riesgo, de común acuerdo con la  Ley 1266 de 2008'(#Imprir_lineas,10,150) 
+      	let #Imprir_lineas = #Imprir_lineas + 1
+      	Print '"HABEAS DATA", situación que afecta desfavorablemente su historial crediticio; por consiguiente le  solicitamos consignar de inmediato' (#Imprir_lineas,10,150) 
+      	let #Imprir_lineas = #Imprir_lineas + 1
+      	Print 'en alguna de las siguientes cuentas:BANCOLOMBIA CTA CTE No.04490094309 Convenio 1163, DAVIVIENDA CTA AHORROS No.008100043317, BCO BOGOTA ' (#Imprir_lineas,10,150) 
+      	let #Imprir_lineas = #Imprir_lineas + 1
+      	Print 'CTA CTE No.028-26049-5, Por nuestros canales virtuales PSE, PAYU que se encuentran en nuestra página web www.corbeta.com'       (#Imprir_lineas,10,120) 
+ 	else   
+ 
+   	if $Business_Unit = 'DIBOG'
+   	let #Imprir_lineas = #Imprir_lineas + 4
+		Print 'Estas obligaciones  en  mora han  generado  el reporte  en las  diferentes  centrales de riesgo, de común acuerdo con la  Ley 1266 de 2008'(#Imprir_lineas,10) 
+        let #Imprir_lineas = #Imprir_lineas + 1
+        Print '"HABEAS DATA", situación que afecta desfavorablemente su historial crediticio; por consiguiente le solicitamos consignar  de inmediato en' (#Imprir_lineas,10) 
+        let #Imprir_lineas = #Imprir_lineas + 1
+        Print 'alguna   de  las  siguientes  cuentas:   BANCOLOMBIA CTA CTE No. 044900943-09 Convenio 1163,   DAVIVIENDA  CTA  AHORROS  No.' (#Imprir_lineas,10) 
+        let #Imprir_lineas = #Imprir_lineas + 1
+        Print '0081-0004331-7, BCO BOGOTA CTA CTE No.054330469, Por  nuestros  canales  virtuales  PSE, PAYU que  se  encuentran  en nuestra '       (#Imprir_lineas,10) 
+		let #Imprir_lineas = #Imprir_lineas + 1
+        Print 'página web www.corbeta.com'       (#Imprir_lineas,10,150) 
+   	end-if
+   	if $Business_Unit = 'DICAL'
+   	let #Imprir_lineas = #Imprir_lineas + 4
+   	Print 'Estas obligaciones en mora han  generado  el reporte en las diferentes centrales de riesgo, de común acuerdo con la  Ley 1266 de 2008'(#Imprir_lineas,10,150) 
+	let #Imprir_lineas = #Imprir_lineas + 1
+	Print '"HABEAS DATA", situación que afecta desfavorablemente su historial crediticio; por consiguiente le solicitamos consignar de inmediato' (#Imprir_lineas,10,150) 
+	let #Imprir_lineas = #Imprir_lineas + 1
+	Print 'alguna de las siguientes cuentas: BANCOLOMBIA CTA CTE No.04490094309 Convenio 1163,BCO BOGOTA CTA CTE 391057296, BANCAFE CTA CTE No.' (#Imprir_lineas,10,150) 
+	let #Imprir_lineas = #Imprir_lineas + 1
+	Print '12899009-0 y BANCO AGRARIO CTA CTE No.130-3061501-0,Por nuestros canales virtuales PSE,PAYU que se encuentran en nuestra página web www.corbeta.com'       (#Imprir_lineas,10,120) 
+   	end-if
+   	if $Business_Unit = 'DIMED'
+   		let #Imprir_lineas = #Imprir_lineas + 4
+   		Print 'Estas obligaciones en mora han  generado  el reporte en las diferentes centrales de riesgo, de común acuerdo con la  Ley 1266 de 2008'(#Imprir_lineas,10,150) 
+		let #Imprir_lineas = #Imprir_lineas + 1
+		Print '"HABEAS DATA", situación que afecta desfavorablemente su historial crediticio; por consiguiente le solicitamos consignar de inmediato' (#Imprir_lineas,10,150) 
+		let #Imprir_lineas = #Imprir_lineas + 1
+		Print 'en alguna de las siguientes cuentas: BANCOLOMBIA CTA CTE No. 04490094309 Convenio 1163, BBVA CTA CTE No. 557010547-15,BANCAFE CTA CTE No. ' (#Imprir_lineas,10,150) 
+		let #Imprir_lineas = #Imprir_lineas + 1
+		Print '414-99148-9, BCO BOGOTA CTA CTE No. 434-15994-3, BANCO AGRARIO CTA CTE No. 130-3061501-0,Por nuestros canales virtuales PSE,PAYU que se'       (#Imprir_lineas,10,150) 
+		let #Imprir_lineas = #Imprir_lineas + 1
+		Print 'encuentran en nuestra página web www.corbeta.com'       (#Imprir_lineas,10,150) 
+   	end-if
+   	if $Business_Unit = 'DIPAS'
+   		let #Imprir_lineas = #Imprir_lineas + 4
+   		Print 'Estas obligaciones en mora han  generado  el reporte en las diferentes centrales de riesgo, de común acuerdo con la  Ley 1266 '(#Imprir_lineas,10,150) 
+   		let #Imprir_lineas = #Imprir_lineas + 1
+   		Print '"HABEAS DATA", situación que afecta desfavorablemente su historial crediticio; por consiguiente le solicitamos consignar de inmediato' (#Imprir_lineas,10,150) 
+   		let #Imprir_lineas = #Imprir_lineas + 1
+   		Print 'en alguna de las siguientes cuentas: BANCOLOMBIA CTA CTE No. 074900943-9, BBVA CTA CTE No. 0557-0100054715,BANCO AGRARIO CTA CTE' (#Imprir_lineas,10,150) 
+   		let #Imprir_lineas = #Imprir_lineas + 1
+   		Print 'No. 130-3061501-0, Por nuestros canales virtuales PSE, PAYU que se encuentran en nuestra página web www.corbeta.com'       (#Imprir_lineas,10,150) 
+   	end-if
+   	if $Business_Unit = 'MOTOS'
+   		let #Imprir_lineas = #Imprir_lineas + 4
+   		Print 'Estas obligaciones en mora han generado el reporte en las diferentes centrales de riesgo, de común acuerdo con la Ley 1266 de 2008'(#Imprir_lineas,10,150) 
+		let #Imprir_lineas = #Imprir_lineas + 1
+		Print '"HABEAS DATA", situación que afecta desfavorablemente su historial crediticio; por consiguiente le solicitamos consignar de inmediato' (#Imprir_lineas,10,150) 
+	   	let #Imprir_lineas = #Imprir_lineas + 1
+	   	Print 'en alguna de las siguientes cuentas: BANCOLOMBIA No. 002-255125-35, Por nuestros canales virtuales PSE,PAYU que se encuentran en nuestra ' (#Imprir_lineas,10,150) 
+		let #Imprir_lineas = #Imprir_lineas + 1
+	   	Print 'página web www.corbeta.com' (#Imprir_lineas,10,150) 
+   end-if
+   
+   
+   
+   if $Business_Unit = 'ALBOY'
+   
+       if (70 - (#Imprir_lineas + 3)) <= 0
+            Let #Imprir_lineas = 1
+            Let #Num_Pag       = #Num_Pag + 1
+          new-page
+       end-if
+   
+        let #Imprir_lineas = #Imprir_lineas + 2
+        Print '                    CALLE 51  No  53 - 84  ALKOMPRAR Tel. 293.09.66  / 512.73.88                     '       (#Imprir_lineas,1) !bold
+        let #Imprir_lineas = #Imprir_lineas + 1
+        Print '                               Fax 293.09.74  Medellin - Antioquia                                   '       (#Imprir_lineas,1) !bold
+   end-if   
+   
+   	If $Business_Unit <> 'ALBOY'
+   	
+   	    if (70 - (#Imprir_lineas + 2)) <= 0
+	         Let #Imprir_lineas = 1
+	         Let #Num_Pag       = #Num_Pag + 1
+	       new-page
+            end-if
+   	
+   		!If $fFax <> ' ' 
+   		!	Let $dDatos = 'Enviar via fax a los números '||' ' ||$fFax || '.'
+   		!End-if
+   		Let $dDatos =  'Tambien puede acercarse a la' ||' ' ||$aAddress || ' '|| 'Teléfono: ' ||' '|| $pPhone
+		If $eExt1 <> ' '
+			Let $dDatos = $dDatos ||' '|| 'Ext' ||' '|| $eExt1
+		else
+			Let $dDatos = $dDatos ||' '|| 'en caso de requerir aclaración frente a su información de Cartera. '
+		End-if
+		Let $dDatos = $dDatos ||','|| $cCity ||'.'
+   		let #Imprir_lineas = #Imprir_lineas + 1
+   		Print $dDatos (#Imprir_lineas,10,120)
+   	End-if
+   	
+ end-if
+     !Print 'Toda  mora  en  la cancelación  de  las facturas   genera   el  2%  de interés por  mora  mensual   sobre'       (+2,10,120) 
+     !Print 'el valor adeudado.    Recuerde que su pago oportuno le evitara  ser  reportado   en   las  Centrales   de'       (+1,10,120)
+     !Print 'Riesgo y tramites juridicos que le generan un mayor costo.                                               ' 		  (+1,10,120) 
+     
+ !inicio modificación caso 4354 - jcr - 230409
+ 
+     if (70 - (#Imprir_lineas + 5)) <= 0
+          Let #Imprir_lineas = 1
+          Let #Num_Pag       = #Num_Pag + 1
+        new-page
+     end-if
+      
+     let #Imprir_lineas = #Imprir_lineas + 2
+     Print 'Adicionalmente, es imperante que tenga en cuenta que, si por alguna eventualidad, usted(es) se traslada(n), vende(n), cierra(n) o permuta(n)'                (#Imprir_lineas,10)
+     let #Imprir_lineas = #Imprir_lineas + 1
+     Print 'su establecimiento  de comercio  es su  responsabilidad  conforme al  Artículo 528 del Código de Comercio informar dicha novedad por escrito'               (#Imprir_lineas,10)
+     let #Imprir_lineas = #Imprir_lineas + 1
+     Print 'al Área de Cartera o a la Compañía en su calidad de acreedor'                (#Imprir_lineas,10)
+     let #Imprir_lineas = #Imprir_lineas + 2
+     Print 'Por último, le informamos  que  quedamos a  la  espera de la  contestación formal a la presente petición, pues la omisión de este requisito le' 				(#Imprir_lineas,10)
+	 let #Imprir_lineas = #Imprir_lineas + 1
+     Print 'podría generar inconvenientes de tipo legal, esto con el fin de que se tenga claridad frente a  cualquier saldo en cartera, devolución o novedad'                (#Imprir_lineas,10)	 
+     let #Imprir_lineas = #Imprir_lineas + 1
+     Print 'que sedeba ampliar o aclarar.'                (#Imprir_lineas,10)	
+      
+ !fin modificación caso 4354 - jcr - 230409
+ 
+     if (70 - (#Imprir_lineas + 10)) <= 0
+          Let #Imprir_lineas = 1
+          Let #Num_Pag       = #Num_Pag + 1
+        new-page
+     end-if
+     
+     let #Imprir_lineas = #Imprir_lineas + 3
+     Print 'Atentamente,'  (#Imprir_lineas,10) !bold
+     
+     let #Imprir_lineas = #Imprir_lineas +3
+     print $fFirma (#Imprir_lineas,10) bold
+
+end-procedure   Impresion-InfFin-CarReg-Cliente-Dos
+
+
+!cesar carta 3
+begin-procedure Impresion-InfFin-CarReg-Cliente-Tre
+	
+	alter-printer point-size=8 font=4	
+	
+   if (70 - (#Imprir_lineas + 8)) <= 0
+        Let #Imprir_lineas = 1
+        Let #Num_Pag       = #Num_Pag + 1
+      new-page
+   end-if	
+	
+    let #Imprir_lineas = #Imprir_lineas + 4
+    Print 'En  vista  que a la  fecha  continúan  sus  obligaciones  en  mora,  haciendo  caso  omiso a  los  comunicados  anteriores, le confirmamos que  el' (#Imprir_lineas,10,150)
+    let #Imprir_lineas = #Imprir_lineas + 1
+    Print 'reporte en las centrales de riegos se mantendrá hasta tanto no se realice el pago de común acuerdo con la Ley 1266 de 2008 "HABEAS DATA"' (#Imprir_lineas,10,150) 
+    let #Imprir_lineas = #Imprir_lineas + 1
+	Print 'modificada y adicionada por la Ley 2157 de 2021,situación que afecta desfavorablemente su historial crediticio. Evítese  gastos innecesarios e' (#Imprir_lineas,10,150) 
+	let #Imprir_lineas = #Imprir_lineas + 1
+    Print 'inconvenientes de tipo jurídico;   le solicitamos de manera atenta el  PAGO INMEDIATO  de la totalidad de sus obligaciones, si  no  efectúa sus ' (#Imprir_lineas,10,150)
+    let #Imprir_lineas = #Imprir_lineas + 1
+    Print 'pagos, nos veremos en la necesidad de iniciar el cobro jurídico.' (#Imprir_lineas,10,150)
+	
+
+   if (70 - (#Imprir_lineas + 4)) <= 0
+        Let #Imprir_lineas = 1
+        Let #Num_Pag       = #Num_Pag + 1
+      new-page
+   end-if
+ 	
+ 	If isblank($Business_Unit)
+    
+    	!let #Imprir_lineas = #Imprir_lineas + 1
+    	!Print 'Usted puede  acercarse a nuestras  oficinas ubicadas en  la  Calle 11 No.31A-42  o  puede comunicarse a los teléfonos 4055421 o 3649758.' (#Imprir_lineas,10,150) 
+    	let #Imprir_lineas = #Imprir_lineas + 1
+    	!Print 'Usted puede hacer sus consignaciones en las siguientes cuentas BANCOLOMBIA CTA CTE No. 044900943-09, DAVIVIENDA CTA AHORROS ' (#Imprir_lineas,10,150) 
+		Print 'Por consiguiente, le solicitamos consignar de inmediato en alguna de las siguientes cuentas: BANCOLOMBIA CTA CTE No. 04490094309,' (#Imprir_lineas,10,150) 
+    	let #Imprir_lineas = #Imprir_lineas + 1
+    	Print 'Convenio 1163, DAVIVIENDA CTA AHORROS  No.008100043317, BCO BOGOTA CTA CTE No.054330469. Por nuestros canales virtuales PSE,PAYU ' (#Imprir_lineas,10,150)
+    	let #Imprir_lineas = #Imprir_lineas + 1
+    	Print 'que se encuentran en nuestra página web www.corbeta.com ' (#Imprir_lineas,10,150)
+    	let #Imprir_lineas = #Imprir_lineas + 1
+		let #Imprir_lineas = #Imprir_lineas + 1
+		Print 'Tambien puede acercarse a la  Calle 11 No.31A-42 Teléfono: 3649777 Opción 3 de Cartera, en caso de requerir aclaración frente a su información de Cartera.' (#Imprir_lineas,10,150) 
+ 	Else
+ 	
+ 		!Let $linea1 = 'Usted puede acercarse a  nuestras oficinas ubicadas  en la ' || $aAddress || '  o  puede comunicarse a los teléfonos '  || $pPhone
+ 		!If $eExt1 <> ' '
+		!	Let $linea2 =   'Ext ' || $eExt1 || ' en ' || $cCity ||'. Usted puede hacer sus consignaciones en las siguientes cuentas: ' 
+		!Else
+		!	Let $linea2 =  'En ' || $cCity || '.  Usted puede hacer sus consignaciones en las siguientes cuentas: ' 
+	 	!End-if
+		Let $linea2 =  'Por consiguiente, le solicitamos consignar de inmediato en alguna de las siguientes cuentas:  ' 
+		let #Imprir_lineas = #Imprir_lineas + 1
+    	Print $linea1 (#Imprir_lineas,10,150) 
+		let #Imprir_lineas = #Imprir_lineas + 1
+		Print $linea2 (#Imprir_lineas,10,150)   	
+		    
+    	If $Business_Unit = 'DIBOG'      
+       		let #Imprir_lineas = #Imprir_lineas + 1
+       		Print 'BANCOLOMBIA CTA CTE No. 04490094309 Convenio 1163, DAVIVIENDA CTA AHORROS No.008100043317, BCO BOGOTA CTA CTE No. 054330469 '(#Imprir_lineas,10,150) 
+       		let #Imprir_lineas = #Imprir_lineas + 1
+       		Print 'Por nuestros canales virtuales PSE, PAYU que se encuentran en nuestra página web www.corbeta.com.'          (#Imprir_lineas,10,150)   
+    	End-if
+    	If $Business_Unit = 'DICAL'
+       		let #Imprir_lineas = #Imprir_lineas + 1
+			!inicio 005 
+       		Print 'BANCOLOMBIA  No.04490094309 Convenio 1163,  BCO.BOGOTA  No.391057296, BANCAFE No. 12899009-0,' (#Imprir_lineas,10)
+       		!fin 005
+			let #Imprir_lineas = #Imprir_lineas + 1
+       		Print 'BANCO AGRARIO CTA CTE No. 130-3061501-0, Por nuestros canales virtuales PSE, PAYU que se encuentran en nuestra página web www.corbeta.com '                        (#Imprir_lineas,10)    
+    	End-if    
+    	
+    	If $Business_Unit = 'DIMED'       
+       		let #Imprir_lineas = #Imprir_lineas + 1
+			!inicio 005 
+       		Print 'BANCOLOMBIA 04490094309 convenio 1163, BBVA CTA CTE No. 557010547-15, BANCO AGRARIO CTA CTE No. 130-3061501-0, '    (#Imprir_lineas,10)   
+       		!fin 005 
+			let #Imprir_lineas = #Imprir_lineas + 1
+       		Print 'BANCAFE No. 41499148-9, BCO BOGOTA No.43415994-3, Por nuestros canales virtuales PSE, PAYU que se encuentran en nuestra página web www.corbeta.com'    (#Imprir_lineas,10)    
+    	End-if        
+    	
+    	If $Business_Unit = 'DIPAS'      
+      		let #Imprir_lineas = #Imprir_lineas + 1
+      		Print 'BANCOLOMBIA No.074900943-09, BCO.AGRARIO No. 13030615010, BCO.GANADERO No. 5570100054715, BBVA CTA CTE No. 0557-0100054715'(#Imprir_lineas,10)   
+    	End-if    
+    		
+    	If $Business_Unit = 'MOTOS'        
+      		let #Imprir_lineas = #Imprir_lineas + 1
+      		Print 'BANCOLOMBIA No. 002-255125-35, Por nuestros canales virtuales PSE, PAYU que se encuentran en nuestra página web www.corbeta.com' (#Imprir_lineas,10)   
+    	End-if
+		
+		!Let $linea1 = 'Tambien puede acercarse a  la ' || $aAddress || '  Teléfono '  || $pPhone
+ 		If $eExt1 <> ' '
+			Let $linea2 =  'Tambien puede acercarse a  la ' || $aAddress || '  Teléfono '  || $pPhone || 'Ext ' || $eExt1 || ' en ' || $cCity || ' en caso de requerir aclaración frente a su '
+		Else
+			Let $linea2 =  'Tambien puede acercarse a  la ' || $aAddress || '  Teléfono '  || $pPhone || 'En ' || $cCity  || ' en caso de requerir aclaración frente a su '
+	 	End-if
+		!Let $linea2 =  'Por consiguiente, le solicitamos consignar de inmediato en alguna de las siguientes cuentas:  ' 
+		!let #Imprir_lineas = #Imprir_lineas + 1
+    	!Print $linea1 (#Imprir_lineas,10,150) 
+		let #Imprir_lineas = #Imprir_lineas + 1
+		Print $linea2 (#Imprir_lineas,10,150)   
+		let #Imprir_lineas = #Imprir_lineas + 1
+	
+		Print 'información de Cartera. ' (#Imprir_lineas,10)   
+ 	End-if   
+ 	
+   if (70 - (#Imprir_lineas + 2)) <= 0
+	   Let #Imprir_lineas = 1
+	   Let #Num_Pag       = #Num_Pag + 1
+	   new-page
+   end-if
+ 
+       
+    !let #Imprir_lineas = #Imprir_lineas + 2
+    !Print 'En caso de que la(s) factura(s) relacionadas hayan sido canceladas, le solicitamos ENVIAR fotocopia del recibo de pago correspondiente.'(#Imprir_lineas,10,150)     
+	
+!inicio modificación caso 4354 - jcr - 230409
+
+   if (70 - (#Imprir_lineas + 5)) <= 0
+        Let #Imprir_lineas = 1
+        Let #Num_Pag       = #Num_Pag + 1
+      new-page
+   end-if
+	 
+     let #Imprir_lineas = #Imprir_lineas + 2
+     Print 'Adicionalmente, es imperante que tenga en cuenta que, si por alguna eventualidad, usted(es) se traslada(n), vende(n), cierra(n) o permuta(n) su '                (#Imprir_lineas,10)
+     let #Imprir_lineas = #Imprir_lineas + 1
+     Print 'establecimiento de comercio es su responsabilidad conforme al Artículo 528 del Código de Comercio informar dicha novedad por escrito al  Área '               (#Imprir_lineas,10)
+     let #Imprir_lineas = #Imprir_lineas + 1
+     Print 'de Cartera o a la Compañía en su calidad de acreedor.'                (#Imprir_lineas,10)
+                                                                                               
+	 
+!fin modificación caso 4354 - jcr - 230409
+
+   !if (70 - (#Imprir_lineas + 7)) <= 0
+   if (75 - (#Imprir_lineas + 7)) <= 0
+        Let #Imprir_lineas = 1
+        Let #Num_Pag       = #Num_Pag + 1
+      new-page
+   end-if
+	
+	let #Imprir_lineas = #Imprir_lineas + 2
+	Print 'Atentamente,'                                                                                                 (#Imprir_lineas,10) !bold
+	let #Imprir_lineas = #Imprir_lineas + 2
+	!<Inicio 006>
+	!Print 'CLARA CORTES R.'                                                                                          (#Imprir_lineas,10) !bold
+    !let #Imprir_lineas = #Imprir_lineas + 1
+    ! Print 'Abogada T.P. 69816'     (#Imprir_lineas,10) !bold
+	Print 'DEPARTAMENTO DE CARTERA'                                                                                         (#Imprir_lineas,10) !bold
+   
+    !<Fin 006>
+end-procedure   Impresion-InfFin-CarReg-Cliente-Tre
+
+begin-procedure Impresion-InfFin-CarReg-Coodedor
+alter-printer point-size=8 font=4
+ if #Imp_Cod_Ent = 1
+     if $Tip_Ubi_Tmp   = '1'
+      if isblank($Business_Unit)
+         Print 'Favor  cancelar   de   inmediato    consignando  en cualquiera de por las siguientes cuentas: BANCOLOMBIA'(+4,10,120) 
+         Print 'No.044900943-9,  DAVIVIENDA    No.  0081-0004331-7,  BCO BOGOTA   No.028-26049-5, y enviar via Fax 3649789'(+1,10,120) 
+         Print 'O acercarse a la CL. 10 No. 31A-42 Bogota.                      '(+1,10,120)
+      else
+         if $Business_Unit = 'DIBOG'
+             Print 'Favor  cancelar   de inmediato  consignando  en cualquiera de por las siguientes cuentas: BANCOLOMBIA'(+4,10,120) 
+             Print 'No.044900943-9, DAVIVIENDA No.  0081-0004331-7, BCO BOGOTA   No. 028-26049-5.'(+1,10,120) 
+             !Print 'Enviar via Fax 3649789. O acercarse a la CL. 10 No. 31A-42 . Tel 364 97 77 Ext 347 a 371.Bogota.                  '(+1,10,120)
+         end-if
+         if $Business_Unit = 'DICAL'
+             Print 'Favor  cancelar  de   inmediato  consignando en cualquiera de por las siguientes cuentas: BANCOLOMBIA'(+4,10,120)
+				!inicio 005 
+             Print '04490094309 Convenio 1163, BCO. BOGOTA  No. 391057296,  BANCAFE   No. 12899009-0. '(+1,10,120) 
+             !fin 005 
+			 !Print 'Enviar   via  Fax  6662698. O acercarse a la Carrera 32 No 13-101 Acopi-Yumbo Tel. 6655121 Cali-Valle.'(+1,10,120)
+         end-if
+         if $Business_Unit = 'DIMED'
+             Print 'Favor  cancelar  de    inmediato   consignando  en cualquiera de por las siguientes cuentas: GANADERO'(+4,10,120) 
+             Print 'No.55705471-5, BANCAFE No.41499148-9, LAS VILLAS No.506069855, BCO BOGOTA No. 43415994-3. '(+1,10,120) 
+             !Print 'Enviar via Fax 379 3030. O acercarse a la Agencia Medellin Calle 1 No. 50 D 06 Tel: 361 13 00 Envigado.'(+1,10,120)
+         end-if
+         if $Business_Unit = 'DIPAS'
+             Print 'Favor  cancelar  de    inmediato consignando  en cualquiera de por las siguientes cuentas: BANCOLOMBIA'(+4,10,120) 
+             Print 'No. 074900943-09, BCO.AGRARIO No. 13030615010,  BCO.GANADERO  No.  5570100054715.'(+1,10,120) 
+             !Print 'Enviar via Fax 7216876. O acercarse a la CALL 22 N 6 28 AV PBX 7323400 EXT 105- 130 SAN JUAN DE PASTO                '(+1,10,120)      
+         end-if
+         if $Business_Unit = 'MOTOS'    
+             Print 'Favor  cancelar  de    inmediato consignando  en cualquiera de por las siguientes cuentas: BANCOLOMBIA'(+4,10,120) 
+             Print 'No.002-255125-35. '(+1,10,120) 
+             !pRINT ' O acercarse a la Agencia Medellin Carrera 49 No. 30 sur - 66 Envigado.              '(+1,10,120)
+          end-if
+          
+          if $fFax <> ' ' 
+			 	let $dDatos = 'Enviar Fax'||' ' ||$fFax || '.'||' '
+			 end-if
+			 
+			 let $dDatos =  $dDatos  ||'O acercarse a la' ||' ' ||$aAddress || ' '|| 'Tel' ||' '|| $pPhone
+			 
+			 if $eExt1 <> ' '
+			 	let $dDatos = $dDatos ||' '|| 'Ext' ||' '|| $eExt1
+			 end-if
+			 
+			 let $dDatos = $dDatos ||','|| $cCity ||'.'
+			 	    
+    		 Print $dDatos (+1,10,120)
+          
+     end-if
+        Print 'Toda    mora  en   la   cancelación  de  las  facturas   genera  el  2% de interés por  mora  mensual sobre'(+2,10,120) 
+        Print 'el valor adeudado.     Recuerde que su pago oportuno le  evitara  ser  reportado  en las   Centrales     de'(+1,10,120)
+        Print 'Riesgo. En caso de haber cancelado con anterioridad a la fecha de la presente comunicación  o  tener alguna'(+1,10,120) 
+        Print 'inconsistencia, le rogamos comunicarse con nosotros al tel.4055.421 o desde fuera de Bogotá llame sin costo'(+1,10,120)
+        Print 'algun telefono. 018000524066.' (+1,10,120)     
+        
+ !inicio modificación caso 4354 - jcr - 230409
+	 
+     Print 'Señor   cliente,   si  por  alguna  eventualidad,  usted(es)  se  traslada(n),  vende(n),  cierra(n) o permuta(n)  su  establecimiento de comercio,'                (+2,10)
+     Print 'es  su  responsabilidad  informar por escrito  al  Área de Cartera dicha novedad y confirmar  telefónicamente el recibido de su comunicación.'               (+1,10)
+     Print 'La  omisión  de  éste  requisito  le  podría  generar  inconvenientes  de  tipo  legal,  si no deja(n)  totalmente aclarados sus saldos en cartera,'                (+1,10)
+     Print 'tal como lo indica el Artículo 528 del Código de Comercio.'                                                                                             (+1,10)
+	 
+ !fin modificación caso 4354 - jcr - 230409
+    
+        Print 'Atentamente,'                                                                                               (+2,10) !bold
+        print $fFirma (+7,10) bold
+     end-if   
+   if $Tip_Ubi_Tmp   = '2'
+     if isblank($Business_Unit)
+        Print 'Por  consiguiente   le   solicitamos consignar   de  inmediato  en las siguientes cuentas: BANCOLOMBIA No.'(+4,10,120) 
+        Print '044900943-9,    DAVIVIENDA    No.      0081-0004331-7,     BCO.BOGOTA    No.   028-26049-5,  CONAVI    No.'(+1,10,120) 
+        Print '2038013877453. enviar via Fax 3649789. O acercarse a la CL. 10 No. 31A-42 Bogota.                       ' (+1,10,120)
+     else   
+     if $Business_Unit = 'DIBOG'
+        Print 'Por  consiguiente   le   solicitamos  consignar  de inmediato  en  las siguientes cuentas: BANCOLOMBIA No.'(+4,10,120) 
+        Print '044900943-9,    DAVIVIENDA    No.      0081-0004331-7,     BCO.BOGOTA     No. 028-26049-5.   '(+1,10,120) 
+     end-if
+     if $Business_Unit = 'DICAL'
+        Print 'Por  consiguiente   le  solicitamos  consignar  de  inmediato  en  las siguientes cuentas: BANCOLOMBIA No.'(+4,10,120)
+        Print '04490094309 Convenio 1163,  BCO. BOGOTA  No.  391057296, BANCAFE No.  12899009-0. ' (+1,10,120) 
+     end-if
+     if $Business_Unit = 'DIMED'
+        Print 'Por consiguiente    le   solicitamos  consignar  de  inmediato  en  las siguientes cuentas: GANADERO  No.'(+4,10,120) 
+        Print '55705471-5, BANCAFE  No.41499148-9  LAS  VILLAS  No. 506069855, BCO  BOGOTA No.43415994-3. ' (+1,10,120) 
+     end-if
+     if $Business_Unit = 'DIPAS'
+        Print 'Por consiguiente    le   solicitamos   consignar   de   inmediato  en  las siguientes cuentas:BANCOLOMBIA No.' (+4,10,120) 
+        Print '074900943-09, BCO. AGRARIO No.13030615010, BCO.GANADERO  No. 5570100054715.'       (+1,10,120) 
+     end-if
+     if $Business_Unit = 'MOTOS'
+        Print 'Por  consiguiente   le solicitamos  consignar  de inmediato  en  la  siguiente   cuenta   BANCOLOMBIA  No.'(+4,10,120) 
+        Print '002-255125-35. '            (+1,10,120) 
+     end-if
+     if $Business_Unit = 'ALBOY'
+           Print '                    CALLE 51  No  53 - 84  ALKOMPRAR Tel. 293.09.66  / 512.73.88                     '       (+2,1) !bold
+           Print '                               Fax 293.09.74  Medellin - Antioquia                                   '       (+1,1) !bold
+     end-if  
+     
+     if $Business_Unit <> 'ALBOY'
+	  	if $fFax <> ' ' 
+	  		let $dDatos = 'Enviar Fax'||' ' ||$fFax || '.'
+	  	end-if
+	     
+	  	let $dDatos =  $dDatos ||' ' ||'O acercarse a la' ||' ' ||$aAddress || ' '|| 'Tel' ||' '|| $pPhone
+	  
+	  	if $eExt1 <> ' '
+	     let $dDatos = $dDatos ||' '|| 'Ext' ||' '|| $eExt1
+	  	end-if
+	  	
+	  	let $dDatos = $dDatos ||'.'|| $cCity ||'.'
+	     
+	  	Print $dDatos (+1,10,120)
+   end-if
+     
+     
+   end-if
+       Print 'Toda    mora  en   la  cancelación  de las  facturas  genera   el  2%  de interés por  mora  mensual  sobre'(+2,10,120) 
+       Print 'el valor adeudado.    Recuerde que su pago oportuno le evitara  ser  reportado   en   las  Centrales   de'       (+1,10,120)
+       Print 'Riesgo y tramites juridicos que le generan un mayor costo.                                                     ' (+1,10,120) 
+       Print 'Cordial Saludo,'                                                                                                 (+2,10) !bold
+       print $fFirma (+7,10) bold
+   end-if   
+   if $Tip_Ubi_Tmp   = '3'  
+   alter-printer point-size=8 font=4
+   
+   if (70 - (#Imprir_lineas + 11)) <= 0
+      show 'Salto antes del parrafo largo: ' #Imprir_lineas
+        Let #Imprir_lineas = 1
+        Let #Num_Pag       = #Num_Pag + 1
+      new-page
+   end-if
+
+      let #Imprir_lineas = #Imprir_lineas + 2
+      Print 'Como ya se ha realizado el respectivo cobro, primero a traves de nuestro Asesor  Comercial y luego por el ' (#Imprir_lineas,10,120) 
+      let #Imprir_lineas = #Imprir_lineas + 1
+      Print 'Area de Cartera, nos vemos en la necesidad de iniciar el cobro juridico.                                  ' (#Imprir_lineas,10,120)
+      let #Imprir_lineas = #Imprir_lineas + 1
+      Print 'Ya se encuentra reseñado en TODAS las CENTRALES DE RIESGO Y DE INFORMACION ECONOMICA DEL PAIS, para evitar' (#Imprir_lineas,10,120)
+      let #Imprir_lineas = #Imprir_lineas + 1
+      Print 'gastos  innecesarios e  inconvenientes  de tipo jurídico  estamos  dándole cinco (5) días hábiles a partir' (#Imprir_lineas,10,120)
+      if isblank($Business_Unit)
+         let #Imprir_lineas = #Imprir_lineas + 1
+         Print 'de la fecha para la cancelación de la totalidad de su obligación, o  acercandose a  nuestras  oficinas '(#Imprir_lineas,10,120) 
+         let #Imprir_lineas = #Imprir_lineas + 1
+         Print 'ubicadas en la Calle 10 A No.31 - A 42.                                                                              '(#Imprir_lineas,10,120) 
+         let #Imprir_lineas = #Imprir_lineas + 1
+         Print 'O consignar en las siguientes cuentas BANCOLOMBIA No. 044900943-9,DAVIVIENDA No.0081-0004331-7              '(#Imprir_lineas,10,120)   
+         let #Imprir_lineas = #Imprir_lineas + 1
+         Print 'BCO BOGOTA  No. 028-26049-5    y  enviar  via Fax 3649789.'                           (#Imprir_lineas,10,120)    
+      else   
+         let #Imprir_lineas = #Imprir_lineas + 1
+         Print 'de la fecha para la cancelación de la totalidad de su obligación, acercandose a nuestras oficinas ubicadas'(#Imprir_lineas,10,120) 
+      	
+      	let $dDatos = 'en la'||' ' || $aAddress || ' '|| 'Tel' ||' '|| $pPhone
+			if $eExt1 <> ' '
+			   let $dDatos = $dDatos ||' '|| 'Ext' ||' '|| $eExt1
+			end-if
+			let $dDatos = $dDatos ||','|| $cCity ||'.'
+	let #Imprir_lineas = #Imprir_lineas + 1
+         Print $dDatos (#Imprir_lineas,10,120)
+         
+         
+         if $Business_Unit = 'DIBOG'
+           let #Imprir_lineas = #Imprir_lineas + 1
+           Print 'O consignar en las siguientes cuentas BANCOLOMBIA No. 044900943-9,DAVIVIENDA No.0081-0004331-7' (#Imprir_lineas,10,120)   
+            let #Imprir_lineas = #Imprir_lineas + 1
+            Print 'BCO BOGOTA  No. 028-26049-5  y  enviar  via Fax 3649789.'               (#Imprir_lineas,10,120)    
+         end-if
+         if $Business_Unit = 'DICAL'
+            let #Imprir_lineas = #Imprir_lineas + 1
+            Print 'O consignar en  las  siguientes cuentas BANCOLOMBIA No.04490094309 Convenio 1163, BCO. BOGOTA   No. 391057296'  (#Imprir_lineas,10)   
+			let #Imprir_lineas = #Imprir_lineas + 1
+            Print 'BANCAFE  No. 12899009-0   y  enviar  via Fax 6662698.'                                             (#Imprir_lineas,10)    
+         end-if    
+         if $Business_Unit = 'DIMED'
+            let #Imprir_lineas = #Imprir_lineas + 1
+            Print 'O  consignar en  las  siguientes cuentas  GANADERO No. 55705471-5,BANCAFE No. 41499148-9 LAS VILLAS'    (#Imprir_lineas,10)   
+            let #Imprir_lineas = #Imprir_lineas + 1
+            Print 'No.506069855, BCO BOGOTA No.43415994-3 , y enviar via Fax 379 3030.'    (+1,10)    
+         end-if        
+         if $Business_Unit = 'DIPAS'
+            let #Imprir_lineas = #Imprir_lineas + 1
+            Print 'O consignar  en  las  siguientes  cuentas  BANCOLOMBIA  No. 074900943-09,BCO.AGRARIO No.13030615010,'    (#Imprir_lineas,10)   
+         end-if    
+         if $Business_Unit = 'MOTOS'    
+            let #Imprir_lineas = #Imprir_lineas + 1
+            Print 'O consignar en las siguientes cuentas BANCOLOMBIA No. 002-255125-35 y  enviar  via Fax 3346241.' (#Imprir_lineas,10)   
+         end-if
+     end-if    
+     
+     if (70 - (#Imprir_lineas + 3)) <= 0
+        show 'Salto antes del parrafo corto: ' #Imprir_lineas
+         new-page
+        Let #Imprir_lineas = 1
+        Let #Num_Pag       = #Num_Pag + 1
+     end-if
+     
+         let #Imprir_lineas = #Imprir_lineas + 2
+         Print 'En caso de que la(s) factura(s) haya sido cancelada le solicitamos ENVIAR fotocopia del correspondiente '   (#Imprir_lineas,10,120)     
+         let #Imprir_lineas = #Imprir_lineas + 1 
+         Print 'recibo de pago.'   (#Imprir_lineas,10,120)    
+         
+ !inicio modificación caso 4354 - jcr - 230409
+	  
+     if (70 - (#Imprir_lineas + 5)) <= 0
+        show 'Salto antes del parrafo nuevo: ' #Imprir_lineas
+         new-page
+        Let #Imprir_lineas = 11
+        Let #Num_Pag       = #Num_Pag + 1
+     end-if  
+	  
+	  
+     let #Imprir_lineas = #Imprir_lineas + 2
+     Print 'Señor   cliente,   si  por  alguna  eventualidad,  usted(es)  se  traslada(n),  vende(n),  cierra(n) o permuta(n)  su  establecimiento de comercio,'                (#Imprir_lineas,10)
+     let #Imprir_lineas = #Imprir_lineas + 1
+     Print 'es  su  responsabilidad  informar por escrito  al  Área de Cartera dicha novedad y confirmar  telefónicamente el recibido de su comunicación.'               (#Imprir_lineas,10)
+     let #Imprir_lineas = #Imprir_lineas + 1
+     Print 'La  omisión  de  éste  requisito  le  podría  generar  inconvenientes  de  tipo  legal,  si no deja(n)  totalmente aclarados sus saldos en cartera,'                (#Imprir_lineas,10)
+     let #Imprir_lineas = #Imprir_lineas + 1
+     show 'Last line: ' #Imprir_lineas
+     Print 'tal como lo indica el Artículo 528 del Código de Comercio.'                                                                                             (#Imprir_lineas,10)
+	  
+ !fin modificación caso 4354 - jcr - 230409
+         
+         
+     if (70 - (#Imprir_lineas + 8)) <= 0
+	 new-page
+	Let #Imprir_lineas = 11
+        Let #Num_Pag       = #Num_Pag + 1
+     end-if
+       
+         let #Imprir_lineas = #Imprir_lineas + 2
+         Print 'Atentamente,'                                                                                                              (#Imprir_lineas,10) !bold
+!Inicio 002 CER 
+!         let #Imprir_lineas = #Imprir_lineas + 5
+         let #Imprir_lineas = #Imprir_lineas + 4
+!Fin 002 CER 
+         !<Inicio 006>
+         !Print 'CLARA CORTES RINCON'                                                                                                       (#Imprir_lineas,10) !bold
+         !let #Imprir_lineas = #Imprir_lineas + 1
+         !Print 'Abogada T.P. 69316'                                                                                      (#Imprir_lineas,10) !bold
+		 Print 'LISSETT LAVERDE CADAVID'                                                                                                       (#Imprir_lineas,10) !bold
+         let #Imprir_lineas = #Imprir_lineas + 1
+         Print 'Abogada T.P. 190937'                                                                                      (#Imprir_lineas,10) !bold
+		 !<Fin 006>
+   end-if  
+end-if    
+end-procedure   Impresion-InfFin-CarReg-Coodedor
+
+begin-procedure buscar-setid-team-code-un-supervisor
+SHOW 'buscar-setid-team-code-un-supervisor'
+begin-select
+SUPER.SETID
+
+   let $Setid_tbl = &SUPER.SETID
+   
+from  PS_SET_CNTRL_REC SUPER
+where SUPER.SETCNTRLVALUE = $business_unit
+and   SUPER.RECNAME       = 'TEAM_CODE_TBL'
+end-select
+SHOW '$Setid_tbl'  $Setid_tbl
+
+
+  do buscar-supervisor-zona-un-supervisor
+end-procedure   buscar-setid-team-code-un-supervisor
+
+begin-procedure buscar-supervisor-zona-un-supervisor
+show 'entro buscar-supervisor-zona-un-supervisor'
+let #contador_supervisor = 0
+begin-select 
+GT_SP.SUPPORT_TEAM_CD
+
+   let $Support_team_cd  = &GT_SP.SUPPORT_TEAM_CD
+   let #contador_supervisor = #contador_supervisor + 1
+   do  traer-codigo-supervisor-primero-un-supervisor
+   do  traer-codigo-vendedor-primero-un-supervisor
+   do  traer-nombre-supervisor-primero-un-supervisor
+   do  traer-nombre-vendedor-primero-un-supervisor
+   if  $Support_team_mbr = $Supervisor
+       Do  Grabar-Tabla-Supervis
+   end-if    
+   
+FROM PS_TEAM_CODE_TBL GT_SP
+WHERE GT_SP.SETID            = $Setid_tbl
+  AND GT_SP.EFFDT =
+      (SELECT MAX(A_EDP.EFFDT) FROM PS_TEAM_CODE_TBL A_EDP
+      WHERE GT_SP.SETID = A_EDP.SETID
+        AND GT_SP.SUPPORT_TEAM_CD = A_EDP.SUPPORT_TEAM_CD
+        AND A_EDP.EFFDT <= $Asoftoday)
+end-select
+show 'salio buscar-supervisor-zona-un-supervisor'
+end-procedure buscar-supervisor-zona-un-supervisor
+
+begin-procedure traer-codigo-supervisor-primero-un-supervisor
+let $Support_team_mbr = ' '
+begin-select 
+GT_PP.SUPPORT_TEAM_MBR
+
+   let $Support_team_mbr = &GT_PP.SUPPORT_TEAM_MBR
+       
+  FROM PS_TEAM_MEMBERS GT_PP
+  WHERE GT_PP.SETID            = $Setid_tbl
+    AND GT_PP.SUPPORT_TEAM_CD  = $Support_team_cd
+    AND GT_PP.SUPPORT_TEAM_MBR = $Supervisor
+    AND GT_PP.MANAGER = 'Y'
+    AND GT_PP.EFFDT =
+        (SELECT MAX(B_EDP.EFFDT) FROM PS_TEAM_MEMBERS B_EDP
+        WHERE GT_PP.SETID           = B_EDP.SETID
+          AND GT_PP.SUPPORT_TEAM_CD = B_EDP.SUPPORT_TEAM_CD
+          AND GT_PP.MANAGER         = B_EDP.MANAGER
+          AND B_EDP.EFFDT          <= $Asoftoday)
+end-select
+if  $Support_team_mbr = ' '
+   let $Support_team_mbr = '9999'
+end-if
+end-procedure traer-codigo-supervisor-primero-un-supervisor
+
+begin-procedure traer-codigo-vendedor-primero-un-supervisor
+let  $Sales_person = ' '
+begin-select 
+GT_HP.SUPPORT_TEAM_MBR
+
+   let $Sales_person = &GT_HP.SUPPORT_TEAM_MBR
+       
+  FROM PS_TEAM_MEMBERS GT_HP
+    WHERE GT_HP.SETID = $Setid_tbl
+      AND GT_HP.SUPPORT_TEAM_CD = $Support_team_cd
+      AND GT_HP.MANAGER = 'N' 
+      AND GT_HP.EFFDT =
+          (SELECT MAX(C_EDP.EFFDT) FROM PS_TEAM_MEMBERS C_EDP
+          WHERE GT_HP.SETID = C_EDP.SETID
+            AND GT_HP.SUPPORT_TEAM_CD = C_EDP.SUPPORT_TEAM_CD
+            AND GT_HP.MANAGER         = C_EDP.MANAGER
+            AND C_EDP.EFFDT          <= $Asoftoday)
+end-select
+if  $Sales_person = ' '
+   let $Sales_person = '8888'
+end-if
+end-procedure traer-codigo-vendedor-primero-un-supervisor
+
+begin-procedure traer-nombre-supervisor-primero-un-supervisor
+let $nombre_supervisor = ' '
+begin-select 
+GT_NP.NAME1
+
+   let $nombre_supervisor = &GT_NP.NAME1
+       
+FROM PS_SALES_PERSN_TBL GT_NP
+WHERE GT_NP.SETID        = $Setid_tbl
+  AND GT_NP.SALES_PERSON = $Support_team_mbr
+  AND GT_NP.EFFDT =
+       (SELECT MAX(D_EDP.EFFDT) FROM PS_SALES_PERSN_TBL D_EDP
+       WHERE GT_NP.SETID        = D_EDP.SETID
+         AND GT_NP.SALES_PERSON = D_EDP.SALES_PERSON
+         AND D_EDP.EFFDT       <= $Asoftoday)
+End-select
+end-procedure traer-nombre-supervisor-primero-un-supervisor
+
+begin-procedure traer-nombre-vendedor-primero-un-supervisor
+let $nombre_vendedor = ' '
+begin-select 
+GT_VP.NAME1
+
+  let $nombre_vendedor = &GT_VP.NAME1
+       
+FROM PS_SALES_PERSN_TBL GT_VP
+WHERE GT_VP.SETID = $Setid_tbl
+  AND GT_VP.SALES_PERSON = $Sales_person
+  AND GT_VP.EFFDT =
+       (SELECT MAX(E_EDP.EFFDT) FROM PS_SALES_PERSN_TBL E_EDP
+       WHERE GT_VP.SETID        = E_EDP.SETID
+         AND GT_VP.SALES_PERSON = E_EDP.SALES_PERSON
+         AND E_EDP.EFFDT <= $Asoftoday)
+End-select
+end-procedure  traer-nombre-vendedor-primero-un-supervisor
+
+begin-procedure Grabar-Tabla-Supervis
+SHOW 'ENTRO Grabar-Tabla-Supervis'
+SHOW '$Support_team_mbr'  $Support_team_mbr
+SHOW '$Support_team_cd'   $Support_team_cd
+SHOW  '$nombre_supervisor'  $nombre_supervisor
+SHOW '$Setid_tbl'   $Setid_tbl
+SHOW '$Process_Instance'   $Process_Instance
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CK_TMPSP_CARREC
+(SETID,
+SUPPORT_TEAM_MBR,
+ SUPPORT_TEAM_CD,
+ NAME3,
+ NAME4,
+ EFFDT,
+ CK_CONTADOR,
+ PROCESS_INSTANCE)
+VALUES
+($Setid_tbl,
+$Support_team_mbr,
+ $Support_team_cd,
+ $nombre_supervisor,
+ ' ', 
+ $Effdt_tb,
+ #contador_supervisor,
+ $Process_Instance) 
+end-sql
+SHOW 'SALIO Grabar-Tabla-Supervis'
+end-procedure Grabar-Tabla-Supervis
+
+Begin-procedure Buscar-Cliente-Cartas-Reclamacion-Uno-Supervisor
+show ' ENTRO Buscar-Cliente-Cartas-Reclamacion-Uno-Supervisor '
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = ' '
+show ' $UniNegCli     ' $UniNegCli
+show ' $DesHasCl_Uno  ' $DesHasCl_Uno
+Begin-select DISTINCT
+SPUNO.BUSINESS_UNIT,
+SPUNO.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(SPUNO.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &SPUNO.DIA_VEN_FAC
+
+  let $Uni_Neg_Sel = &SPUNO.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &SPUNO.CUST_ID
+  let #Dia_Ven_Sel = &SPUNO.DIA_VEN_FAC
+  show ' #Dia_Ven_Sel ' #Dia_Ven_Sel
+  if  #Dia_Ven_Sel > 30 and #Dia_Ven_Sel <= 60
+      let $Tip_Gen_Car = '1'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+     
+FROM PS_ITEM SPUNO, PS_CK_TMPSP_CARREC TMUNO
+WHERE SPUNO.ITEM_STATUS   = 'O'
+  [$UniNegSup_Uno]  
+  AND SPUNO.BAL_AMT > 0  
+  AND SPUNO.SUBCUST_QUAL1 = TMUNO.SUPPORT_TEAM_CD
+  AND TMUNO.PROCESS_INSTANCE = $Process_Instance
+GROUP BY SPUNO.BUSINESS_UNIT, SPUNO.CUST_ID  
+ORDER BY 3
+End-select
+End-procedure   Buscar-Cliente-Cartas-Reclamacion-Uno-Supervisor
+
+Begin-procedure Buscar-Cliente-Cartas-Reclamacion-Dos-Supervisor
+show ' ENTRO Buscar-Cliente-Cartas-Reclamacion-Dos-Supervisor '
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = ' '
+show ' $UniNegCli     ' $UniNegCli
+show ' $DesHasCl_Uno  ' $DesHasCl_Uno
+Begin-select DISTINCT
+SPDOS.BUSINESS_UNIT,
+SPDOS.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(SPDOS.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &SPDOS.DIA_VEN_FAC
+
+  let $Uni_Neg_Sel = &SPDOS.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &SPDOS.CUST_ID
+  let #Dia_Ven_Sel = &SPDOS.DIA_VEN_FAC
+  show ' #Dia_Ven_Sel ' #Dia_Ven_Sel
+  if  #Dia_Ven_Sel > 60 and #Dia_Ven_Sel <= 90
+      let $Tip_Gen_Car = '2'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+    
+FROM PS_ITEM SPDOS, PS_CK_TMPSP_CARREC TMDOS
+WHERE SPDOS.ITEM_STATUS   = 'O'
+  [$UniNegSup_Dos]  
+  AND SPDOS.BAL_AMT > 0  
+  AND SPDOS.SUBCUST_QUAL1 = TMDOS.SUPPORT_TEAM_CD
+  AND TMDOS.PROCESS_INSTANCE = $Process_Instance
+GROUP BY SPDOS.BUSINESS_UNIT, SPDOS.CUST_ID  
+ORDER BY 3
+End-select
+End-procedure   Buscar-Cliente-Cartas-Reclamacion-Dos-Supervisor
+
+Begin-procedure Buscar-Cliente-Cartas-Reclamacion-Tre-Supervisor
+show ' ENTRO Buscar-Cliente-Cartas-Reclamacion-Tre-Supervisor '
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = ' '
+show ' $UniNegCli     ' $UniNegCli
+show ' $DesHasCl_Uno  ' $DesHasCl_Uno
+show '$Process_Instance'  $Process_Instance
+Begin-select DISTINCT
+SPTRE.BUSINESS_UNIT,
+SPTRE.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(SPTRE.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &SPTRE.DIA_VEN_FAC
+
+  let $Uni_Neg_Sel = &SPTRE.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &SPTRE.CUST_ID
+  let #Dia_Ven_Sel = &SPTRE.DIA_VEN_FAC
+  show ' #Dia_Ven_Sel ' #Dia_Ven_Sel
+  if  #Dia_Ven_Sel > 91
+      let $Tip_Gen_Car = '3'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+    
+FROM PS_ITEM SPTRE, PS_CK_TMPSP_CARREC TMTRE
+WHERE SPTRE.ITEM_STATUS   = 'O'
+  [$UniNegSup_Tre]  
+  AND SPTRE.BAL_AMT > 0  
+  AND SPTRE.SUBCUST_QUAL1 = TMTRE.SUPPORT_TEAM_CD
+  AND TMTRE.PROCESS_INSTANCE = $Process_Instance
+GROUP BY SPTRE.BUSINESS_UNIT, SPTRE.CUST_ID  
+ORDER BY 3
+End-select
+End-procedure   Buscar-Cliente-Cartas-Reclamacion-Tre-Supervisor
+
+Begin-procedure Buscar-Cliente-Cartas-Reclamacion-Todas-Supervisor
+show ' ENTRO Buscar-Cliente-Cartas-Reclamacion-Todas-Supervisor '
+let $Uni_Neg_Sel = ' '
+let $Cod_Cli_Sel = ' '
+let #Dia_Ven_Sel = ' '
+let $Tip_Gen_Car = ' '
+show ' $UniNegSup_Tod ' $UniNegSup_Tod
+Begin-select DISTINCT
+SPTOD.BUSINESS_UNIT,
+SPTOD.CUST_ID,
+MAX(TO_DATE(SYSDATE) - TO_DATE(TO_CHAR(SPTOD.DUE_DT,'YYYY-MM-DD'),'YYYY-MM-DD'))  &SPTOD.DIA_VEN_FAC
+
+  let $Uni_Neg_Sel = &SPTOD.BUSINESS_UNIT
+  let $Cod_Cli_Sel = &SPTOD.CUST_ID
+  let #Dia_Ven_Sel = &SPTOD.DIA_VEN_FAC
+  show ' #Dia_Ven_Sel ' #Dia_Ven_Sel
+  if  #Dia_Ven_Sel > 30 and #Dia_Ven_Sel <= 60
+      let $Tip_Gen_Car = '1'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+  if  #Dia_Ven_Sel > 60 and #Dia_Ven_Sel <= 90
+      let $Tip_Gen_Car = '2'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+  if  #Dia_Ven_Sel > 91
+      let $Tip_Gen_Car = '3'
+      Do  Buscar-Datos-Personales-Cliente
+      Do  Buscar-Clientes-Facturas-Cartera 
+      let $Tip_Gen_Car = ' '
+  end-if
+    
+FROM PS_ITEM SPTOD, PS_CK_TMPSP_CARREC TMTOD
+WHERE SPTOD.ITEM_STATUS   = 'O'
+  [$UniNegSup_Tod]  
+  AND SPTOD.BAL_AMT > 0  
+  AND SPTOD.SUBCUST_QUAL1 = TMTOD.SUPPORT_TEAM_CD
+  AND TMTOD.PROCESS_INSTANCE = $Process_Instance
+GROUP BY SPTOD.BUSINESS_UNIT, SPTOD.CUST_ID  
+ORDER BY 3
+End-select
+show ' salio Buscar-Cliente-Cartas-Reclamacion-Todas-Supervisor '
+End-procedure   Buscar-Cliente-Cartas-Reclamacion-Todas-Supervisor
+
+!----------------------------------------------------------------------
+! Procedure: ImprimirLogos
+! Descr:                                                               
+!----------------------------------------------------------------------
+begin-procedure ImprimirLogos
+show 'Inicia ImprimirLogos'
+show '$Setid_tbl' $Setid_tbl
+show '$Business_Unit' $Business_Unit
+   if $Setid_tbl ='DISTR'
+	IF $Business_Unit = 'MOTOS'
+   	    LET $Direc= $URL || '/AKTLog.JPG'
+	    print-image (1,50) type = 'JPEG-FILE' source = $Direc image-size=(70,10)
+	END-IF
+   IF $Business_Unit = 'FOTON' OR $Business_Unit = 'FOMED'
+	    LET $Direc= $URL || '/FotonLog.JPG'
+	    print-image (1,50) type = 'JPEG-FILE' source = $Direc image-size=(50,8)
+	END-IF
+   IF $Business_Unit <> 'MOTOS' AND $Business_Unit <> 'FOTON' AND $Business_Unit <> 'FOMED'
+       
+	    LET $Direc= $URL || '/Reflog.JPG'
+	    show '$Direc' $Direc
+       print-image (1,50) type = 'JPEG-FILE' source = $Direc image-size=(70,10)
+   END-IF  
+   ELSE
+   IF $Business_Unit = 'ALBOY'
+     	    LET $Direc= $URL || '/Alkomp.JPG'
+		    print-image (1,50) type = 'JPEG-FILE' source = $Direc image-size=(70,10)
+   END-IF
+   IF $Business_Unit <> 'ALBOY'
+   		LET $Direc= $URL || '/ReAlog.JPG'
+        print-image (1,50) type = 'JPEG-FILE' source = $Direc image-size=(70,10)
+   END-IF    
+   END-IF 
+   
+   show 'Fin ImprimirLogos'
+end-procedure
+!-----------------------------------------------------------------------------------
+!Procedure: ImprimirLogos
+!-----------------------------------------------------------------------------------
+
+
+!***********************************************************************
+! Procedure: Borrar-Tabla-Temporal
+! Descripción: esta función se encarga de borrar los datos de la tabla 
+!              temporal utilizada para la busqueda de transacciones.
+!***********************************************************************
+Begin-Procedure Borrar-Tabla-Temporal
+SHOW ' Borrar-Tabla-Temporal '
+Begin-SQL On-Error=SQL-ERROR
+DELETE PS_CK_TMPCAT_RECLA
+End-SQL
+
+Begin-SQL On-Error=SQL-ERROR
+DELETE PS_CK_TMPSP_CARREC
+End-SQL
+
+End-Procedure   Borrar-Tabla-Temporal
+
+!***********************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Terminar-Proceso                                          !
+! Descr:                                                               !
+!----------------------------------------------------------------------!
+begin-procedure Reset
+  move 'Y' to $End_of_Report
+  if #MsgFlagW
+     print $MsgTextW (+2,1)
+  end-if
+end-procedure
+
+begin-procedure Terminar-Proceso
+    if #prcs_process_instance > 0
+       do Update-Prcs-Run-Status
+    end-if
+    let $stdhdg_end_rep = 'Fin de Reporte'
+    do Reset
+end-procedure
+
+!***********************************************************************
+!----------------------------------------------------------------------!
+! Llama procedimientos SQC                                             !
+!----------------------------------------------------------------------!
+#include 'prcsapi.sqc'   ! Update process Request API
+#include 'prcsdef.sqc'   ! Update Process Request variable declare
+#include 'eoj.sqc'       ! Ask Effective Date
+#include 'curdttim.sqc'  ! Get-Current-DateTime procedure
+#include 'datetime.sqc'  ! Routines for date and time formatting
+#include 'datemath.sqc'  ! Routines for date manipulation
+#include 'number.sqc'    ! Routines to format numbers
+#include 'readxlat.sqc'  ! Read Translate Table
+!#include 'reset.sqc'     ! End of program
+!***********************************************************************
