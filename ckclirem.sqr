@@ -1,0 +1,1937 @@
+!-----------------------------------------------------------------------
+! <Reporte|Proceso>: CKCLIREM.SQR - <Interface  - Clientes Colombiana >
+! Versiones: V<001> <11/10/2000>-<NL>
+!-----------------------------------------------------------------------
+! Desc Programa: Esta interfaze se encarga de crear los clientes que fue-
+!                ron incluidos en Colombiana de Comercio.
+!-----------------------------------------------------------------------
+! Parámetros: El parámetro de entrada es el Setid 
+!
+!------------------------------------------------------------------------
+! Tablas referenciadas:CUSTOMER
+!                      CUST_ADDR_SEQ
+!                      CUST_ADDRESS
+!                      LC_CUSTOMER_ID
+!                      CUST_REGN_TYPE
+!                      CUST_TEAM
+!-----------------------------------------------------------------------------------------------------------------------------------
+!***************************************************************************************************************!
+! Modificaciones							                       		       	!
+!---------------------------------------------------------------------------------------------------------------!
+! Proyecto	Ref	 	Fecha		Desarrollador	Descripcion					!
+!---------------------------------------------------------------------------------------------------------------!
+!7316		001		20/05/2011	    CER		    Se ajusta estructura para que tome datos geograficos del cliente   !
+!
+!7316		002		31/10/2011	    CAGC		Modificación Estructura archivo Proceso CK_CLIREM																	   !
+!12689		003		23/02/2016      RHD         INC - Correcciones a Terceros                   !
+!12731		004		23/06/2016      CCG         Corrección llave duplicada tabla PS_CK_TERC_PSL_TBL                !
+!15658		007		17/06/2021      DMR         Se agrega el campos GENERIC_FLAG en el insert de la tabla PS_CK_TERC_PSL_TBL !
+!16003		008		30/09/2021      CCG         Adicion de logica para insertar en tablas de Terceros y de Repositorio
+!15444		009		07/02/2022      JAS         Llamado a la función Validar_CustId para validar tipos de identificación.
+!16262      010     20/04/2022      JAS         Creación de terceros y repositorio de terceros                           
+!***************************************************************************************************************!
+ 
+! Realiza los include necesarios
+#include 'setenv.sqc'           ! Incializa el entorno
+#Include 'setup01.sqc'  	! Printer and page-size initialization 
+
+begin-report
+  do Init-DateTime
+  do Init-Number
+  do Init-Report
+  do Process-Main
+  do Terminate
+  if $estado_final = 'error'       
+     do actualizar-requerimiento
+  end-if
+  
+end-report
+
+begin-heading 6
+  !#Include 'stdhdgint01.sqc'
+end-heading
+
+begin-procedure Init-Report
+  move 'Interf_Clientes' to $ReportTitle
+  display $ReportTitle
+
+  Do Define-Prcs-Vars
+  Do Get-Run-Control-Parms
+
+  if $prcs_process_instance = ''
+  else
+    Do Select-Parameters
+  end-if
+end-procedure
+
+!-----------------------------------------------------------------------
+! Ingreso de parámetros desde el panel correspondiente => CK_INTCLI_PNL
+!-----------------------------------------------------------------------
+begin-procedure Select-Parameters
+begin-select on-error=sql-error
+run_cntl_in.oprid
+run_cntl_in.language_cd
+run_cntl_in.file_name
+run_cntl_in.business_unit
+run_cntl_in.wip_loc_flg
+
+    let $oprid		= &run_cntl_in.oprid
+    let $lenguaje 	= &run_cntl_in.language_cd
+    let $file_name      = rtrim(&run_cntl_in.file_name,' ')
+    DISPLAY $file_name 
+   
+from ps_run_cntl_in run_cntl_in
+where run_cntl_in.oprid       = $prcs_oprid
+  and run_cntl_in.run_cntl_id = $prcs_run_cntl_id
+end-select
+
+!Inicia Modificación 04/06/2007 RA
+!Valida que el proceso tome la ruta correcta
+begin-select
+A.URL
+
+   let $Ruta = &A.URL
+
+FROM PSURLDEFNLANG A, PSOPRDEFN B
+WHERE A.URL_ID = 'AR_INT_ALK_IMPORT'
+  AND A.LANGUAGE_CD = B.LANGUAGE_CD
+  AND B.OPRID       = $prcs_oprid
+end-select
+
+IF ISBLANK($Ruta)
+begin-select
+C.URL
+
+   let $Ruta = &C.URL
+
+FROM PSURLDEFN C
+WHERE C.URL_ID = 'AR_INT_ALK_IMPORT'
+end-select
+!Fin Modificación 04/06/2007 RA
+END-IF
+
+end-procedure Select-Parameters
+
+!-----------------------------------------------------------------------
+! Proceso del programa
+!-----------------------------------------------------------------------
+begin-procedure PROCESS-MAIN
+  do OPEN-ARCHIVO
+ 
+  let $Prcs_Instance = $prcs_process_instance
+  let #Secuencia     = 0
+  let $JobId         = ' '
+  let $NomPrograma   = 'CKCLIREM'
+
+  do PROCESAR-ARCHIVO
+  !do GRABAR-ARCHIVO-CONTROL
+  close 1	
+end-procedure PROCESS-MAIN
+
+
+!-----------------------------------------------------------------------
+! Lectura del archivo plano correspondiente
+!-----------------------------------------------------------------------
+begin-procedure OPEN-ARCHIVO
+   let $lenguaje  = 'ESP'
+   !inicia Modificación 04/06/2007 RA
+   !Se comenta para que tome el valor de la URL
+   !let $nomfile='P:\Temporal\Datos Diarios Cartera\' || $file_name
+   let $nomfile= $Ruta || $file_name
+   !Fin modificación 04/06/2007 RA
+   !let $nomfile='/data/work/people/input/' || $file_name
+   !let $filename = CLI<AAAAMMDD>_ALKOS.POS
+   !let $nomfile = 'C:\' || $file_name
+   display $nomfile
+   let #numfile=1
+   open $nomfile as #numfile
+   for-reading
+   record=257:vary
+   STATUS=#open-status
+   if #open-status=-1
+      DISPLAY 'NO PUDO ABRIR EL ARCHIVO'
+      stop quiet
+   end-if
+end-procedure OPEN-ARCHIVO
+
+
+!-----------------------------------------------------------------------
+! Proceso del archivo, lectura y desarrollo de rutinas en las que se 
+! insertan los datos en las respectivas tablas.
+!-----------------------------------------------------------------------
+begin-procedure PROCESAR-ARCHIVO
+show 'entro procesar archivo'
+let #tot-rows    = 0
+let #cnt-rows    = 0
+let #no-tot-rows = 0
+let #tot_leido   = 0
+let #cnt_error   = 0
+let #sw_descuadre  = 0
+let $estado_final  = ' '
+
+while #open-status <> -1
+! Inicio 001 - CER - 20-05-2011
+!     read 1 into  $Setid:5			 
+!     		  $Cust_id:15			 
+!     		  $Tipo_ident:1
+!     		  $Tipo_Per:1
+!     		  !$Cust_status:1
+!                  !$Fecha_Cre:10
+!                  $Name1:40
+!                  $address1:40
+!		  $address2:40            
+!		  $phone,           
+!		  $country,            
+!		  $state,
+!		  $city,
+!         	  $Ind_Error:1
+     read 1 into  $Setid:5			 
+     		  $Cust_id:15			 
+                  $Fecha_Cre:10
+                  $efft_status:1
+                  $Tipo_ident:1
+                  $Tipo_Per:1
+                  $Name1:50
+                  $Address1:55
+                  $Address2:55
+                  $phone:24
+                  $country:3
+                  $state:6
+                  $city:30
+                  $ck_obliga_rut:1
+! Fin 001 - CER - 20-05-2011
+
+
+!If $Cust_id <> ''
+     if #end-file
+         break
+     else
+! Inicio 001 - CER - 20-05-2011
+
+
+
+	! AJUSTES MEDIOS MAGNETICOS EAS 16/06/2010 INICIO
+
+	Let $DigitoVerificacion = ' '
+	Let $PrimerNombre = ' '
+	Let $SegundoNombre = ' '
+	Let $PrimerApellido = ' '
+	Let $SegundoApellido = ' '
+	Let $Nombre1 = ' '
+	Let $Nombre2 = ' '
+	
+	! Por defecto asigna tipo de persona Natural
+	Let $TipoPersona = 'N'
+	! Si el tipo de documento es NIT obtiene el digito de verificacion y el nombre 1
+	
+        Let $Cust_id = LTrim($Cust_id,' ')
+	Let $Cust_id = RTrim($Cust_id,' ')
+	
+	! Inicio 009
+begin-select
+Validar_CustId.Logica_Validacion($Cust_id,$Tipo_ident) &Validacion
+	let $Val_Descripcion = &Validacion
+FROM DUAL
+end-select
+ 
+    if  $Val_Descripcion <> ''
+   		show $Val_Descripcion ' $Cust_id: ' $Cust_id ' - $Tipo_ident: ' $Tipo_ident
+    else
+	! Fin 009
+
+begin-select ON-ERROR=SQL-ERROR
+SETIDAAAA.SETID
+
+  let $setIdTercero = &SETIDAAAA.SETID
+
+FROM PS_SET_CNTRL_REC SETIDAAAA
+WHERE SETIDAAAA.RECNAME = 'LC_RPOS_TERC_HD'
+  AND SETIDAAAA.SETCNTRLVALUE = $Setid
+End-Select
+
+        ! Si existe el tercero para este cliente entonces trae el id del tercero de lo contrario establecer el Id de tercero que debe quedar.
+        !Inicio 008
+	Let $modOrig ='GL'
+	let $quote = chr(39)
+        let $WhereSetid1 = $WhereSetid1 || ' AND TL.CK_SETID_TERCERO = ' ||$quote||$Setid||$quote
+	let $WhereSetid1 = $WhereSetid1 || ' AND TL.CUST_ID = ' ||$quote||$Cust_id||$quote             
+        Do ExisteTerceroLinea($setIdTercero, $Setid, $Cust_id, $modOrig, $Tipo_ident, $ExisteTerceroLinea, $IdTercero, $ckCodOrigen,$WhereSetid1)
+        !Fin 008
+
+        ! Verifica si el tipo de identificaciòn requiere digito de verificaciòn en cuyo caso lo quita del nit
+        DO reqDigitoVerificacion($Tipo_ident, $RequiereDigito)
+  
+        If $RequiereDigito = 'Y'
+  
+           let #lengthNit = length($Cust_id)
+           let $DigitoVerificacion = substr($Cust_id, #lengthNit,  1 )
+  
+        Else
+  
+          let $DigitoVerificacion = ' '
+   
+        End-If
+	
+	Do EncontrarTipoPersona($Tipo_ident, $TipoPersona)
+	
+	If $TipoPersona = 'J'
+
+		Let $Nombre1 = $Name1
+	Else
+	
+	        Unstring $Name1 By ' ' Into $PrimerApellido $SegundoApellido $PrimerNombre $SegundoNombre $CVar1 $CVar2 $CVar3 $CVar4
+		Let $SegundoNombre = $SegundoNombre || $CVar1 || $CVar2 || $CVar3 || $CVar4
+		
+		If isblank($PrimerNombre) 
+		
+		   let $PrimerNombre = $SegundoApellido 
+		   let $SegundoApellido = ' '
+		
+		End-if
+	
+	End-if
+
+
+
+	Show '$DigitoVerificacion ' $DigitoVerificacion
+	Show '$$IdTercero ' $IdTercero
+	
+
+	If $PrimerApellido = '' 
+		Let $primerApellido = ' '
+	End-if
+	If $SegundoApellido = ''
+		Let $segundoApellido = ' '
+	End-if
+	If $PrimerNombre = ''
+		Let $primerNombre = ' '
+	End-if
+	If $SegundoNombre = ''
+		Let $segundoNombre = ' '
+	End-if
+
+	! AJUSTES MEDIOS MAGNETICOS EAS 16/06/2010 FIN
+
+
+
+     let #dtu_yr = to_number(substr($Fecha_Cre,1,4))
+     let #dtu_mo = to_number(substr($Fecha_Cre,6,2))
+     let #dtu_da = to_number(substr($Fecha_Cre,9,2)) 
+     
+     show '$Cust_id: ' $Cust_id ' - $Fecha_Cre'  $Fecha_Cre
+     
+     do dtu-format-date(#dtu_yr, #dtu_mo, #dtu_da, $dtu_fecha)
+     show '$dtu_fecha'  $dtu_fecha
+
+     do Convert-From-DTU-Date($dtu_fecha, $fecha_out)
+
+     let $fecha_out = upper($fecha_out)
+
+     show '$fecha_out'  $fecha_out
+
+
+!		!Se trae esta parte de codigo que esta en el procedure de Georeferenciar_direccion para quitar espacios en las variables
+		let $address1	   	=   nvl( rtrim (ltrim ($address1	,' '),' '),' ')		
+		let $address2	   	=   nvl( rtrim (ltrim ($address2	,' '),' '),' ')		
+		let $phone		=   nvl( rtrim (ltrim ($phone		,' '),' '),' ')	
+		let $country	        =   nvl( rtrim (ltrim ($country		,' '),' '),' ')		
+		let $state		=   nvl( rtrim (ltrim ($state		,' '),' '),' ')			
+		let $city		=   nvl( rtrim (ltrim ($city		,' '),' '),' ')			
+		
+		!Inicio 008	
+		!Inicio 010 - Se comenta
+		!Let $modOrig ='AR'
+		!Fin 010
+		 
+		Do buscarSetidTerceros($Setid, $setidTercero)
+		!Inicio 010 - Se comenta
+		!Do InsertaDatosTercerosMediosMagneticos
+		!Fin 010
+
+
+               ! Inicio 001 - CER - 20-05-2011
+	       Do Georeferenciar_direccion
+
+	
+	let $effDt = ''
+                ! Fin 001 - CER - 20-05-2011
+
+
+		!Fin 004          
+	   !Si es de Datafonos debe insertar en Reposotorio GL y Tablas de Terceros 
+		!Inicio 010 - se comenta
+		!If $Setid = 'DISTR'
+		!Fin 010
+           Let $modOrig ='GL' 
+           Do InsertaDatosTercerosMediosMagneticos	
+           Do Buscar-Existe-Cliente-Tercero
+	   If #Exi_Cli_Ter_Psl = 0
+              Do Insertar-Cliente-Tercero
+           else
+             Do Actualizar-Indicar-Rut      
+           end-if
+           Do existeNombreTercero($setidTercero, $Cust_id, $fecha_out, $existe)
+		   !Inicio 010
+		   If $TipoPersona = 'N'
+			 Let $nameTerc = ' '
+		   Else
+			 Let $nameTerc = $Name1
+		   End-If
+		   !Fin 010
+           If $existe = 'Y'
+			 !Inicio 010
+             Do ActualizarNombreTercero($setidTercero, $Cust_id, $fecha_out, $nameTerc, $primerApellido, $segundoApellido, $primerNombre, $segundoNombre )
+			 !Fin 010
+           Else
+			 !Inicio 010
+             Do Insertar-Nombre-Tercero($setidTercero, $Cust_id, $fecha_out, $nameTerc, $primerApellido, $segundoApellido, $primerNombre, $segundoNombre )
+			 !Fin 010
+           End-If
+           
+           Do existeDireccionTercero($setidTercero, $Cust_id, $fecha_out, $existe)
+           
+           If $existe = 'Y'
+			  !Inicio 010
+              Do ActualizarDireccionTercero( $setidTercero, $Cust_id, $fecha_out, $address1, $address2, $phone, 'COL', $state, $city  )
+			  !Fin 010
+           Else
+		      !Inicio 010
+              Do InsertarDireccionTercero($setidTercero, $Cust_id, $fecha_out, $address1, $address2, $phone, 'COL', $state, $city )
+			  !Fin 010
+           End-If
+		!Inicio 004       
+        !end-if  
+		!Fin 004 
+        !Do InsertaDatosTercerosMediosMagneticos
+		!Inicio 010 - se comenta
+		!End-if
+		!Fin 010
+     end-if
+	 ! Inicio 009
+	 end-if
+	 ! Fin 009
+!end-if
+ end-while 
+ if #sw_descuadre = 1 
+    let $estado_final = 'error'
+ else
+    let $estado_final = 'ok'       
+ end-if
+ show 'salio Procesar archivo'
+end-procedure PROCESAR-ARCHIVO
+
+begin-procedure buscarSetidTerceros($setid, :$setidTercero) 
+
+  ! Inicialización de variables
+  let $setidTercero = ' '
+
+BEGIN-SELECT ON-ERROR=SQL-ERROR
+SETID
+
+   let $setidTercero = &SETID
+
+FROM PS_SET_CNTRL_REC
+WHERE RECNAME = 'CK_TERC_PSL_TBL'
+  AND SETCNTRLVALUE = $setid
+END-SELECT
+
+end-procedure
+
+begin-procedure Buscar-Existe-Cliente-Tercero
+
+
+let #Exi_Cli_Ter_Psl = 0
+let $Setid_Pln       = ' '
+let $Terce_Pln       = ' '
+begin-select
+VET.SETID, 
+VET.LC_TERCERO
+
+   let $Setid_Pln       = &VET.SETID
+   let $Terce_Pln       = &VET.LC_TERCERO
+   let #Exi_Cli_Ter_Psl = 1
+
+FROM PS_CK_TERC_PSL_TBL VET
+WHERE VET.SETID      = $setidTercero
+  AND VET.LC_TERCERO = $Cust_id
+  !AND VET.EFFDT = (SELECT MAX(A_ED.EFFDT) 
+  !                   FROM PS_CK_TERC_PSL_TBL A_ED
+  !                  WHERE VET.SETID = A_ED.SETID
+  !                    AND VET.LC_TERCERO = A_ED.LC_TERCERO
+  !	              AND A_ED.EFFDT <= SYSDATE)
+  AND EFFDT = TO_DATE($fecha_out,'DD/MM/YYYY')
+  
+end-select
+
+end-procedure  Buscar-Existe-Cliente-Tercero
+
+!29832471
+
+Begin-Procedure existeNombreTercero($setidTercero, $lcTercero, $fecha_out, :$existe)
+
+  ! Inicializaciòn de variables
+  let $existe ='N'
+
+BEGIN-SELECT ON-ERROR=SQL-ERROR
+'Existe existeNombreTercero'
+   
+   let $existe ='Y'
+
+FROM PS_CK_TERC_NAM_TBL
+WHERE SETID = $setidTercero
+  AND LC_TERCERO = $lcTercero
+  !CAGC INICIO 001
+  !AND EFFDT = TO_DATE($effDt,'YYYY-MM-DD')
+  AND EFFDT = TO_DATE($fecha_out,'DD/MM/YYYY')
+  !CAGC FIN 001
+END-SELECT
+
+End-Procedure
+
+
+Begin-Procedure existeDireccionTercero($setidTercero, $lcTercero, $fecha_out, :$existe)
+
+  ! Inicializaciòn de variables
+  let $existe ='N'
+
+BEGIN-SELECT ON-ERROR=SQL-ERROR
+'Existe existeDireccionTercero'
+   
+   let $existe ='Y'
+
+FROM PS_CK_TERC_DIR_TBL
+!CAGC INICIO 001
+WHERE SETID = $setidTercero
+!WHERE SETID = $setid
+!CAGC FIN 001
+  AND LC_TERCERO = $lcTercero
+  !CAGC INICIO 001
+  !AND EFFDT = TO_DATE($effDt,'YYYY-MM-DD')
+  AND EFFDT = TO_DATE($fecha_out,'DD/MM/YYYY')
+  !CAGC FIN 001
+END-SELECT
+
+End-Procedure
+
+
+! Inicio 001 - CER - 20-05-2011
+!-----------------------------------------------------------------------
+! Buscar tipo o canal del cliente
+!-----------------------------------------------------------------------
+Begin-procedure Buscar-Canal-Cliente
+
+begin-select
+CUSTTYPE.CUSTOMER_TYPE
+	Let $CanalClte = &CUSTTYPE.CUSTOMER_TYPE 
+FROM PS_CUSTOMER CUSTTYPE
+WHERE CUSTTYPE.SETID = $Set_Id
+AND CUSTTYPE.CUST_ID = $Cust_id
+end-select
+
+end-procedure Buscar-Canal-Cliente
+! Fin 001 - CER - 20-05-2011
+
+
+! Inicio 001 - CER - 20-05-2011
+!-----------------------------------------------------------------------
+! Buscar tipo o canal del cliente
+!-----------------------------------------------------------------------
+Begin-procedure Verificar-Datos-Clientes-Existen
+
+do VERIFICAR-STATE
+do VERIFICAR-CITY
+
+end-procedure Verificar-Datos-Clientes-Existen
+! Fin 001 - CER - 20-05-2011
+
+
+
+! Inicio 001 - CER - 20-05-2011
+!-----------------------------------------------------------------------
+! Verificar estado clte
+!-----------------------------------------------------------------------
+begin-procedure VERIFICAR-STATE
+show ' entro  VERIFICAR-STATE '
+show ' $state ' $state
+let $ind_state = 'N'
+begin-select
+'Y' 
+  let $ind_state = 'Y'
+
+from ps_state_tbl state
+where state.country = 'COL'
+  and state.state   = $state
+end-select
+show ' salio  VERIFICAR-STATE '
+show ' $ind_state ' $ind_state
+If $ind_state = 'N'
+  
+   let #Secuencia    = #Secuencia + 1
+   let #message_seq  = #message_seq + 1   
+   let #NbrSet       = 21000
+   let #Nbr          = 11
+   Do  Insertar_Mensaje
+              
+   let #ParamSecuencia = 1
+   let $Parametro      = $state
+   Do Insertar_Parametro_mensaje
+   
+   let #ParamSecuencia = 2
+   let $Parametro      = $cust_id
+   Do Insertar_Parametro_mensaje
+             
+  let #sw_descuadre   = 1
+end-if   
+end-procedure VERIFICAR-STATE
+! Fin 001 - CER - 20-05-2011
+
+
+! Inicio 001 - CER - 20-05-2011
+!-----------------------------------------------------------------------
+! Verificar ciudad clte
+!-----------------------------------------------------------------------
+begin-procedure VERIFICAR-CITY
+let $ind_city = 'N'
+show ' $city ' $city
+
+begin-select
+'Z'
+ let $ind_city = 'Y'
+
+from ps_muni_tbl_ho  muni
+where muni.muni_fld_ho = $city
+end-select
+If $ind_city = 'N'
+  
+   let #Secuencia    = #Secuencia + 1
+   let #message_seq  = #message_seq + 1   
+   let #NbrSet       = 21000
+   let #Nbr          = 12
+   Do  Insertar_Mensaje
+              
+   let #ParamSecuencia = 1
+   let $Parametro      = $city
+   Do Insertar_Parametro_mensaje
+   
+   let #ParamSecuencia = 2
+   let $Parametro      = $cust_id
+   Do Insertar_Parametro_mensaje
+             
+  let #sw_descuadre   = 1
+end-if   
+end-procedure VERIFICAR-CITY
+! Fin 001 - CER - 20-05-2011
+
+
+! Inicio 001 - CER - 20-05-2011
+!-----------------------------------------------------------------------
+! Valida si municipio existe
+!-----------------------------------------------------------------------
+begin-procedure Valida-Municipio-Existe
+let $CITY_GEO = ' '
+let #find-geocity = 0
+begin-select
+VME.CK_CODIGO_GEOREF 
+
+  let #find-geocity = 1
+  let $CITY_GEO = &VME.CK_CODIGO_GEOREF
+
+FROM PS_MUNI_TBL_HO VME 
+WHERE VME.MUNI_FLD_HO = $City
+AND VME.CK_CODIGO_GEOREF <> ' '
+end-select
+end-procedure   Valida-Municipio-Existe 
+! Fin 001 - CER - 20-05-2011
+
+
+! Inicio 001 - CER - 20-05-2011
+!-----------------------------------------------------------------------
+! Georeferenciar direccion 
+!-----------------------------------------------------------------------
+begin-procedure Buscar-Max-Seq-Ck-Address-Geo
+SHOW ' Buscar-Max-Seq-Ck-Address-Geo ' 
+
+Let #Seq_Dir_Cli = 0
+let #Exi_Dic_Geo = 0
+  
+begin-select
+BEDG.CUST_ID 
+
+  Let $Enc_Cli_Geo = &BEDG.CUST_ID
+  Let #Exi_Dic_Geo = 1
+
+FROM PS_CK_ADDRESS_GEO BEDG
+where BEDG.SETID           = $Setid
+  and BEDG.CUST_ID         = $cust_id
+  and BEDG.ADDRESS_SEQ_NUM = #Seq_Dir_Cli 
+  AND BEDG.EFFDT   = (SELECT MAX(A_ED_ELC.EFFDT) FROM PS_CK_ADDRESS_GEO A_ED_ELC
+                    WHERE BEDG.SETID           = A_ED_ELC.SETID
+                      AND BEDG.CUST_ID         = A_ED_ELC.CUST_ID
+                      AND BEDG.ADDRESS_SEQ_NUM = A_ED_ELC.ADDRESS_SEQ_NUM
+                      AND A_ED_ELC.EFFDT     <= SYSDATE)
+end-select
+
+end-procedure   Buscar-Max-Seq-Ck-Address-Geo
+! Fin 001 - CER - 20-05-2011
+
+
+! Inicio 001 - CER - 20-05-2011
+!-----------------------------------------------------------------------
+! Georeferenciar direccion cliente tercero
+!-----------------------------------------------------------------------
+begin-procedure Insertar-Registro-Tabla-Ck-Address-Geo
+show  ' Entro Insertar-Registro-Tabla-Ck-Address-Geo '
+let   $Address1 = ltrim ($Address1,' ')
+let   $City     = ltrim ($City,' ')
+show ' $Setid           ' $Setid
+show ' $Cust_id         ' $Cust_id
+SHOW ' $City            ' $City
+show ' $Address1        ' $Address1 
+show ' $fecha_out       ' $fecha_out
+show ' $Canal           ' $Canal
+show ' $address_seq_num ' $address_seq_num
+show '#Seq_Dir_Cli '#Seq_Dir_Cli
+
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CK_ADDRESS_GEO
+(SETID,                  
+CUST_ID,                
+ADDRESS_SEQ_NUM,        
+EFFDT,                  
+ADDRESS1,               
+ADDRESS2,               
+CITY,                   
+CUSTOMER_TYPE,          
+CK_ADDRESS1GEO,         
+CK_ADDRESS2GEO, 
+CK_DIRECCION_ALTER,
+PHONE_NUM,
+CK_FUENTE,
+CK_BARRIO,              
+CK_CX,                  
+CK_CY,                  
+CK_LOCALIDAD,           
+CK_ESTADO_GEO,          
+CK_FECHA_GEO)
+VALUES
+($Setid,
+ $Cust_id,
+ #Seq_Dir_Cli,
+ TO_DATE($fecha_out,'DD-MM-YYYY'), 
+ REPLACE($Address1,'|'),
+ ' ',
+ $City,
+ $Canal,
+ ' ',
+ ' ',
+ ' ',
+ ' ',
+ ' ',
+ ' ',
+ 0,
+ 0,
+ ' ',
+ ' ',
+ '')
+end-sql
+show  ' Salio Insertar-Registro-Tabla-Ck-Address-Geo '
+end-procedure   Insertar-Registro-Tabla-Ck-Address-Geo
+! Fin 001 - CER - 20-05-2011
+
+
+! Inicio 001 - CER - 20-05-2011
+!-----------------------------------------------------------------------
+! Actualiza Reg direccion PS_CK_ADDRESS_GEO
+!-----------------------------------------------------------------------
+begin-procedure Update-Registro-Tabla-Ck-Address-Geo
+begin-sql ON-ERROR=SQL-ERROR
+update PS_CK_ADDRESS_GEO 
+SET ADDRESS1 = REPLACE($Address1,'|'),
+    ADDRESS2 = ' ', 
+    CITY     = $City,
+    CUSTOMER_TYPE = $Canal    
+where SETID           = $Setid
+  and CUST_ID         = $cust_id
+  and ADDRESS_SEQ_NUM = #Seq_Dir_Cli
+  and EFFDT           = TO_DATE($fecha_out,'DD-MM-YYYY')
+end-sql
+end-procedure   Update-Registro-Tabla-Ck-Address-Geo
+! Fin 001 - CER - 20-05-2011
+
+
+! Inicio 001 - CER - 20-05-2011
+!-----------------------------------------------------------------------
+! Busca campos tabla Ck-Address-Geo
+!-----------------------------------------------------------------------
+begin-procedure Buscar-Campos-Tabla-Ck-Address-Geo
+
+let $Ck_Estado_Geo = ' '
+let $Ck_Addre1_Geo = ' '
+let $Ck_Addre2_Geo = ' '
+let $Ck_Barrio_Geo = ' ' 
+show ' '
+show ' '
+begin-select
+BAD.CK_ESTADO_GEO,
+BAD.CK_ADDRESS1GEO,
+BAD.CK_ADDRESS2GEO,
+BAD.CK_BARRIO 
+
+  let $Ck_Estado_Geo = &BAD.CK_ESTADO_GEO
+  let $Ck_Addre1_Geo = &BAD.CK_ADDRESS1GEO
+  let $Ck_Addre2_Geo = &BAD.CK_ADDRESS2GEO
+  let $Ck_Barrio_Geo = &BAD.CK_BARRIO
+  
+  show ' encontro algo en esta tabla ** ** '
+  show ' $Ck_Estado_Geo ' $Ck_Estado_Geo
+  
+    show '--------RESULTADO GEOREFERENCIACION INICIO----------'
+    show '$Setid ' $Setid
+    show '$Cust_id ' $Cust_id 
+    show '#Seq_Dir_Cli ' #Seq_Dir_Cli
+    show '$fecha_out ' $fecha_out
+    show '$Ck_Estado_Geo ' $Ck_Estado_Geo
+    show '$Ck_Addre1_Geo ' $Ck_Addre1_Geo
+    show '$Ck_Addre2_Geo ' $Ck_Addre2_Geo
+    show '$Ck_Barrio_Geo ' $Ck_Barrio_Geo
+    show '--------RESULTADO GEOREFERENCIACION FIN----------'
+
+
+FROM PS_CK_ADDRESS_GEO BAD
+where BAD.SETID           = $Setid 
+  and BAD.CUST_ID         = $Cust_id 
+  and BAD.ADDRESS_SEQ_NUM = #Seq_Dir_Cli 
+  and BAD.EFFDT           = TO_DATE($fecha_out,'DD-MM-YYYY')
+end-select
+
+end-procedure   Buscar-Campos-Tabla-Ck-Address-Geo
+! Fin 001 - CER - 20-05-2011
+
+
+
+! Inicio 001 - CER - 20-05-2011
+!-----------------------------------------------------------------------
+! Georeferenciar direccion cliente tercero
+!-----------------------------------------------------------------------
+Begin-procedure Georeferenciar_direccion
+
+Let $CanalClte = ' '
+
+Do Buscar-Canal-Cliente
+
+If $CanalClte <> ' '
+	Do Verificar-Datos-Clientes-Existen
+	If $ind_state  = 'N' or $ind_city   = 'N' 
+		show '* * El campo state y city creados para el cliente no coinciden con las información parametrizada * * ' $Cust_id
+!		let #cnt_error = #cnt_error + 1
+	Else
+       		Do Valida-Municipio-Existe
+       		If #find-geocity = 1 
+       		
+			Do Buscar-Max-Seq-Ck-Address-Geo
+			
+			If #Exi_Dic_Geo = 0
+				Do Insertar-Registro-Tabla-Ck-Address-Geo
+			Else
+				Do Update-Registro-Tabla-Ck-Address-Geo
+			End-if
+			
+			Do Buscar-Campos-Tabla-Ck-Address-Geo
+			
+			If $Ck_Estado_Geo = 'E' or $Ck_Estado_Geo = 'F' or $Ck_Estado_Geo = ' '
+				show '* * Dirección ingresada no pudo ser geo-refenciada * *' $Cust_id
+			Else
+				If isblank($Ck_Addre1_Geo)
+					show ' Valor en blanco $Ck_Addre1_Geo ' $Ck_Addre1_Geo
+				else
+					let $Address1 = $Ck_Addre1_Geo
+				end-if   
+! Inicio 001 - CER - 20-05-2011
+!				If isblank($Ck_Addre2_Geo)
+!					show ' Valor en blanco $Ck_Addre1_Geo ' $Ck_Addre1_Geo
+!				Else
+!				   let $Address2 = $Ck_Addre2_Geo              
+!				End-if
+! Fin 001 - CER - 20-05-2011
+			End-if
+		Else
+			show '* * Municipio no existe - La dirección no pudo ser georreferenciada * * ' $Cust_id
+       		End-If
+	End-If
+Else
+	show '* * Clte no existe en PS - La dirección no pudo ser georreferenciada * * ' $Cust_id
+
+End-If
+	
+
+let $address1	   	=   nvl( rtrim (ltrim ($address1	,' '),' '),' ')		
+let $address2	   	=   nvl( rtrim (ltrim ($address2	,' '),' '),' ')		
+let $phone		=   nvl( rtrim (ltrim ($phone		,' '),' '),' ')	
+let $country	        =   nvl( rtrim (ltrim ($country		,' '),' '),' ')		
+let $state		=   nvl( rtrim (ltrim ($state		,' '),' '),' ')			
+let $city		=   nvl( rtrim (ltrim ($city		,' '),' '),' ')			
+
+	
+end-procedure  Georeferenciar_direccion
+! Fin 001 - CER - 20-05-2011
+
+
+
+
+!-----------------------------------------------------------------------
+! Insert de datos en la tabla PS_CUSTOMER
+!-----------------------------------------------------------------------
+Begin-procedure Insertar-Cliente-Tercero
+show 'Entro Insertar-Cliente-Tercero'
+let $setidTercero       =   nvl( rtrim (ltrim ($setidTercero  	,' '),' '),' ')			
+let $Cust_id	   	=   nvl( rtrim (ltrim ($Cust_id		,' '),' '),' ')		
+let $Tipo_ident	   	=   nvl( rtrim (ltrim ($Tipo_ident	,' '),' '),' ')		
+let $Cust_status	=   nvl( rtrim (ltrim ($Cust_status	,' '),' '),' ')		
+let $fecha_out	        =   nvl( rtrim (ltrim ($fecha_out	,' '),' '),' ')		
+let $Name1		=   nvl( rtrim (ltrim ($Name1		,' '),' '),' ')			
+! Inicio 001 - CER - 20-05-2011	
+let $ck_obliga_rut	=   nvl( rtrim (ltrim ($ck_obliga_rut	,' '),' '),' ')
+! Fin 001 - CER - 20-05-2011
+show $Cust_id
+
+
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CK_TERC_PSL_TBL
+VALUES
+(
+$setidTercero,
+$Cust_id,
+!CAGC INICIO 002
+!TO_DATE($fecha_out,'YYYY-MM-DD'),
+TO_DATE($fecha_out,'DD/MM/YYYY'),
+!CAGC FIN 002
+'A',
+$Tipo_ident, 
+$TipoPersona,
+initcap($Name1),  
+! Inicio 001 - CER - 20-05-2011
+!' ',
+!' ',            
+!' ',           
+!' ',            
+!' ',
+!' ',
+$address1,
+$address2,            
+$phone, 
+!Inicio 010          
+'COL', 
+!Fin 010           
+$state,
+$city,
+! Fin 001 - CER - 20-05-2011
+$ck_obliga_rut,
+!Inicio Modificación 007
+'N'!Fin Modificación 007
+)   
+end-sql
+
+Begin-SQL on-Error=SQL-ERROR
+INSERT INTO PS_LC_TERCERO_ID
+(
+SETID, 
+LC_TERCERO, 
+EFFDT, 
+TIPO_IDENTIFICAC, 
+NIT_PROVEEDOR, 
+LC_DIGITO_VERIF
+)
+Values
+(
+$setidTercero,
+$Cust_id,
+TO_DATE($fecha_out,'DD/MM/YYYY'),
+$Tipo_ident, 
+$IdTercero,
+$DigitoVerificacion
+)
+END-SQL
+
+show 'Salio Insertar-Cliente-Tercero'
+
+
+end-procedure   Insertar-Cliente-Tercero
+
+
+!Inicio 010
+begin-procedure Insertar-Nombre-Tercero($setid, $lcTercero, $effDt, $nameTerc, $primerApellido, $segundoApellido, $primerNombre, $segundoNombre )
+!Fin 010
+
+BEGIN-SQL ON-ERROR=SQL-ERROR
+INSERT INTO PS_CK_TERC_NAM_TBL
+(
+SETID, 
+LC_TERCERO, 
+EFFDT, 
+EFF_STATUS, 
+NOM_TERCERO, 
+LC_MMG_PRIM_NOMBRE, 
+LC_MMG_SEGU_NOMBRE, 
+LC_MMG_PRI_APELLID, 
+LC_MMG_SEG_APELLID
+)
+VALUES
+(
+!INICIO CAGC 002;
+!$setidTercero,
+$setid,
+$lcTercero,
+!INICIO CAGC 002;
+!TO_DATE($effDt,'YYYY-MM-DD'),
+TO_DATE($effDt,'DD/MM/YYYY'),
+!FIN CAGC 002;
+'A',
+!Inicio 010
+NVL($nameTerc,' '),
+!Fin 010
+NVL($primerNombre,' '),
+NVL($segundoNombre,' '),
+NVL($primerApellido,' '),
+NVL($segundoApellido,' ')
+!FIN CAGC 002;
+)
+END-SQL
+
+
+End-Procedure
+
+
+Begin-Procedure InsertarDireccionTercero($setid, $lcTercero, $effDt, $address1, $address2, $phone, $country, $state, $city )
+
+BEGIN-SQL ON-ERROR=SQL-ERROR
+INSERT INTO PS_CK_TERC_DIR_TBL
+(
+SETID, 
+LC_TERCERO, 
+EFFDT, 
+EFF_STATUS, 
+ADDRESS1, 
+ADDRESS2, 
+PHONE, 
+COUNTRY, 
+STATE, 
+CITY
+)
+VALUES
+(
+!CAGC INICIO 002
+$setid, 
+!$setidTercero, 
+!CAGC FIN 002
+$lcTercero,
+!INICIO 002
+TO_DATE($effDt,'DD/MM/YYYY'),
+!TO_DATE($effDt,'YYYY-MM-DD'),
+!FIN 002
+'A',
+$address1,
+$address2,
+$phone,
+!Inicio 010
+'COL',
+!Fin 010
+$state,
+$city
+)
+END-SQL
+
+End-Procedure
+
+
+begin-procedure Actualizar-Indicar-Rut
+
+let $Setid	        =   nvl( rtrim (ltrim ($Setid	   	,' '),' '),' ')			
+let $Cust_id	   	=   nvl( rtrim (ltrim ($Cust_id		,' '),' '),' ')		
+let $Tipo_ident	   	=   nvl( rtrim (ltrim ($Tipo_ident	,' '),' '),' ')		
+let $Cust_status	=   nvl( rtrim (ltrim ($Cust_status	,' '),' '),' ')		
+let $fecha_out	        =   nvl( rtrim (ltrim ($fecha_out	,' '),' '),' ')		
+let $Name1		=   nvl( rtrim (ltrim ($Name1		,' '),' '),' ')			
+! Inicio 001 - CER - 20-05-2011	
+let $address1	   	=   nvl( rtrim (ltrim ($address1	,' '),' '),' ')		
+let $address2	   	=   nvl( rtrim (ltrim ($address2	,' '),' '),' ')		
+let $phone		=   nvl( rtrim (ltrim ($phone		,' '),' '),' ')	
+let $country	        =   nvl( rtrim (ltrim ($country		,' '),' '),' ')		
+let $state		=   nvl( rtrim (ltrim ($state		,' '),' '),' ')			
+let $city		=   nvl( rtrim (ltrim ($city		,' '),' '),' ')			
+let $ck_obliga_rut	=   nvl( rtrim (ltrim ($ck_obliga_rut	,' '),' '),' ')
+! Fin 001 - CER - 20-05-2011
+
+begin-SQL On-Error=SQL-Error
+UPDATE PS_CK_TERC_PSL_TBL ACT
+! Inicio 001 - CER - 20-05-2011
+!SET ACT.CK_OBLIGA_RUT = 'N'
+SET ACT.CK_OBLIGA_RUT = $ck_obliga_rut,
+    ACT.ADDRESS1 = $Address1,
+    ACT.ADDRESS2 = $Address2,
+    ACT.PHONE = $phone,
+	!Inicio 010
+    ACT.COUNTRY = 'COL',
+	!Fin 010
+    ACT.STATE = $state,
+    ACT.CITY = $city,
+    ACT.EFF_STATUS = 'A',
+	!Inicio 010
+	ACT.NOM_TERCERO = $Name1
+    !Fin 010	
+WHERE ACT.SETID      = $Setid
+  AND ACT.LC_TERCERO = $Cust_id
+  AND ACT.EFFDT = (SELECT MAX(A_ED1.EFFDT) 
+                     FROM PS_CK_TERC_PSL_TBL A_ED1
+                    WHERE ACT.SETID       = A_ED1.SETID
+                      AND ACT.LC_TERCERO  = A_ED1.LC_TERCERO
+                      AND A_ED1.EFFDT <= SYSDATE)
+end-sql
+
+end-procedure   Actualizar-Indicar-Rut
+
+!Inicio 010
+BEGIN-PROCEDURE ActualizarNombreTercero($setid, $lcTercero, $effDt, $nameTerc, $primerApellido, $segundoApellido, $primerNombre, $segundoNombre )
+!Fin 010
+BEGIN-SQL ON-ERROR=SQL-ERROR
+UPDATE PS_CK_TERC_NAM_TBL
+  !CAGC INICIO 002
+  !Inicio 010
+  SET NOM_TERCERO = NVL($nameTerc,' '), 
+  !Fin 010
+      LC_MMG_PRIM_NOMBRE = NVL($primerNombre,' '), 
+      LC_MMG_SEGU_NOMBRE = NVL($segundoNombre,' '), 
+      LC_MMG_PRI_APELLID = NVL($primerApellido,' '), 
+      LC_MMG_SEG_APELLID = NVL($segundoApellido,' '),
+      EFF_STATUS = 'A'
+  !CAGC FIN 002	
+WHERE SETID = $setid
+  AND LC_TERCERO = $lcTercero
+  !CAGC INICIO 002
+  !AND EFFDT = TO_DATE($effDt,'YYYY-MM-DD')
+  AND EFFDT = TO_DATE($effDt,'DD/MM/YYYY')
+  !CAGC FIN 002
+END-SQL
+
+END-PROCEDURE
+
+BEGIN-PROCEDURE ActualizarDireccionTercero( $setid, $lcTercero, $effDt, $address1, $address2, $phone, $country, $state, $city  )
+
+BEGIN-SQL ON-ERROR=SQL-ERROR
+UPDATE PS_CK_TERC_DIR_TBL
+   SET ADDRESS1 = $address1, 
+       ADDRESS2 = $address2, 
+       PHONE = $phone, 
+	   !Inicio 010
+       COUNTRY = 'COL', 
+	   !Fin 010
+       STATE = $state, 
+       CITY = $city
+WHERE SETID = $setid
+  AND LC_TERCERO = $lcTercero
+  !CAGC INICIO 002
+  !AND EFFDT = TO_DATE($effDt,'YYYY-MM-DD')
+  AND EFFDT = TO_DATE($effDt,'DD/MM/YYYY')
+  !CAGC FIN 002
+END-SQL
+
+END-PROCEDURE
+
+
+! AJUSTES MEDIOS MAGNETICOS EAS 16/06/2010 INICIO
+
+!-----------------------------------------------------------------------
+! Funcion: InsertaDatosTercerosMediosMagneticos
+! Descripcion: Insercion en tablas de medios
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE InsertaDatosTercerosMediosMagneticos
+
+begin-select ON-ERROR=SQL-ERROR
+SETIDAAA.SETID
+
+  let $setIdTercero = &SETIDAAA.SETID
+
+FROM PS_SET_CNTRL_REC SETIDAAA
+!CAGC INICIO 002
+WHERE SETIDAAA.RECNAME = 'LC_RPOS_TERC_HD'
+!WHERE SETIDAAA.RECNAME = 'PS_LC_RPOS_TERC_HD'
+!CAGC FIN 002
+  AND SETIDAAA.SETCNTRLVALUE = $Setid
+End-Select
+
+
+	! CABECERA DEL TERCERO
+	Let $ExisteTerceroLinea = 'N'
+	!Inicio 008
+	 let $quote = chr(39)
+	 Let $WhereSetid1 = ' '
+	 if $modOrig ='GL' 
+	    let $WhereSetid1 = $WhereSetid1 || ' AND TL.CK_SETID_TERCERO = ' ||$quote||$setIdTercero||$quote
+	    let $WhereSetid1 = $WhereSetid1 || ' AND TL.LC_TERCERO = ' ||$quote||$Cust_id||$quote
+	 end-if
+	 !Inicio 010 - Se comenta
+	 !if $modOrig ='AR'
+	 !   let $WhereSetid1 = $WhereSetid1 || ' AND TL.SETID_CUSTOMER = ' ||$quote||$Setid||$quote
+	 !   let $WhereSetid1 = $WhereSetid1 || ' AND TL.CUST_ID = ' ||$quote||$Cust_id||$quote 
+	 !end-if
+	 !Fin 010
+
+	Do ExisteTerceroLinea($setIdTercero, $Setid, $Cust_id, $modOrig , $Tipo_ident, $ExisteTerceroLinea, $IdTercero, $ckCodOrigen,$WhereSetid1)
+	!Fin 008
+	If $ExisteTerceroLinea = 'N'
+	   Do ExisteTercero($setIdTercero, $IdTercero, $ExisteTercero)
+	   
+	   If $ExisteTercero = 'N'
+              Do RegistrarTerceroCabecera($setIdTercero, $IdTercero)
+           End-If
+           
+	! LINEA DEL TERCERO
+	   
+        End-If
+        
+	!Inicio 010
+	
+    If $TipoPersona = 'N'
+       Let $nameTerc = ' '
+    Else
+       Let $nameTerc = $Name1
+    End-If
+	
+	Let $ExisteReposTercLinea = 'N'
+	Let $ExisteReposTercName = 'N'
+	Let $ExisteReposTercDire = 'N'
+	if $modOrig ='GL'
+	   Do ExisteReposTercLinea($setIdTercero, $IdTercero, $modOrig, $Tipo_ident, $setIdTercero, $Cust_id, ' ', ' ', ' ', ' ', $DigitoVerificacion, $TipoPersona, $ExisteReposTercLinea)
+	   Do ExisteReposTercName($setIdTercero, $IdTercero, $Tipo_ident, $modOrig, $setIdTercero, $nameTerc, $PrimerNombre, $SegundoNombre, $PrimerApellido, $SegundoApellido, $ExisteReposTercName)
+	   Do ExisteReposTercDire($setIdTercero, $IdTercero, $Tipo_ident, $modOrig, $setIdTercero, 'COL', $address1, $address2, ' ', ' ', $State, $City, ' ', $ExisteReposTercDire)
+    end-if
+	
+    If $ExisteReposTercLinea = 'N' or $ExisteReposTercName = 'N' or $ExisteReposTercDire = 'N'
+	!Fin 010
+	
+	   let $ckCodOrigen = '1'
+	   !Inicio 008
+	   let $quote = chr(39)
+	   Let $WhereSetid = ' AND '
+	   If $ExisteTerceroLinea = 'Y'
+	      SHOW 'CAGC $setIdTercero = '$setIdTercero 
+	      if $modOrig ='GL' 
+	       let $WhereSetid = $WhereSetid || ' CK_SETID_TERCERO = ' ||$quote||$setIdTercero||$quote
+	       let $WhereSetid = $WhereSetid || ' AND LC_TERCERO = ' ||$quote||$Cust_id||$quote
+	      end-if
+	      !Inicio 010 - Se comenta
+	      !if $modOrig ='AR'
+	      !  let $WhereSetid = $WhereSetid || ' SETID_CUSTOMER = ' ||$quote||$Setid||$quote
+	      !  let $WhereSetid = $WhereSetid || ' AND CUST_ID = ' ||$quote||$Cust_id||$quote
+	      !end-if
+	      !Fin 010
+	      do AumentarSecuenciaTerceroLn($setIdTercero, $IdTercero, $modOrig , $Setid, $WhereSetid)
+	      !do AumentarSecuenciaTerceroLn($setIdTercero, $IdTercero, $modOrig , $Setid)
+	   End-if	
+
+	   if $modOrig ='GL'
+	   Do RegistrarTerceroLinea($setIdTercero, $IdTercero, $modOrig , $ckCodOrigen, $Tipo_ident, $setIdTercero,$Cust_id,' ',' ', ' ', ' ', $DigitoVerificacion, $TipoPersona, '', $current-date, '')
+	   end-if
+	   !Inicio 010 - Se comenta
+	   !if $modOrig ='AR'
+	   !Do RegistrarTerceroLinea($setIdTercero, $IdTercero, $modOrig , $ckCodOrigen, $Tipo_ident, ' ', ' ',' ',' ', $Setid, $Cust_id, $DigitoVerificacion, $TipoPersona, '', $current-date, '')
+	   !end-if
+	   !Fin 010
+	   !Fin 008
+	
+	   Show 'Va por ExisteNombreTablaRPOS'
+	   Let $ExisteRPOS = 'N'
+	   !Inicio 008
+	   if $modOrig ='GL'
+	   Do ExisteNombreTablaRPOS($setIdTercero, $IdTercero, $Tipo_ident, $modOrig , $ckCodOrigen, $setIdTercero, $fecha_out, $ExisteRPOS)
+	   !Inicio 010 - Se comenta
+	   !else
+	   !Do ExisteNombreTablaRPOS($setIdTercero, $IdTercero, $Tipo_ident, $modOrig , $ckCodOrigen, $Setid, $fecha_out, $ExisteRPOS)
+	   !Fin 010
+	   end-if
+	
+       !Fin 008
+	   If $ExisteRPOS = 'Y'
+	   !Inicio 008
+		   if $modOrig ='GL'
+		   do AumentarSecuenciaTerceroName($setIdTercero, $IdTercero, $modOrig , $setIdTercero)
+		   !Inicio 010 - Se comenta
+		   !else
+		   !do AumentarSecuenciaTerceroName($setIdTercero, $IdTercero, $modOrig , $Setid)
+		   !Fin 010
+		   end-if
+		
+       !Fin 008
+	   End-if
+	   !Inicio 008
+	   if $modOrig ='GL'
+	   !Inicio 010
+	   Do RegistrarNombreTablaRPOS($setIdTercero, $IdTercero, $Tipo_ident, $modOrig , $ckCodOrigen, $setIdTercero, $fecha_out, $nameTerc, $PrimerNombre, $SegundoNombre, $PrimerApellido, $SegundoApellido)
+	   !Fin 010
+	   !Inicio 010 - Se comenta
+	   !else
+	   !Do RegistrarNombreTablaRPOS($setIdTercero, $IdTercero, $Tipo_ident, $modOrig , $ckCodOrigen, $Setid, $fecha_out, $Nombre1, $PrimerNombre, $SegundoNombre, $PrimerApellido, $SegundoApellido)
+	   !Fin 010
+	   end-if
+	
+	   !Fin 008	
+	   Let $ExisteRPOS = 'N'
+	   !Inicio 008
+	   if $modOrig ='GL'
+	   Do ExisteDireccionTablaRPOS($setIdTercero, $IdTercero, $Tipo_ident, $modOrig , $ckCodOrigen, $setIdTercero, $fecha_out, $ExisteRPOS)
+	   !Inicio 010 - Se comenta
+	   !else
+	   !Do ExisteDireccionTablaRPOS($setIdTercero, $IdTercero, $Tipo_ident, $modOrig , $ckCodOrigen, $Setid, $fecha_out, $ExisteRPOS)
+	   !Fin 010
+	   end-if
+	
+	   !Fin 008
+	   If $ExisteRPOS = 'Y'
+	   !Inicio 008
+		   if $modOrig ='GL'
+		   do AumentarSecuenciaTerceroDire($setIdTercero, $IdTercero, $modOrig , $setIdTercero) 
+		   !Inicio 010 - Se comenta
+		   !else
+		   !do AumentarSecuenciaTerceroDire($setIdTercero, $IdTercero, $modOrig , $Setid)   
+		   !Fin 010
+		   end-if
+		
+	   !Fin 008
+	   End-if
+	   !Inicio 008
+	   if $modOrig ='GL'
+	   !Inicio 010
+	   Do RegistrarDireccionTablaRPOS($setIdTercero, $IdTercero, $Tipo_ident, $modOrig , $ckCodOrigen, $setIdTercero, $fecha_out, 'COL', $address1, $address2, ' ', ' ', $State, $City, ' ')
+	   !Fin 010
+	   !Inicio 010 - Se comenta
+	   !else
+	   !Do RegistrarDireccionTablaRPOS($setIdTercero, $IdTercero, $Tipo_ident, $modOrig , $ckCodOrigen, $Setid, $fecha_out, $country, $address1, $address2, ' ', ' ', $State, $City, ' ')
+	   !Fin 010
+	   end-if
+	
+	   !Fin 008
+	!Inicio 010
+	End-If
+	!Fin 010
+END-PROCEDURE
+
+
+!-----------------------------------------------------------------------
+! Funcion: ExisteTercero
+! Descripcion: Verifica la existencia del tercero
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE ExisteTercero($Setid, $Nit, :$ExisteTercero)
+
+	Let $ExisteTercero = 'N'
+BEGIN-SELECT
+'EXISTE TERCERO'
+	Let $ExisteTercero = 'Y'
+FROM PS_LC_RPOS_TERC_HD
+WHERE SETID         = $Setid
+  AND NIT_PROVEEDOR = $Nit
+END-SELECT
+
+END-PROCEDURE
+
+
+!-----------------------------------------------------------------------
+! Funcion: EncontrarTipoPersona
+! Descripcion: Busca el tipo de persona que le corresponde al tipo de documento de identidad
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE EncontrarTipoPersona($tipoDocumento, :$tipoPersona)
+
+ ! Inicializaciòn de variables
+ let $tipoPersona = ' '
+
+BEGIN-SELECT ON-ERROR=SQL-ERROR
+A.TIPO_PER_HO
+
+  let $tipoPersona = &A.TIPO_PER_HO
+
+FROM PS_CK_TIPO_DOCUMNT A 
+WHERE A.CK_TIPO_IDENT =  $tipoDocumento
+  AND A.EFFDT = ( SELECT MAX(B.EFFDT) 
+                     FROM PS_CK_TIPO_DOCUMNT B 
+                    WHERE B.CK_TIPO_IDENT = A.CK_TIPO_IDENT 
+                      AND B.EFFDT <= SYSDATE )
+END-SELECT
+
+END-PROCEDURE 
+
+!-----------------------------------------------------------------------
+! Funcion: ExisteTerceroLinea
+! Descripcion: Verifica la existencia del tercero
+!-----------------------------------------------------------------------
+!Inicio 008
+!BEGIN-PROCEDURE ExisteTerceroLinea($setIdTercero, $Setid, $Nit, $Origen, $TipoIdentificacion, :$ExisteTerceroLinea, :$IdTercero, :$ModOrigen)
+BEGIN-PROCEDURE ExisteTerceroLinea($setIdTercero, $Setid, $Nit, $Origen, $TipoIdentificacion, :$ExisteTerceroLinea, :$IdTercero, :$ModOrigen, $WhereSetid1)
+Show 'ExisteTerceroLinea'
+show '$setIdTercero: ' $setIdTercero ' $Setid: ' $Setid  ' $Nit: ' $Nit ' $Origen: ' $Origen ' $TipoIdentificacion: '  $TipoIdentificacion  ' $WhereSetid1: '  $WhereSetid1
+!Fin 008
+	Let $ExisteTerceroLinea = 'N'
+	
+	let $ModOrigen = '1'
+	
+	
+BEGIN-SELECT
+'EXISTE LINEA TERCERO'
+TL.NIT_PROVEEDOR
+TL.CK_COD_ORIGEN
+
+
+	Let $ExisteTerceroLinea = 'Y'
+	let $IdTercero = &TL.NIT_PROVEEDOR
+	let $ModOrigen = &TL.CK_COD_ORIGEN
+	
+	
+FROM PS_LC_RPOS_TERC_LN TL
+WHERE TL.SETID = $setIdTercero
+  AND TL.CK_MOD_ORIGEN  = $Origen
+  !Inicio 008
+  !AND TL.SETID_CUSTOMER = $Setid
+  [$WhereSetid1]
+  !Fin 008
+END-SELECT
+
+If $ExisteTerceroLinea = 'N'
+
+  ! Verifica si el tipo de identificaciòn requiere digito de verificaciòn en cuyo caso lo quita del nit
+  DO reqDigitoVerificacion($TipoIdentificacion, $RequiereDigito)
+  
+  If $RequiereDigito = 'Y'
+  
+     let #lengthNit = length($Nit)
+     let $IdTercero = substr($Nit, 1, #lengthNit -1 )
+  
+  Else
+  
+     let $IdTercero = $Nit
+  
+  End-If
+
+
+BEGIN-SELECT ON-ERROR=SQL-ERROR
+MAX(TL1.CK_COD_ORIGEN) &CKCODORIGEN
+
+   let $ModOrigen = &CKCODORIGEN 
+   let $ModOrigen = to_char(to_number($ModOrigen) + 1)
+
+FROM PS_LC_RPOS_TERC_LN TL1
+WHERE TL1.SETID = $setIdTercero
+  AND TL1.NIT_PROVEEDOR = $IdTercero
+  AND TL1.CK_MOD_ORIGEN = $Origen
+END-SELECT 
+
+END-IF
+
+  
+END-PROCEDURE
+
+!-----------------------------------------------------------------------
+! Funcion: RegistrarTerceroCabecera
+! Descripcion: Registra la cabecera del tercero
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE RegistrarTerceroCabecera($setIdTercero, $IdTercero)
+
+BEGIN-SQL
+INSERT INTO PS_LC_RPOS_TERC_HD(SETID, NIT_PROVEEDOR) VALUES($setIdTercero, $IdTercero)
+END-SQL
+
+END-PROCEDURE
+
+!-----------------------------------------------------------------------
+! Funcion: RegistrarTerceroLinea
+! Descripcion: Registra la linea del tercero
+!-----------------------------------------------------------------------
+
+!CAGC INICIO 002
+!BEGIN-PROCEDURE RegistrarTerceroLinea($setIdTercero, $IdTercero, $Origen, $ModoOrigen, $TipoIdentificacion, $SetidTercero, $Tercero, $SetidVendor, $Vendor, $SetidCliente, $Cliente, $DigitoVerificacion, $TipoPersona, $AddDt, $ModifiedDt, $ChekoutDt)
+BEGIN-PROCEDURE RegistrarTerceroLinea($setIdTercero, $IdTercero, $Origen, $ModoOrigen, $TipoIdentificacion, $SetidTerc, $Tercero, $SetidVendor, $Vendor, $SetidCliente, $Cliente, $DigitoVerificacion, $TipoPersona, $AddDt, $ModifiedDt, $ChekoutDt)
+!CAGC FIN 002
+ 
+	
+BEGIN-SQL
+INSERT INTO PS_LC_RPOS_TERC_LN(SETID,  NIT_PROVEEDOR, CK_MOD_ORIGEN, CK_COD_ORIGEN, TIPO_IDENTIFICAC,    CK_SETID_TERCERO, LC_TERCERO, SETID_VENDOR, VENDOR_ID, SETID_CUSTOMER, CUST_ID,  LC_DIGITO_VERIF,     TIPO_PER_HO,   ADD_DT, MODIFIED_DT, CHECKOUT_DT) 
+		        VALUES($setIdTercero, $IdTercero,      $Origen,       $ModoOrigen,   $TipoIdentificacion, $SetidTerc,    $Tercero,   $SetidVendor, $Vendor,   $SetidCliente,  $Cliente, $DigitoVerificacion, $TipoPersona , $AddDt, $ModifiedDt, $ChekoutDt)
+END-SQL
+
+END-PROCEDURE
+
+!-----------------------------------------------------------------------
+! Funcion: ModificarTerceroLinea
+! Descripcion: Modifica la linea del tercero
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE ModificarTerceroLinea($setIdTercero, $IdTercero, $Origen, $ModoOrigen, $TipoIdentificacion, $SetidTercero, $Tercero, $SetidVendor, $Vendor, $SetidCliente, $Cliente, $DigitoVerificacion, $TipoPersona, $AddDt, $ModifiedDt, $ChekoutDt)
+
+BEGIN-SQL
+UPDATE PS_LC_RPOS_TERC_LN
+   SET CK_SETID_TERCERO = $SetidTercero,
+   LC_TERCERO = $Tercero, 
+   SETID_VENDOR = $SetidVendor, 
+   VENDOR_ID = $Vendor, 
+   SETID_CUSTOMER = $SetidCliente, 
+   CUST_ID = $Cliente,  
+   LC_DIGITO_VERIF = $DigitoVerificacion,     
+   TIPO_PER_HO = $TipoPersona,   
+   ADD_DT = $AddDt,
+   MODIFIED_DT = $ModifiedDt,
+   CHECKOUT_DT = $ChekoutDt
+WHERE SETID = $setIdTercero
+  AND NIT_PROVEEDOR = $IdTercero
+  AND CK_MOD_ORIGEN = $Origen
+  AND CK_COD_ORIGEN = $ModoOrigen
+  AND TIPO_IDENTIFICAC = $TipoIdentificacion
+END-SQL
+
+END-PROCEDURE
+
+!Inicio modificación 003
+!-----------------------------------------------------------------------
+! Funcion: AumentarSecuenciaTerceroLn
+! Descripcion: Modifica la linea del tercero Aumentando la secuencia
+!-----------------------------------------------------------------------
+!Inicio 008
+!BEGIN-PROCEDURE AumentarSecuenciaTerceroLn($setIdTercero, $IdTercero, $Origen, $SetidCliente)
+BEGIN-PROCEDURE AumentarSecuenciaTerceroLn($setIdTercero, $IdTercero, $Origen, $SetidCliente, $WhereSetid)
+show 'AumentarSecuenciaTerceroLn'
+Show '$setIdTercero: ' $setIdTercero ' $IdTercero: ' $IdTercero ' $Origen: ' $Origen ' $SetidCliente: ' $SetidCliente ' $WhereSetid: ' $WhereSetid
+!Fin 008
+
+BEGIN-SQL
+UPDATE PS_LC_RPOS_TERC_LN
+   SET CK_COD_ORIGEN = CK_COD_ORIGEN + 1
+WHERE SETID = $setIdTercero
+  AND NIT_PROVEEDOR = $IdTercero
+  AND CK_MOD_ORIGEN = $Origen
+  !Inicio 008 Depende de si es origen AR o GL
+  !AND CK_SETID_TERCERO = $SetidCliente
+  [$WhereSetid]
+  !Fin 0008
+END-SQL
+
+END-PROCEDURE
+!Fin modificación 003
+
+!-----------------------------------------------------------------------
+! Funcion: ExisteNombreTablaRPOS
+! Descripcion: Verifica si el nombre ya existe en la tabla LC_RPOS_LN_NAME
+!-----------------------------------------------------------------------
+!Inicio modificación 003
+!BEGIN-PROCEDURE ExisteNombreTablaRPOS($setIdTercero, $IdTercero, $TipoIdentificacion, $Origen, $ModoOrigen, $Cust_status_dt, :$ExisteRPOS)
+BEGIN-PROCEDURE ExisteNombreTablaRPOS($setIdTercero, $IdTercero, $TipoIdentificacion, $Origen, $ModoOrigen, $Setid, $Cust_status_dt, :$ExisteRPOS)
+
+	Let $ExisteRPOS = 'N'
+BEGIN-SELECT
+'EXISTE PS_LC_RPOS_LN_NAME'
+	Let $ExisteRPOS = 'Y'
+FROM PS_LC_RPOS_LN_NAME
+WHERE SETID = $setIdTercero
+  AND NIT_PROVEEDOR = $IdTercero
+  !AND TIPO_IDENTIFICAC = $TipoIdentificacion
+  AND CK_MOD_ORIGEN = $Origen
+  !AND CK_COD_ORIGEN = $ModoOrigen
+  AND SETID_SOURCE = $Setid
+  !AND START_DATE = TO_DATE($Cust_status_dt,'DD/MM/YYYY')
+END-SELECT
+!Fin modificación 003
+
+END-PROCEDURE
+
+!-----------------------------------------------------------------------
+! Funcion: ExisteDireccionTablaRPOS
+! Descripcion: Verifica si la direccion ya existe en la tabla LC_RPOS_LN_DIRE
+!-----------------------------------------------------------------------
+!Inicio modificación 003
+!BEGIN-PROCEDURE ExisteDireccionTablaRPOS($setIdTercero, $IdTercero, $TipoIdentificacion, $Origen, $ModoOrigen, $Cust_status_dt, :$ExisteRPOS)
+BEGIN-PROCEDURE ExisteDireccionTablaRPOS($setIdTercero, $IdTercero, $TipoIdentificacion, $Origen, $ModoOrigen, $Setid, $Cust_status_dt, :$ExisteRPOS)
+
+	Let $ExisteRPOS = 'N'
+BEGIN-SELECT
+'EXISTE PS_LC_RPOS_LN_DIRE'
+	Let $ExisteRPOS = 'Y'
+FROM PS_LC_RPOS_LN_DIRE
+WHERE SETID = $setIdTercero
+  AND NIT_PROVEEDOR = $IdTercero
+  !AND TIPO_IDENTIFICAC = $TipoIdentificacion
+  AND CK_MOD_ORIGEN = $Origen
+  !AND CK_COD_ORIGEN = $ModoOrigen
+  AND SETID_SOURCE = $Setid
+  !AND START_DATE = TO_DATE($Cust_status_dt,'DD/MM/YYYY')
+END-SELECT
+!Fin modificación 003
+
+END-PROCEDURE
+
+!-----------------------------------------------------------------------
+! Funcion: ExisteNombreTablaCustomName
+! Descripcion: Verifica si el nombre ya existe en la tabla PS_LC_CUSTOM_NAME
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE ExisteNombreTablaCustomName($Setid, $Cust_id, $Cust_status_dt, :$ExisteRPOS)
+
+	Let $ExisteRPOS = 'N'
+BEGIN-SELECT
+'EXISTE PS_LC_CUSTOM_NAME'
+	Let $ExisteRPOS = 'Y'
+FROM PS_LC_CUSTOM_NAME
+WHERE SETID = $Setid
+  AND CUST_ID = $Cust_id
+  AND EFFDT = TO_DATE($Cust_status_dt,'DD/MM/YYYY')
+END-SELECT
+
+END-PROCEDURE
+
+!-----------------------------------------------------------------------
+! Funcion: RegistrarNombreTablaRPOS
+! Descripcion: Registra el nombre en la tabla LC_RPOS_LN_NAME
+!-----------------------------------------------------------------------
+!Inicio modificación 003
+!BEGIN-PROCEDURE RegistrarNombreTablaRPOS($setIdTercero, $IdTercero, $TipoIdentificacion, $Origen, $ModoOrigen, $Cust_status_dt, $NombreTercero, $PrimerNombre, $SegundoNombre, $PrimerApellido, $SegundoApellido)
+!Inicio 010
+BEGIN-PROCEDURE RegistrarNombreTablaRPOS($setIdTercero, $IdTercero, $TipoIdentificacion, $Origen, $ModoOrigen, $Setid, $Cust_status_dt, $nameTerc, $PrimerNombre, $SegundoNombre, $PrimerApellido, $SegundoApellido)
+!Fin 010
+
+BEGIN-SQL
+!INSERT INTO PS_LC_RPOS_LN_NAME(SETID,  NIT_PROVEEDOR, TIPO_IDENTIFICAC,    CK_MOD_ORIGEN, CK_COD_ORIGEN, START_DATE,                            EFF_STATUS, NOM_TERCERO,    LC_MMG_PRIM_NOMBRE, LC_MMG_SEGU_NOMBRE, LC_MMG_PRI_APELLID, LC_MMG_SEG_APELLID)
+!		       VALUES($setIdTercero, $IdTercero,      $TipoIdentificacion, $Origen,       $ModoOrigen,   TO_DATE($Cust_status_dt,'DD/MM/YYYY'), 'A',        $NombreTercero, $PrimerNombre,      $SegundoNombre,     $PrimerApellido,    $SegundoApellido)
+INSERT INTO PS_LC_RPOS_LN_NAME(SETID,  NIT_PROVEEDOR, TIPO_IDENTIFICAC,    CK_MOD_ORIGEN, CK_COD_ORIGEN, SETID_SOURCE, START_DATE,                            EFF_STATUS, NOM_TERCERO,    LC_MMG_PRIM_NOMBRE, LC_MMG_SEGU_NOMBRE, LC_MMG_PRI_APELLID, LC_MMG_SEG_APELLID)
+!Inicio 010
+		       VALUES($setIdTercero, $IdTercero,      $TipoIdentificacion, $Origen,       $ModoOrigen,   $Setid,   TO_DATE($Cust_status_dt,'DD/MM/YYYY'), 'A',        $nameTerc, $PrimerNombre,      $SegundoNombre,     $PrimerApellido,    $SegundoApellido)
+			   !Fin 010
+		       
+END-SQL
+
+END-PROCEDURE 
+!Fin modificación 003
+
+!-----------------------------------------------------------------------
+! Funcion: RegistrarNombreTablaCustomName
+! Descripcion: Registra el nombre en la tabla PS_LC_CUSTOM_NAME
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE RegistrarNombreTablaCustomName($Setid, $Cust_id, $Cust_status_dt, $TipoPersona, $Nombre1, $Nombre2, $PrimerNombre, $SegundoNombre, $PrimerApellido, $SegundoApellido)
+
+BEGIN-SQL
+INSERT INTO PS_LC_CUSTOM_NAME(SETID,  CUST_ID,  EFFDT,                                 EFF_STATUS, TIPO_PER_HO,  NAME1,    NAME2,    LC_MMG_PRIM_NOMBRE, LC_MMG_SEGU_NOMBRE, LC_MMG_PRI_APELLID, LC_MMG_SEG_APELLID)
+		       VALUES($Setid, $Cust_id, TO_DATE($Cust_status_dt,'DD/MM/YYYY'), 'A',        $TipoPersona, $Nombre1, $Nombre2, $PrimerNombre,      $SegundoNombre,     $PrimerApellido,    $SegundoApellido)
+		       
+END-SQL
+
+END-PROCEDURE 
+
+!-----------------------------------------------------------------------
+! Funcion: ModificarNombreTablaCustomName
+! Descripcion: Modifica el nombre en la tabla PS_LC_CUSTOM_NAME
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE ModificarNombreTablaCustomName($Setid, $Cust_id, $Cust_status_dt, $TipoPersona, $Nombre1, $Nombre2, $PrimerNombre, $SegundoNombre, $PrimerApellido, $SegundoApellido)
+
+BEGIN-SQL
+UPDATE PS_LC_CUSTOM_NAME
+   SET TIPO_PER_HO = $TipoPersona,
+   NAME1 = $Nombre1,
+   NAME2 = $Nombre2,
+   LC_MMG_PRIM_NOMBRE = $PrimerNombre,
+   LC_MMG_SEGU_NOMBRE = $SegundoNombre,
+   LC_MMG_PRI_APELLID = $PrimerApellido,
+   LC_MMG_SEG_APELLID = $SegundoApellido
+WHERE SETID = $Setid
+  AND CUST_ID = $Cust_id
+  AND EFFDT = TO_DATE($Cust_status_dt,'DD/MM/YYYY')
+END-SQL
+
+END-PROCEDURE 
+
+!-----------------------------------------------------------------------
+! Funcion: ModificarNombreTablaRPOS
+! Descripcion: Modifica el nombre en la tabla LC_RPOS_LN_NAME
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE ModificarNombreTablaRPOS($setIdTercero, $IdTercero, $TipoIdentificacion, $Origen, $ModoOrigen, $Cust_status_dt, $NombreTercero, $PrimerNombre, $SegundoNombre, $PrimerApellido, $SegundoApellido)
+
+BEGIN-SQL
+UPDATE PS_LC_RPOS_LN_NAME
+   SET EFF_STATUS = 'A',
+   NOM_TERCERO = $NombreTercero, 
+   LC_MMG_PRIM_NOMBRE = $PrimerNombre, 
+   LC_MMG_SEGU_NOMBRE = $SegundoNombre,
+   LC_MMG_PRI_APELLID = $PrimerApellido,
+   LC_MMG_SEG_APELLID =  $SegundoApellido
+WHERE SETID = $setIdTercero
+  AND NIT_PROVEEDOR = $IdTercero
+  AND TIPO_IDENTIFICAC = $TipoIdentificacion
+  AND CK_MOD_ORIGEN = $Origen
+  AND CK_COD_ORIGEN = $ModoOrigen
+  AND START_DATE = TO_DATE($Cust_status_dt,'DD/MM/YYYY')
+END-SQL
+
+END-PROCEDURE 
+
+
+!Inicio modificación 003
+!-----------------------------------------------------------------------
+! Funcion: AumentarSecuenciaTerceroName
+! Descripcion: Aumenta la secuencia de los códigos de los nombres
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE AumentarSecuenciaTerceroName($setIdTercero, $IdTercero, $Origen, $Setid)
+
+BEGIN-SQL
+UPDATE PS_LC_RPOS_LN_NAME
+   SET CK_COD_ORIGEN = CK_COD_ORIGEN + 1
+WHERE SETID = $setIdTercero
+  AND NIT_PROVEEDOR = $IdTercero
+  AND CK_MOD_ORIGEN = $Origen
+  AND SETID_SOURCE = $Setid
+END-SQL
+
+END-PROCEDURE
+!Fin modificación 003
+
+!-----------------------------------------------------------------------
+! Funcion: RegistrarDireccionTablaRPOS
+! Descripcion: Registra la direccion en la tabla PS_LC_RPOS_LN_DIRE
+!-----------------------------------------------------------------------
+!Inicio modificación 003
+!BEGIN-PROCEDURE RegistrarDireccionTablaRPOS($setIdTercero, $IdTercero, $TipoIdentificacion, $modOrigen, $codOrigen, $Cust_status_dt, $Pais, $Dir1, $Dir2, $Dir3, $Dir4, $Depto, $Ciudad, $CodigoGeo)
+BEGIN-PROCEDURE RegistrarDireccionTablaRPOS($setIdTercero, $IdTercero, $TipoIdentificacion, $modOrigen, $codOrigen, $Setid, $Cust_status_dt, $Pais, $Dir1, $Dir2, $Dir3, $Dir4, $Depto, $Ciudad, $CodigoGeo)
+
+BEGIN-SQL
+!INSERT INTO PS_LC_RPOS_LN_DIRE(SETID,  NIT_PROVEEDOR, TIPO_IDENTIFICAC,    CK_MOD_ORIGEN, CK_COD_ORIGEN, START_DATE,                            EFF_STATUS, COUNTRY, ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, STATE,  CITY,    GEO_CODE)
+!		        VALUES($setIdTercero, $IdTercero,$TipoIdentificacion, $modOrigen, $codOrigen,    TO_DATE($Cust_status_dt,'DD/MM/YYYY'), 'A',        $Pais,   $Dir1,    $Dir2,    $Dir3,    $Dir4,    $Depto, $Ciudad, $CodigoGeo)
+INSERT INTO PS_LC_RPOS_LN_DIRE(SETID,  NIT_PROVEEDOR, TIPO_IDENTIFICAC,    CK_MOD_ORIGEN, CK_COD_ORIGEN, SETID_SOURCE, START_DATE,                            EFF_STATUS, COUNTRY, ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, STATE,  CITY,    GEO_CODE)
+		        VALUES($setIdTercero, $IdTercero,$TipoIdentificacion, $modOrigen, $codOrigen,    $Setid,   TO_DATE($Cust_status_dt,'DD/MM/YYYY'), 'A',        $Pais,   $Dir1,    $Dir2,    $Dir3,    $Dir4,    $Depto, $Ciudad, $CodigoGeo)
+		        
+		        
+END-SQL
+
+END-PROCEDURE 
+!Fin modificación 003
+
+!-----------------------------------------------------------------------
+! Funcion: ModificarDireccionTablaRPOS
+! Descripcion: Modifica la direccion en la tabla PS_LC_RPOS_LN_DIRE
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE ModificarDireccionTablaRPOS($setIdTercero, $IdTercero, $TipoIdentificacion, $modOrigen, $codOrigen, $Cust_status_dt, $Pais, $Dir1, $Dir2, $Dir3, $Dir4, $Depto, $Ciudad, $CodigoGeo)
+
+BEGIN-SQL
+UPDATE PS_LC_RPOS_LN_DIRE
+   SET EFF_STATUS = 'A',
+   COUNTRY = $Pais, 
+   ADDRESS1 = $Dir1, 
+   ADDRESS2 = $Dir2, 
+   ADDRESS3 = $Dir3, 
+   ADDRESS4 = $Dir4, 
+   STATE = $Depto, 
+   CITY  = $Ciudad, 
+   GEO_CODE = $CodigoGeo 
+WHERE SETID = $setIdTercero
+  AND NIT_PROVEEDOR = $IdTercero
+  AND TIPO_IDENTIFICAC = $TipoIdentificacion
+  AND CK_MOD_ORIGEN = $modOrigen
+  AND CK_COD_ORIGEN = $codOrigen
+  AND START_DATE = TO_DATE($Cust_status_dt,'DD/MM/YYYY')
+END-SQL
+
+END-PROCEDURE 
+
+
+!Inicio modificación 003
+!-----------------------------------------------------------------------
+! Funcion: AumentarSecuenciaTerceroDire
+! Descripcion: Aumenta la secuencia de los códigos de las direcciones
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE AumentarSecuenciaTerceroDire($setIdTercero, $IdTercero, $Origen, $Setid)
+
+BEGIN-SQL
+UPDATE PS_LC_RPOS_LN_DIRE
+   SET CK_COD_ORIGEN = CK_COD_ORIGEN + 1
+WHERE SETID = $setIdTercero
+  AND NIT_PROVEEDOR = $IdTercero
+  AND CK_MOD_ORIGEN = $Origen
+  AND SETID_SOURCE = $Setid
+END-SQL
+
+END-PROCEDURE
+!Fin modificación 003
+
+
+BEGIN-PROCEDURE reqDigitoVerificacion($tipoDocumento, :$RequiereDigito)
+   
+   let $RequiereDigito = 'N'
+
+
+BEGIN-SELECT ON-ERROR=SQL-ERROR
+
+!CAGC INICIO 002
+'X'
+!CAGC FIN 002   
+   let $RequiereDigito = 'Y'
+
+FROM PS_CK_TIPO_DOCUMNT A 
+WHERE A.CK_TIPO_IDENT  = $tipoDocumento
+  AND A.LC_DIGITO_FLAG = 'Y' 
+  AND A.EFFDT = (SELECT MAX(B.EFFDT) 
+                   FROM PS_CK_TIPO_DOCUMNT B 
+                  WHERE A.CK_TIPO_IDENT=B.CK_TIPO_IDENT 
+                    AND B.EFFDT<= SYSDATE )
+  
+  !CAGC INICIO 002
+  AND A.EFF_STATUS='A' 
+  !CAGC FIN 002
+  !AND A.EFF_STATUS='A' )
+END-SELECT
+   
+   
+END-PROCEDURE
+
+
+! AJUSTES MEDIOS MAGNETICOS EAS 16/06/2010 FIN
+
+
+
+begin-procedure actualizar-requerimiento
+begin-SQL On-Error=SQL-Error
+UPDATE PSPRCSRQST
+   SET RUNSTATUS = 10
+ WHERE PRCSINSTANCE = #prcs_process_instance
+end-sql
+end-procedure actualizar-requerimiento
+
+begin-procedure TERMINATE
+  if #prcs_process_instance > 0
+     do Update-prcs-run-status
+  end-if   
+   if #ErrorCount > 0 
+      do rollback-transaction
+      display 'Hizo Rollback Terminate'
+    end-if
+   do reset
+end-procedure
+
+!Inicio 010
+!--------------------------------------------------------------------------------------------
+! Funcion: ExisteReposTercLinea
+! Descripcion: Verifica la existencia del registro exacto en la tabla PS_LC_RPOS_TERC_LN
+!--------------------------------------------------------------------------------------------
+
+BEGIN-PROCEDURE ExisteReposTercLinea($setIdTercero, $IdTercero, $Origen, $TipoIdentificacion, $SetidTerc, $Tercero, $SetidVendor, $Vendor, $SetidCliente, $Cliente, $DigitoVerificacion, $TipoPersona, :$ExisteReposTercLinea)
+
+show 'Entradas ExisteReposTercLinea' $setIdTercero ' ' $IdTercero ' ' $Origen ' ' $TipoIdentificacion ' ' $SetidTerc ' ' $Tercero ' ' $SetidVendor ' ' $Vendor ' ' $SetidCliente ' ' $Cliente ' ' $DigitoVerificacion ' ' $TipoPersona
+
+	Let $ExisteReposTercLinea = 'N'
+	
+BEGIN-SELECT ON-ERROR=SQL-ERROR
+'X'
+
+	Let $ExisteReposTercLinea = 'Y'
+	Show ' Si encontró PS_LC_RPOS_TERC_LN'
+	
+FROM PS_LC_RPOS_TERC_LN TL
+WHERE SETID = $setIdTercero 
+   AND NIT_PROVEEDOR = $IdTercero 
+   AND CK_MOD_ORIGEN = $Origen 
+   AND CK_COD_ORIGEN = '1' 
+   AND TIPO_IDENTIFICAC = $TipoIdentificacion
+   AND CK_SETID_TERCERO = $SetidTerc
+   AND LC_TERCERO = $Tercero 
+   AND SETID_VENDOR = $SetidVendor
+   AND VENDOR_ID = $Vendor 
+   AND SETID_CUSTOMER = $SetidCliente
+   AND CUST_ID = $Cliente 
+   AND LC_DIGITO_VERIF = $DigitoVerificacion 
+   AND TIPO_PER_HO = $TipoPersona
+END-SELECT
+
+END-PROCEDURE
+
+!--------------------------------------------------------------------------------------------
+! Funcion: ExisteReposTercName
+! Descripcion: Verifica la existencia del registro exacto en la tabla PS_LC_RPOS_TERC_LN
+!--------------------------------------------------------------------------------------------
+
+BEGIN-PROCEDURE ExisteReposTercName($setIdTercero, $IdTercero, $TipoIdentificacion, $Origen, $Setid, $nameTerc, $PrimerNombre, $SegundoNombre, $PrimerApellido, $SegundoApellido, :$ExisteReposTercName)
+
+show 'Entradas ExisteReposTercName' $setIdTercero ' ' $IdTercero ' ' $TipoIdentificacion ' ' $Origen ' ' $Setid ' ' $nameTerc ' ' $PrimerNombre ' ' $SegundoNombre ' ' $PrimerApellido ' ' $SegundoApellido
+
+	Let $ExisteReposTercName = 'N'
+	
+BEGIN-SELECT ON-ERROR=SQL-ERROR
+'X'
+
+	Let $ExisteReposTercName = 'Y'
+	Show ' Si encontró PS_LC_RPOS_LN_NAME'
+	
+FROM PS_LC_RPOS_LN_NAME
+WHERE SETID = $setIdTercero 
+   AND NIT_PROVEEDOR = $IdTercero 
+   AND TIPO_IDENTIFICAC = $TipoIdentificacion 
+   AND CK_MOD_ORIGEN = $Origen 
+   AND CK_COD_ORIGEN = '1' 
+   AND SETID_SOURCE = $Setid
+   AND EFF_STATUS = 'A'
+   AND NOM_TERCERO = $nameTerc
+   AND LC_MMG_PRIM_NOMBRE = $PrimerNombre 
+   AND LC_MMG_SEGU_NOMBRE = $SegundoNombre 
+   AND LC_MMG_PRI_APELLID = $PrimerApellido
+   AND LC_MMG_SEG_APELLID = $SegundoApellido
+END-SELECT
+
+END-PROCEDURE
+
+!--------------------------------------------------------------------------------------------
+! Funcion: ExisteReposTercDire
+! Descripcion: Verifica la existencia del registro exacto en la tabla PS_LC_RPOS_LN_DIRE
+!--------------------------------------------------------------------------------------------
+
+BEGIN-PROCEDURE ExisteReposTercDire($setIdTercero, $IdTercero, $TipoIdentificacion, $Origen, $Setid, $Pais, $Dir1, $Dir2, $Dir3, $Dir4, $Depto, $Ciudad, $CodigoGeo, :$ExisteReposTercDire)
+
+show 'Entradas ExisteReposTercDire' $setIdTercero ' ' $IdTercero ' ' $TipoIdentificacion ' ' $Origen ' ' $Setid ' ' $Pais ' ' $Dir1 ' ' $Dir2 ' ' $Dir3 ' ' $Dir4 ' ' $Depto ' ' $Ciudad ' ' $CodigoGeo
+
+	Let $ExisteReposTercDire = 'N'
+	
+BEGIN-SELECT ON-ERROR=SQL-ERROR
+'X'
+
+	Let $ExisteReposTercDire = 'Y'
+	Show ' Si encontró PS_LC_RPOS_LN_DIRE'
+	
+FROM PS_LC_RPOS_LN_DIRE
+WHERE SETID = $setIdTercero 
+   AND NIT_PROVEEDOR = $IdTercero
+   AND TIPO_IDENTIFICAC = $TipoIdentificacion 
+   AND CK_MOD_ORIGEN = $Origen 
+   AND CK_COD_ORIGEN = '1' 
+   AND SETID_SOURCE = $Setid 
+   AND EFF_STATUS = 'A' 
+   AND COUNTRY = $Pais 
+   AND ADDRESS1 = $Dir1 
+   AND ADDRESS2 = $Dir2 
+   AND ADDRESS3 = $Dir3 
+   AND ADDRESS4 = $Dir4 
+   AND STATE = $Depto 
+   AND CITY = $Ciudad 
+   AND GEO_CODE = $CodigoGeo
+END-SELECT
+
+END-PROCEDURE
+!Fin 010
+
+!*********************************************************************
+!     Rutinas Standar Colombiana de Comercio
+!*********************************************************************
+#include 'ck_mensa.sqc'  ! Insercion en la tabla de mensajes.
+
+
+!*********************************************************************
+!     Rutinas Standar de SQR 
+!*********************************************************************
+#include 'curdttim.sqc'  ! Get-Current-DateTime procedure
+#include 'datetime.sqc'  ! Routines for date and time formatting
+#include 'datemath.sqc'  ! Routines for date and time formatting
+#include 'timemath.sqc'  ! Routines for date and time formatting
+#include 'number.sqc'    ! Routines for format numbers
+#include 'fsgetshr.sqc'  ! Get ShareTable Subroutine
+#include 'prcsapi.sqc'   ! Update Process Request API
+#include 'prcsdef.sqc'   ! Update Process Request variable declare
+#include 'reset.sqc'     ! Reset printer procedure
+#include 'askeffdt.sqc'  ! Ask Effective Date
+!*********************************************************************
+!     Rutinas programas de SQR 
+!*********************************************************************
+
+
