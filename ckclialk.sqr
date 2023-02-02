@@ -1,0 +1,5479 @@
+!-----------------------------------------------------------------------
+!-----------------------------------------------------------------------
+! <Reporte|Proceso>: CK_COLC1.SQR - <Interface  - Clientes Colombiana >
+! Versiones: V<001> <11/10/2000>-<NL>
+!-----------------------------------------------------------------------
+! Desc Programa: Esta interfaze se encarga de crear los clientes que fue-
+!                ron incluidos en Colombiana de Comercio.
+!-----------------------------------------------------------------------
+! Parámetros: El parámetro de entrada es el Setid 
+!
+!------------------------------------------------------------------------
+! Tablas referenciadas:CUSTOMER
+!                      CUST_ADDR_SEQ
+!                      CUST_ADDRESS
+!                      LC_CUSTOMER_ID
+!                      CUST_REGN_TYPE
+!                      CUST_TEAM
+ !**************************************************************************************************************************************************************************************!
+! Modificaciones																		   			!
+!---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------!
+!Proyecto	         	Ref	 	Fecha		Desarrollador	Descripcion								  	   			!
+!---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------!
+! CS5318	 		001	 	Nov09		       JCC	Modificacion actualizacion ciudad y barrio 								!
+! CS5286			002		Nov09/2009	       EAS	Se lee la fecha de activacion de la tarjeta.								!						   
+! CS5497			003		01Dic2009	       JCC	Dirección por default											!
+! CK_CS_AR_JCC_5953		004		15Mar2009	       JCC	Validar Clientes en Error y generar Control error.							!	
+! CSXXXX			005		26Ago2010	       JCC	Problema secuenda dirección de envio									!					   
+! 8739		        	007		02/04/12	       FSB	Se crea nueva dirección para Cartera				      					!
+! 8732              		008     	24/05/12               FMJ      Control de terceros											!
+! 10200             		009     	09/08/13               FMJ      Incidencias Relacionadas con Terceros            			 				!
+! 10349             		010		02/10/2013	       EHA	Incidencias relacionadas con tipopersona=o      				   			!
+! 10422		        	011		12/11/2013             MTC      Se incluye Parametrización de IpoNacional Client				   			!
+! 10597		        	012		15/05/2014             RHD      INC - Correcciones a Terceros							   			!	
+! 10854             		013     	09/07/2014             CCG      Quitar validacion de tipo de documento, para que acepte tipos de doc diferentes al que esta almacenado  !
+! 10854             		014     	14/07/2014             CCG      Permitir que la direccion almacene 55 caracteres, anteriormente solo aceptaba 35   			!
+! 11535		        	015		25/06/2015	       CEM	Evita que al modificar la ciudad, la tabla arrastre la informacion del pais anter  			!
+! 12557		        	018		03/06/2016	       CCG	Modificacion para que ahora no vaya a la CK_ADDRESS_GEO sino a la CK_ADDR_GEOREFE  			!
+! 12557		        	019 		29/06/2016	       CCG	Si la direccion no se pudo georeferenciar inserta al menos la direccion normalizada			!
+! 12557		        	022 		25/04/2017	       CCG	Se comenta para que no inserte en la CUST_ADDRESS              						!
+! 13676				023     	09/11/2017             GMR      Se agrega validacion del CUST_ID referenciado con el Tipo de Documento 					!
+! CK_CS_4499_SPRINT_32_FE_E_FMB 024		11/06/2019	       FMB	Se agrega el campo Código Postal en Georreferenciación.							!
+! CK_CS_6563_SPRINT_6_FMB	025		03/10/2019	       FMB	Se agregan los campos Tipo de Responsabilidad y Tipo de Régimen del Cliente				!	 		
+! CK_CS_6563_SPRINT_18_LFQ   026     27/09/2020         LFQ  Se agregan y validan los campos asociados a FAELE, Marcación FE, EmailFE,Contacto, Régimen y responsabilidad   !
+! CK_CS_FE_15397_LFQ  		 027     09/10/2020         LFQ  Se agregan y validan los campos asociados a FAELE, Marcación FE, EmailFE,Contacto, Régimen y responsabilidad   !
+!CK_CS_AR_15822_GMR 029     02/07/2021  GMR     Se cambia tamaño del campo Dirección de 35 a 55 caracteres, se evalua el campo responsabilidad del cliente si es nulo no debe llenar la tabla  !
+!***************************************************************************************************************************************************************************************!
+! Realiza los include necesarios
+#include 'setenv.sqc'       ! Incializa el entorno
+#Include 'setup01.sqc'  	! Printer and page-size initialization
+
+begin-report
+  do Init-DateTime
+  do Init-Number
+  do Init-Report
+  do Process-Main
+  do Terminate
+  if $estado_final = 'error'       
+     do actualizar-requerimiento
+  end-if
+  
+end-report
+
+begin-heading 6
+  !#Include 'stdhdgint01.sqc'
+end-heading
+
+begin-procedure Init-Report
+  move 'Interf_Clientes' to $ReportTitle
+  display $ReportTitle
+
+  Do Define-Prcs-Vars
+  Do Get-Run-Control-Parms
+
+  if $prcs_process_instance = ''
+  else
+    Do Select-Parameters
+  end-if
+end-procedure
+
+
+!-----------------------------------------------------------------------
+! Ingreso de parámetros desde el panel correspondiente => CK_INTCLI_PNL
+!-----------------------------------------------------------------------
+begin-procedure Select-Parameters
+begin-select on-error=sql-error
+run_cntl_in.oprid
+run_cntl_in.language_cd
+run_cntl_in.file_name
+run_cntl_in.business_unit
+run_cntl_in.wip_loc_flg
+B.RECURNAME               &REPETICION
+run_cntl_in.run_cntl_id   &run_cntrl
+INSTR(run_cntl_in.file_name,'YYYYMMDD')   &FECHA_VAR
+SUBSTR(TO_CHAR(SYSDATE,'YYYY-MM-DD'),1,4) || SUBSTR(TO_CHAR(SYSDATE,'YYYY-MM-DD'),6,2) || SUBSTR(TO_CHAR(SYSDATE,'YYYY-MM-DD'),9,2) &FECHAHOY 
+
+
+
+    let $oprid	      = &run_cntl_in.oprid
+    let $lenguaje     = &run_cntl_in.language_cd
+    if &FECHA_VAR <> 0 and &REPETICION = &run_cntrl
+       do gen-namefile
+       show ' &nomfile  ' &nomfile       
+       let $file_name   = &nomfile      
+    else
+       let $file_name = rtrim(&run_cntl_in.file_name,' ')    
+    end-if
+
+
+from ps_run_cntl_in run_cntl_in, PSPRCSRQST B
+where run_cntl_in.oprid       = $prcs_oprid
+  and run_cntl_in.run_cntl_id = $prcs_run_cntl_id
+  AND run_cntl_in.oprid     = B.OPRID
+  AND B.RUNCNTLID = run_cntl_in.run_cntl_id
+  AND B.PRCSINSTANCE = #prcs_process_instance   
+end-select
+
+begin-select
+A.URL
+
+   let $nomfile = &A.URL
+
+FROM PSURLDEFNLANG A, PSOPRDEFN B
+WHERE A.URL_ID = 'AR_INT_ALK_IMPORT'
+  AND A.LANGUAGE_CD = B.LANGUAGE_CD
+  AND B.OPRID       = $prcs_oprid
+end-select
+
+IF ISBLANK($nomfile)
+show ' no encontro el anterior URL'
+begin-select
+C.URL
+
+   let $nomfile = &C.URL
+   show ' $nomfile ' $nomfile
+
+FROM PSURLDEFN C
+WHERE C.URL_ID = 'AR_INT_ALK_IMPORT'
+end-select
+END-IF
+end-procedure Select-Parameters
+
+
+!***********************************************************************
+!----------------------------------------------------------------------!
+! Procedure: gen-namefile                                              !
+! Descr:     Se arma el nombre del archivo con la fecha variable       !
+!----------------------------------------------------------------------!
+begin-procedure gen-namefile    
+begin-select ON-ERROR = SQL-error
+REPLACE(&run_cntl_in.file_name,'YYYYMMDD',&FECHAHOY)  &nomfile
+FROM ps_run_cntl_in run_cntl_in
+where run_cntl_in.oprid       = $prcs_oprid
+  and run_cntl_in.run_cntl_id = $prcs_run_cntl_id
+end-select
+end-procedure
+
+!-----------------------------------------------------------------------
+! Proceso del programa
+!-----------------------------------------------------------------------
+begin-procedure PROCESS-MAIN
+  !Inicio 018 
+  do ObtenerInstanciaGeo
+  !Fin 018 
+  Let #Enc_Arc_Pla   = 0
+  do OPEN-ARCHIVO
+ 
+  let $Prcs_Instance = $prcs_process_instance
+  let #Secuencia     = 0
+  let #message_seq   = 0
+  
+  let $JobId         = ' '
+  let $NomPrograma   = 'CKCLIALK'
+  if #Enc_Arc_Pla    = 0
+     do PROCESAR-ARCHIVO
+  end-if   
+  !do GRABAR-ARCHIVO-CONTROL
+  close 1	
+end-procedure PROCESS-MAIN
+
+!-----------------------------------------------------------------------
+! Lectura del archivo plano correspondiente
+!-----------------------------------------------------------------------
+begin-procedure OPEN-ARCHIVO
+   let $lenguaje  = 'ESP'
+   !let $nomfile='P:\Temporal\Datos Diarios Cartera\' || $file_name
+   !let $nomfile='/data/work/people/input/' || $file_name
+   let $nomfile = $nomfile || $file_name
+   show  ' $file_name ' $file_name
+   show  ' $nomfile   ' $nomfile
+   let #numfile=1
+   open $nomfile as #numfile
+   for-reading
+   ! V002 Inicio 
+   ! 026 record=272:vary
+   record=497:vary
+   ! V002 Fin
+   STATUS=#open-status
+   if #open-status=-1
+      Let #Enc_Arc_Pla = 1
+      DISPLAY 'NO PUDO ABRIR EL ARCHIVO'
+      stop quiet
+   end-if
+end-procedure OPEN-ARCHIVO
+
+
+
+!-----------------------------------------------------------------------
+! Proceso del archivo, lectura y desarrollo de rutinas en las que se 
+! insertan los datos en las respectivas tablas.
+!-----------------------------------------------------------------------
+begin-procedure PROCESAR-ARCHIVO
+let #tot-rows    = 0
+let #cnt-rows    = 0
+let #no-tot-rows = 0
+let #tot_leido   = 0
+let #cnt_error   = 0
+let #sw_descuadre   = 0
+let $estado_final   = ' '
+Let $Ck_Address1geo = ' '
+Let $Ck_Address2geo = ' '
+Let $Ck_Barrio      = ' '
+let $Address2       = ' '
+
+!<Inicio #004> - Verificar Errores Cliente
+let #RowFile 	= 0
+!<Inicio #004> - Verificar Errores Cliente      			
+
+while #open-status <> -1
+show '******************************************************'
+     read 1 into  $Setid:5			 
+     		  $Cust_id:15			 
+     		  $Tipo_ident:1			 
+     		  $Cust_status:1		 
+     		  $Canal:1			 
+     		  $Cust_status_dt:10		 
+     		  $Name1:40			 
+     		  $Name_Short:10		 
+     		  $Subcust_qual1:6		 
+     		  $address_seq_num:3		 
+     		  $State:6			 
+     		  $City:30			 
+     		  $County:30		
+			  !Inicio 029
+     		  $Address1:55			 
+			  ! $Address1:35			 
+			  !Fin 029
+     		  $Phone:24			 
+     		  $Fax:24			 
+     		  $Cr_analyst:8			 	
+     		  $Bill_specialist:8		 
+         	  $oprid:5
+         	  $Ind_Error:1
+         	  $Ind_Dir_Des:1
+         	  ! V002 Inicio
+         	  $FechaActivacion:8
+         	  ! V002 Fin
+         	  $Ind_Med_Com:1
+	  
+		!Inicio 026
+			  $Str_Custo_Fact_Elect:3
+			  $Str_Emailid:70
+			  $Str_Regimen:10
+			  $Str_Responsabilidad:100
+			  $Str_Contact_Name:40
+		
+        Let $Str_Custo_Fact_Elect = LTrim($Str_Custo_Fact_Elect,' ')
+        Let $Str_Emailid = LTrim($Str_Emailid,' ')
+        Let $Str_Regimen = LTrim($Str_Regimen,' ')
+        Let $Str_Responsabilidad = LTrim($Str_Responsabilidad,' ')
+        Let $Str_Contact_Name = LTrim($Str_Contact_Name,' ')
+       
+        !Fin 026
+
+		! AJUSTES MEDIOS MAGNETICOS EAS 16/06/2010 INICIO
+
+		Let $DigitoVerificacion = ' '
+		Let $PrimerNombre = ' '
+		Let $SegundoNombre = ' '
+		Let $PrimerApellido = ' '
+		Let $SegundoApellido = ' '
+		Let $Nombre1 = ' '
+		Let $Nombre2 = ' '
+		! Por defecto asigna tipo de persona Natural
+		Let $TipoPersona = 'N'
+		! Si el tipo de documento es NIT obtiene el digito de verificacion y el nombre 1
+	
+        	Let $Cust_id = LTrim($Cust_id,' ')
+		Let $Cust_id = RTrim($Cust_id,' ')
+
+begin-select ON-ERROR=SQL-ERROR
+SETIDAAAS.SETID
+
+  let $setIdTercero = &SETIDAAAS.SETID
+
+FROM PS_SET_CNTRL_REC SETIDAAAS
+WHERE SETIDAAAS.RECNAME = 'LC_RPOS_TERC_HD'
+  AND SETIDAAAS.SETCNTRLVALUE = $Setid
+End-Select
+
+       		 ! Si existe el tercero para este cliente entonces trae el id del tercero de lo contrario establecer el Id de tercero que debe quedar.
+       		 Do ExisteTerceroLinea($setIdTercero, $Setid, $Cust_id, 'AR', $Tipo_ident, $ExisteTerceroLinea, $IdTercero, $ckCodOrigen)
+       		 ! Verifica si el tipo de identificaciòn requiere digito de verificaciòn en cuyo caso lo quita del nit
+       		 DO reqDigitoVerificacion($Tipo_ident, $RequiereDigito)
+  
+       		 If $RequiereDigito = 'Y'  
+       		    let #lengthNit = length($Cust_id)
+       		    let $DigitoVerificacion = substr($Cust_id, #lengthNit,  1 )  
+       		 Else  
+       		   let $DigitoVerificacion = ' '   	
+       		 End-If
+
+	
+		Do EncontrarTipoPersona($Tipo_ident, $TipoPersona)
+	
+		If $TipoPersona = 'J'
+			Let $Nombre1 = $Name1
+		Else	
+		        Unstring $Name1 By ' ' Into $PrimerNombre $SegundoNombre $PrimerApellido $SegundoApellido $CVar1 $CVar2 $CVar3 $CVar4
+			Let $SegundoNombre = $SegundoNombre || $CVar1 || $CVar2 || $CVar3 || $CVar4
+		
+			If isblank($PrimerApellido) 		
+			   let $PrimerApellido = $SegundoNombre
+			   let $SegundoNombre = ' '			
+			End-if		
+		End-if
+		
+		Show '$DigitoVerificacion ' $DigitoVerificacion
+		Show '$$IdTercero ' $IdTercero
+		
+		! Inicio 018
+		! Se blanquean estas variables porque se estaban llevando el valor para las nuevas lineas insertadas.
+		let $Address2 = ' '
+		let $barrio =  ' '
+		! Fin 018
+		
+		If $PrimerApellido = '' 
+			Let $PrimerApellido = ' '
+		End-if
+		If $SegundoApellido = ''
+			Let $SegundoApellido = ' '
+		End-if
+		If $PrimerNombre = ''
+			Let $PrimerNombre = ' '
+		End-if
+		If $SegundoNombre = ''
+			Let $SegundoNombre = ' '
+		End-if
+
+		! AJUSTES MEDIOS MAGNETICOS EAS 16/06/2010 FIN
+
+    show ' $setid  ' $setid
+    SHOW ' $cust_id      ' $cust_id
+    
+    SHOW ' $Ind_Dir_Des: ' $Ind_Dir_Des
+    show ' $Address1     ' $Address1
+		 
+    !if $state = 'NARINO'
+    !   let $state = 'NARIÑO'
+    !end-if
+
+	
+    if #end-file
+         break
+	else
+      	if $Setid <> 'TOTAL'
+    		let #dtu_yr = to_number(substr($Cust_status_dt, 7, 4))
+    		let #dtu_mo = to_number(substr($Cust_status_dt, 4, 2))
+     		let #dtu_da = to_number(substr($Cust_status_dt, 1, 2)) 
+  
+     		do dtu-format-date(#dtu_yr, #dtu_mo, #dtu_da, $dtu_fecha)
+     		do Convert-From-DTU-Date($dtu_fecha, $fecha_out)
+     		let $fecha_out = upper($fecha_out)
+ 
+     		let  $address_seq_num  =  ltrim($address_seq_num,'0')
+     		move $address_seq_num  to $add_seq_num 999
+     		let  #Seq_Dir_Cli      =  $add_seq_num
+    
+     		show '$state     ' $state
+     		show 'fecha plano' $fecha_out
+       	
+       		!if $Ind_Error = 'Y'
+          	!let #Secuencia    = #Secuencia + 1
+          	!let #NbrSet       = 21000
+          	!let #Nbr          = 18
+          	!Do  Insertar_Mensaje
+	      	         
+          	!let #ParamSecuencia = 1
+          	!let $Parametro      = $Setid
+          	!Do Insertar_Parametro_mensaje
+	    	
+          	!let #ParamSecuencia = 2
+          	!let $Parametro      = $Cust_id
+          	!Do  Insertar_Parametro_mensaje
+	 	
+          	!let #sw_descuadre   = 1
+       		!end-if     
+       		
+       		if $setid = 'TOTAL'
+          		let #tot_leido = to_number($Cust_id)
+          		let $unidad    = $name1
+          		DO GRABAR-ARCHIVO-CONTROL
+				let #tot-rows    = 0
+	  			let #cnt-rows    = 0
+	  			let #no-tot-rows = 0
+	  			let #tot_leido   = 0
+	  			let #cnt_error   = 0
+			else
+      		    let #tot-rows = #tot-rows + 1
+      		    do  VERIFICAR-EXIST-CLIENTE
+            !Inicio 027
+            do VERIFICAR-DATOS-FAELEC-UPDATE
+            !Fin 027					
+      		    !<Inicio #004> - Verificar Errores Cliente
+      			let #RowFile = #RowFile + 1
+      		    ! Inicio 013
+				! 009 se comenta el procedimiento  VERIFICAR-ERRORES-CLIENTE porque basicamente lo que hacia era revisar si 
+				! el tipo de identificacion a guardar sea diferente al almacenado y dejaba la linea en error.
+				Let $ErrorClient = 'N'
+				
+				!Inicio 023
+				do  VALIDAR-CODIGO-CLIENTE
+				! Fin 023	
+				
+      		    !do  VERIFICAR-ERRORES-CLIENTE
+				! Fin 013
+				
+								
+      		    If $ErrorClient <> 'Y' 
+      		    !<Fin #004> - Verificar Errores Cliente
+					if  $INDCLI = 'N' 
+						do VERIFICAR-DATOS-CLIENTES
+						show  ' $ind_zona  ' $ind_zona
+						show  ' $ind_state ' $ind_state
+						show  ' $ind_county' $ind_county
+						show  ' $ind_barrio' $ind_barrio
+							if $ind_zona   = 'N' or $ind_state  = 'N' or $ind_city = 'N' or $ind_county = 'N' or $ind_barrio = 'N'
+                 	
+							   show '* * Cliente No fue Creado en Ps * *' $Cust_id
+							   let #cnt_error = #cnt_error + 1
+							else
+						       let #cnt-rows = #cnt-rows + 1
+							   !****************************************************************************
+							   ! Rutina donde se va a asignar la georeferenciación de los clientes que 
+							   ! venga del POS hacia PS y que el cliente sea nuevo.
+							   ! Inicio Nuevo Codigo                                       2005-11-09
+							   !****************************************************************************
+							   Do Valida-Municipio-Existe
+							    if #find-geocity = 1 and $Canal <> '0' 
+							        SHOW 'Entra if #find-geocity = 1 and $Canal '
+                 		        end-if ! end if #find-geocity = 1 and $Canal <> '0' 
+						        !****************************************************************************
+						        ! Rutina donde se va a asignar la georeferenciación de los clientes que 
+						        ! venga del POS hacia PS y que el cliente sea nuevo.
+						        ! Fin Nuevo Codigo                                       2005-11-09
+						        !****************************************************************************
+						        !******************************************************************************                 
+						        ! Rutina donde se eliminara primero de las tablas CUST_ADDRESS,  CUST_CONTACT, 
+						        ! CUST_ADDR_SQR, PS_CUST_CNTCT_SEQ y PS_CUST_CNTCT_PHN, porque esta sucediendo
+						        ! que esta en esas tablas y no esta en la CUSTOMER.
+						        ! Inicio Nuevo Codigo                                    2007-07-25
+						        !******************************************************************************
+						        Do Eliminar-Registro-Cust-Addr-Cust-Addr-Seq-Cust-Cont-Sqr-Phn
+						        !******************************************************************************                 
+						        ! Rutina donde se eliminara primero de las tablas CUST_ADDRESS,  CUST_CONTACT, 
+						        ! CUST_ADDR_SQR, PS_CUST_CNTCT_SEQ y PS_CUST_CNTCT_PHN, porque esta sucediendo
+						        ! que esta en esas tablas y no esta en la CUSTOMER.
+						        ! Inicio Nuevo Codigo                                    2007-07-25
+						        !******************************************************************************
+						        do INSERTAR-DATOS-CLIENTES
+						        !Inicio 025
+								!Inicio 026
+                                do VALIDA-INFO-FACT-ELEC
+                                do INSERTA-INFO-FACT-ELEC
+                                If $Str_Custo_Fact_Elect <> 'N/A'
+                                    do INSERTA-EMAIL-FACT-ELEC
+                                End-if
+								!Fin 026
+						        ! 026 do INSERTAR-REGIMEN-CLIENTE
+						        ! 026 do INSERTAR-RESPONSABILIDAD-CLIENTE
+						        !Fin 025
+
+						        do INSERTAR-IDENTIF-CLIENTE
+						        do INSERTAR-REGION-CLIENTE
+						        If $Subcust_qual1 <>' ' And $Subcust_qual1 <>''  
+									do INSERTAR-ZONA-CLIENTE1
+						        End-If   
+						        do DATOS-JURIDICOS-CLIENTE
+						        do BUSCAR-RUTA
+						        do INSERTAR-DATOS-DIRECCION
+						        If  $Tipo_ident = 'N'
+									do DATOS-ICA-CLIENTE
+						        End-if						 
+						        
+						        do INSERTAR-DIRECCION-CLIENTE
+						        !Inicio 011
+						        do GetSetidIpo
+						        do INSERTAR-INFO-IPOCONSUMO
+						        !Fin 011
+						        !**************************************************************************************
+						        ! Se adiciona nueva rutina para insertar en la nueva estructura de Dirección de Cartera
+						        ! Inicio 007
+						        !**************************************************************************************
+						        do INSERTAR-DIRECCION-CARTERA
+				     	         	! Inicio 021
+						        do Insertar-Flag-DirCartera
+							! Fin 021
+						        !**************************************************************************************
+						        ! Se adiciona nueva rutina para insertar en la nueva estructura de Dirección de Cartera
+						        ! Fin 007
+						        !**************************************************************************************
+						        do INSERTAR-DATOS-INTERNOS
+						        do INSERTAR-FECHA-OPTION
+						        do INSERTAR-FECHA-SOLDTO
+						        do INSERTAR-FECHA-SHIPTO
+						        do INSERTAR-CUPO-CREDITO
+						        do INSERTAR-SEQ-CONTACTOS
+						        do INSERTAR-CONTACTOS 
+						        do INSERTAR-IVA-CLIENTE
+						        do INSETAR-PUNTOS
+						        do execute-commit
+						        !Inicio 018
+						        !do Buscar-Valor-CamLoc-Ck-Addrees-Geo
+						        Do Buscar-Valor-CamLoc-CK_ADDR_GEOREFE
+						        !Fin 018
+						        if isblank($Ind_Med_Com)
+									 SHOW ' NO BUSCA NADA PARA INSERTAR'
+						        ELSE
+						  	         do BUSCAR-EXISTE-CLIENTE-TABLA-CK-TBCLDIALK
+						  	         if #Bus_Cli_Exi = 0
+						  	            do INSERTAR-CLIENTE-TABLA-CK-TBCLDIALK
+						  	         else
+						  	            do ACTUALIZAR-CLIENTE-TABLA-CK-TBCLDIALK
+						  	         end-if
+						        end-if !isblank($Ind_Med_Com)
+		                    end-if !$ind_zona   = 'N' or $ind_state  = 'N' or $ind_city = 'N'
+		            else
+	            	     let #no-tot-rows = #no-tot-rows + 1
+             		     do CONTROL-DIRECCION 
+             		     If  $Tipo_ident = 'N'
+	         		     	do DATOS-ICA-CLIENTE
+             		     End-if
+					
+					     !Inicio 018
+             		     !do Buscar-Valor-CamLoc-Ck-Addrees-Geo
+					     Do Buscar-Valor-CamLoc-CK_ADDR_GEOREFE
+					     !Fin 018
+             		     if isblank($Ind_Med_Com)
+             		     	SHOW ' NO BUSCA NADA PARA INSERTAR'
+             		     ELSE
+                	     	do BUSCAR-EXISTE-CLIENTE-TABLA-CK-TBCLDIALK
+                	     	if #Bus_Cli_Exi = 0
+                   	     		do INSERTAR-CLIENTE-TABLA-CK-TBCLDIALK
+                	     	else
+                   	     		do ACTUALIZAR-CLIENTE-TABLA-CK-TBCLDIALK
+                	     	end-if
+             		     end-if   
+          		    end-if !$INDCLI = 'N' 
+          		
+				Do InsertaDatosTercerosMediosMagneticos
+
+          		! V002 Inicio
+          		Let $FechaActivacion  = RTrim($FechaActivacion,' ')
+          		Let $FechaActivacion  = LTrim($FechaActivacion,' ')
+          		Show '$FechaActivacion ' $FechaActivacion
+          		If Not isblank($FechaActivacion)
+          			Do Registra-Tarjeta-Institucional
+          		End-if
+          		! V002 Fin
+          		!<Inicio #004> - Verificar Errores Cliente
+          		End-If
+				!<Fin #004> - Verificar Errores Cliente
+       		end-if ! $setid = 'TOTAL'
+      	end-if !$Setid <> 'TOTAL'
+   	end-if !#end-file
+ end-while
+ 
+ if #sw_descuadre = 1 
+    let $estado_final = 'error'
+ else
+    let $estado_final = 'ok'       
+ end-if
+ 
+end-procedure   PROCESAR-ARCHIVO
+
+
+! V002 Inicio
+Begin-Procedure Registra-Tarjeta-Institucional
+	
+	Show 'Registra tarjeta activa ' $Cust_id
+
+	Let $ExisteTarjetaActivada = 'NO'
+
+
+
+BEGIN-SELECT
+'EXISTE TARJETA ACTIVADA'
+	Let $ExisteTarjetaActivada = 'SI'
+FROM PS_CK_TARJETA_INST
+WHERE CUST_ID = $Cust_id
+  AND EFFDT = TO_DATE($FechaActivacion,'YYYYMMDD')
+  AND CK_ESTADO_TARJETA = 'A'
+END-SELECT
+
+	If $ExisteTarjetaActivada = 'NO'
+	
+BEGIN-SQL
+INSERT INTO PS_CK_TARJETA_INST(CK_TARJETA, EFFDT, CUST_ID, CK_ESTADO_TARJETA, OPRID)
+SELECT DISTINCT CK_TARJETA, TO_DATE($FechaActivacion,'YYYYMMDD'),CUST_ID, 'A', $oprid
+FROM PS_CK_TARJETA_INST TARJ
+WHERE TARJ.EFFDT = (SELECT MAX(TARC.EFFDT) FROM PS_CK_TARJETA_INST TARC WHERE TARC.CK_TARJETA=TARJ.CK_TARJETA AND TARC.EFFDT<=SYSDATE)
+  AND TARJ.CUST_ID = $Cust_id
+END-SQL
+
+	End-if
+	
+End-Procedure	
+! V002 Fin
+begin-procedure Eliminar-Registro-Cust-Addr-Cust-Addr-Seq-Cust-Cont-Sqr-Phn
+begin-sql 
+DELETE PS_CUST_ADDR_SEQ ERC 
+WHERE ERC.SETID   = $setid 
+  AND ERC.CUST_ID = $cust_id
+  AND NOT EXISTS (SELECT B1.CUST_ID FROM PS_CUSTOMER B1
+                   WHERE B1.SETID   = ERC.SETID
+                     AND B1.CUST_ID = ERC.CUST_ID)
+end-sql
+
+begin-sql 
+DELETE PS_CUST_CNTCT_SEQ ERC2
+WHERE  ERC2.SETID   = $setid
+  AND  ERC2.CUST_ID = $cust_id 
+  AND NOT EXISTS (SELECT B2.CUST_ID FROM PS_CUSTOMER B2
+                   WHERE B2.SETID   = ERC2.SETID
+                     AND B2.CUST_ID = ERC2.CUST_ID)
+end-sql
+
+begin-sql 
+DELETE PS_CUST_CNTCT_PHN ERC3
+WHERE ERC3.SETID   = $setid
+  AND ERC3.CUST_ID = $cust_id
+  AND NOT EXISTS (SELECT B3.CUST_ID FROM PS_CUSTOMER B3
+                   WHERE B3.SETID   = ERC3.SETID
+                     AND B3.CUST_ID = ERC3.CUST_ID)
+end-sql
+
+begin-sql 
+DELETE PS_CUST_CONTACT ERC4
+WHERE ERC4.SETID   = $setid
+  AND ERC4.CUST_ID = $cust_id
+  AND NOT EXISTS (SELECT B4.CUST_ID FROM PS_CUSTOMER B4
+                   WHERE B4.SETID   = ERC4.SETID
+                     AND B4.CUST_ID = ERC4.CUST_ID)
+end-sql
+
+begin-sql
+DELETE PS_CUST_ADDRESS ERC5
+WHERE ERC5.SETID   = $setid
+  AND ERC5.CUST_ID = $cust_id
+  AND NOT EXISTS (SELECT B5.CUST_ID FROM PS_CUSTOMER B5
+                   WHERE B5.SETID   = ERC5.SETID
+                     AND B5.CUST_ID = ERC5.CUST_ID)
+end-sql
+end-procedure   Eliminar-Registro-Cust-Addr-Cust-Addr-Seq-Cust-Cont-Sqr-Phn
+  
+
+!Inicio 018  
+!-----------------------------------------------------------------------
+! Funcion: ObtenerInstanciaGeo
+! Fecha: 2016-07-08
+! Autor: César Cuncanchún
+! Descripcion: Obtiene la instancia del proceso de georeferenciacion del job actual
+!-----------------------------------------------------------------------       
+begin-procedure ObtenerInstanciaGeo
+
+
+BEGIN-SELECT ON-ERROR=SQL-ERROR
+BGEO.PRCSINSTANCE
+	LET #instanciaGeo = &BGEO.PRCSINSTANCE
+FROM PSPRCSRQST AGEO, PSPRCSRQST BGEO 
+WHERE AGEO.PRCSINSTANCE = #prcs_process_instance
+ AND  AGEO.JOBINSTANCE= BGEO.JOBINSTANCE
+ AND  BGEO.PRCSNAME='CK_GEOREF' 
+END-SELECT
+ show '#instanciaGeo : ' #instanciaGeo
+end-procedure ObtenerInstanciaGeo
+!Fin 018 
+
+begin-procedure Buscar-Valor-CamLoc-Ck-Addrees-Geo
+let $Ck_localidad = ' '
+!Inicio 018 
+!begin-select
+!ELC.CUST_ID, 
+!ELC.CK_LOCALIDAD
+!
+!  let $Ck_localidad = &ELC.CK_LOCALIDAD
+!  if  $Ck_localidad = 'Error'
+!      let #Secuencia    = #Secuencia + 1
+!      let #message_seq  = #message_seq + 1
+!      let #NbrSet       = 21000
+!      let #Nbr          = 28
+!      Do  Insertar_Mensaje
+!  	               
+!      let #ParamSecuencia = 1
+!      let $Parametro      = $Cust_id
+!      Do Insertar_Parametro_mensaje
+!   
+!      !let #sw_descuadre   = 1
+!  end-if
+!
+!FROM PS_CK_ADDRESS_GEO ELC
+!WHERE ELC.SETID   = $Setid
+!  AND ELC.CUST_ID = $Cust_id
+!  AND ELC.EFFDT   = (SELECT MAX(A_ED_ELC.EFFDT) FROM PS_CK_ADDRESS_GEO A_ED_ELC
+!                    WHERE ELC.SETID           = A_ED_ELC.SETID
+!                      AND ELC.CUST_ID         = A_ED_ELC.CUST_ID
+!                      AND ELC.ADDRESS_SEQ_NUM = A_ED_ELC.ADDRESS_SEQ_NUM
+!                      AND A_ED_ELC.EFFDT     <= SYSDATE)
+!end-select
+!Fin 018 
+end-procedure   Buscar-Valor-CamLoc-Ck-Addrees-Geo
+
+!Inicio 018  
+!-----------------------------------------------------------------------
+! Funcion: Buscar-Valor-CamLoc-CK_ADDR_GEOREFE
+! Fecha: 2016-06-16
+! Autor: César Cuncanchún
+! Descripcion: Busca los datos en la tabla CK_ADDR_GEOREFE
+!-----------------------------------------------------------------------       
+begin-procedure Buscar-Valor-CamLoc-CK_ADDR_GEOREFE
+let $Ck_localidad = ' '
+begin-select
+ELC.CUST_ID, 
+ELC.CK_LOCALIDAD1
+
+  let $Ck_localidad = &ELC.CK_LOCALIDAD1
+  if  $Ck_localidad = 'Error'
+      let #Secuencia    = #Secuencia + 1
+      let #message_seq  = #message_seq + 1
+      let #NbrSet       = 21000
+      let #Nbr          = 28
+      Do  Insertar_Mensaje
+  	               
+      let #ParamSecuencia = 1
+      let $Parametro      = $Cust_id
+      Do Insertar_Parametro_mensaje
+   
+      !let #sw_descuadre   = 1
+  end-if
+
+FROM PS_CK_ADDR_GEOREFE ELC
+WHERE ELC.SETID   = $Setid
+  AND ELC.CUST_ID = $Cust_id
+  AND ELC.EFFDT   = (SELECT MAX(A_ED_ELC.EFFDT) FROM PS_CK_ADDR_GEOREFE A_ED_ELC
+                    WHERE ELC.SETID           = A_ED_ELC.SETID
+                      AND ELC.CUST_ID         = A_ED_ELC.CUST_ID
+                      AND ELC.ADDRESS_SEQ_NUM = A_ED_ELC.ADDRESS_SEQ_NUM
+                      AND A_ED_ELC.EFFDT     <= SYSDATE)
+end-select
+end-procedure   Buscar-Valor-CamLoc-CK_ADDR_GEOREFE
+!Fin 018
+
+begin-procedure Valida-Municipio-Existe
+let $CITY_GEO = ' '
+let #find-geocity = 0
+begin-select
+VME.CK_CODIGO_GEOREF 
+
+  let #find-geocity = 1
+  let $CITY_GEO = &VME.CK_CODIGO_GEOREF
+
+FROM PS_MUNI_TBL_HO VME 
+WHERE VME.MUNI_FLD_HO = $City
+AND VME.CK_CODIGO_GEOREF <> ' '
+end-select
+end-procedure   Valida-Municipio-Existe 
+
+begin-procedure Insertar-Registro-Tabla-Ck-Address-Geo
+show  ' Entro Insertar-Registro-Tabla-Ck-Address-Geo '
+let   $Address1 = ltrim ($Address1,' ')
+let   $City     = ltrim ($City,' ')
+show ' $Setid           ' $Setid
+show ' $Cust_id         ' $Cust_id
+SHOW ' $City            ' $City
+show ' $Address1        ' $Address1 
+show ' $fecha_out       ' $fecha_out
+show ' $Canal           ' $Canal
+show ' $address_seq_num ' $address_seq_num
+show '#Seq_Dir_Cli '#Seq_Dir_Cli
+
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CK_ADDRESS_GEO
+(SETID,                  
+CUST_ID,                
+ADDRESS_SEQ_NUM,        
+EFFDT,                  
+ADDRESS1,               
+ADDRESS2,               
+CITY,                   
+CUSTOMER_TYPE,          
+CK_ADDRESS1GEO,         
+CK_ADDRESS2GEO, 
+CK_DIRECCION_ALTER,
+PHONE_NUM,
+CK_FUENTE,
+CK_BARRIO,              
+CK_CX,                  
+CK_CY,                  
+CK_LOCALIDAD,           
+CK_ESTADO_GEO,          
+CK_FECHA_GEO)
+VALUES
+($Setid,
+ $Cust_id,
+ #Seq_Dir_Cli,
+ TO_DATE($fecha_out,'DD-MM-YYYY'), 
+ REPLACE($Address1,'|'),
+ ' ',
+ $City,
+ $Canal,
+ ' ',
+ ' ',
+ ' ',
+ ' ',
+ ' ',
+ ' ',
+ 0,
+ 0,
+ ' ',
+ ' ',
+ '')
+end-sql
+show  ' Salio Insertar-Registro-Tabla-Ck-Address-Geo '
+end-procedure   Insertar-Registro-Tabla-Ck-Address-Geo
+
+!Inicio 018
+!-----------------------------------------------------------------------
+! Funcion: Insertar-Registro-Tabla-CK_ADDR_GEOREFE
+! Fecha: 2016-06-16
+! Autor: César Cuncanchún
+! Descripcion: Inserta registro nuevo en la tabla CK_ADDR_GEOREFE
+!-----------------------------------------------------------------------     
+begin-procedure Insertar-Registro-Tabla-CK_ADDR_GEOREFE 
+
+show  ' Entro Insertar-Registro-Tabla-CK_ADDR_GEOREFE '
+let   $Address1 = ltrim ($Address1,' ')
+let   $City     = ltrim ($City,' ')
+show ' $Setid           ' $Setid
+show ' $Cust_id         ' $Cust_id
+SHOW ' $City            ' $City
+show ' $Address1        ' $Address1 
+show ' $fecha_out       ' $fecha_out
+show ' $Canal           ' $Canal
+show ' $address_seq_num ' $address_seq_num
+show '#Seq_Dir_Cli '#Seq_Dir_Cli
+SHOW ' #actseq ' #actseq
+
+!begin-sql ON-ERROR=SQL-ERROR
+!INSERT INTO PS_CK_ADDR_GEOREFE (SETID,CUST_ID,ADDRESS_SEQ_NUM,EFFDT,ADDRESS1, ADDRESS2, CK_DIRECTRAD,CK_VALIDACION,CK_VALIDA_PLACA,CK_ESAMBIGUA,CK_FUENTE2	,CK_DIRALTERNA	,CK_BARRIOTRADUCIDO,CK_CODIGODIRECCION,CK_CODDIRPLACA,CK_NIVSOCIO,		CK_MANZANA,			CK_BARRIO1,CK_CODBAR,CK_LOCALIDAD1,CK_CX2,CK_CY2,CK_BARRIO_PEOPLE,CK_ESTADO3,CK_MENSAJE1, CK_LOCATION_ID)
+!SELECT SETID,CUST_ID,#actseq,EFFDT,ADDRESS1, ADDRESS2,CK_DIRECTRAD,CK_VALIDACION,CK_VALIDA_PLACA,CK_ESAMBIGUA,CK_FUENTE2	,CK_DIRALTERNA	,CK_BARRIOTRADUCIDO,CK_CODIGODIRECCION,CK_CODDIRPLACA,CK_NIVSOCIO,		CK_MANZANA,			CK_BARRIO1,CK_CODBAR,CK_LOCALIDAD1,CK_CX2,CK_CY2,CK_BARRIO_PEOPLE,CK_ESTADO3,CK_MENSAJE1, ' ' 
+!FROM PS_CK_ADDR_GEO_TMP CCTMP
+!WHERE CCTMP.SETID = $Setid
+!AND CCTMP.CUST_ID = $Cust_id
+!AND CCTMP.ADDRESS_SEQ_NUM = $address_seq_num
+!AND CCTMP.EFFDT = TO_DATE($fecha_out,'DD-MM-YYYY')
+!end-sql
+show  ' Salio Insertar-Registro-Tabla-CK_ADDR_GEOREFE '
+end-procedure   Insertar-Registro-Tabla-CK_ADDR_GEOREFE
+!Fin 018
+
+begin-procedure Buscar-Campos-Tabla-Ck-Address-Geo
+let $Ck_Estado_Geo = ' '
+let $Ck_Addre1_Geo = ' '
+let $Ck_Addre2_Geo = ' '
+let $Ck_Barrio_Geo = ' ' 
+begin-select
+BAD.CK_ESTADO_GEO,
+BAD.CK_ADDRESS1GEO,
+BAD.CK_ADDRESS2GEO,
+BAD.CK_BARRIO 
+
+  let $Ck_Estado_Geo = &BAD.CK_ESTADO_GEO
+  let $Ck_Addre1_Geo = &BAD.CK_ADDRESS1GEO
+  let $Ck_Addre2_Geo = &BAD.CK_ADDRESS2GEO
+  let $Ck_Barrio_Geo = &BAD.CK_BARRIO
+  
+  show ' encontro algo en esta tabla ** ** '
+  show ' $Ck_Estado_Geo ' $Ck_Estado_Geo
+  
+  	show '--------RESULTADO GEOREFERENCIACION INICIO----------'
+    show '$Setid ' $Setid
+    show '$Cust_id ' $Cust_id 
+    show '#Seq_Dir_Cli ' #Seq_Dir_Cli
+    show '$fecha_out ' $fecha_out
+    show '$Ck_Estado_Geo ' $Ck_Estado_Geo
+    show '$Ck_Addre1_Geo ' $Ck_Addre1_Geo
+    show '$Ck_Addre2_Geo ' $Ck_Addre2_Geo
+    show '$Ck_Barrio_Geo ' $Ck_Barrio_Geo
+    show '--------RESULTADO GEOREFERENCIACION FIN----------'
+
+
+FROM PS_CK_ADDRESS_GEO BAD
+where BAD.SETID           = $Setid 
+  and BAD.CUST_ID         = $Cust_id 
+  and BAD.ADDRESS_SEQ_NUM = #Seq_Dir_Cli 
+  and BAD.EFFDT           = TO_DATE($fecha_out,'DD-MM-YYYY')
+end-select
+end-procedure   Buscar-Campos-Tabla-Ck-Address-Geo
+
+!Inicio 018
+!-----------------------------------------------------------------------
+! Funcion: Buscar-Campos-Tabla-CK_ADDR_GEOREFE
+! Fecha: 2016-06-16
+! Autor: César Cuncanchún
+! Descripcion: Busca datos basicos de direccion en la tabla CK_ADDR_GEOREFE
+!-----------------------------------------------------------------------     
+begin-procedure Buscar-Campos-Tabla-CK_ADDR_GEOREFE
+show 'Entra Buscar-Campos-Tabla-CK_ADDR_GEOREFE'
+let $Ck_Estado_Geo = ' '
+let $Ck_Addre1_Geo = ' '
+let $Ck_Addre2_Geo = ' '
+let $Ck_Barrio_Geo = ' ' 
+begin-select
+BAD.CK_ESTADO3,
+BAD.CK_DIRECTRAD,
+BAD.CK_DIRALTERNA,
+BAD.CK_CODBAR 
+
+  let $Ck_Estado_Geo = &BAD.CK_ESTADO3
+  let $Ck_Addre1_Geo = &BAD.CK_DIRECTRAD
+  let $Ck_Addre2_Geo = &BAD.CK_DIRALTERNA
+  let $Ck_Barrio_Geo = &BAD.CK_CODBAR
+  
+  show ' encontro algo en esta tabla ** ** '
+  show ' $Ck_Estado_Geo ' $Ck_Estado_Geo
+  
+  	show '--------RESULTADO GEOREFERENCIACION INICIO----------'
+    show '$Setid ' $Setid
+    show '$Cust_id ' $Cust_id 
+    show '#Seq_Dir_Cli ' #Seq_Dir_Cli
+    show '$fecha_out ' $fecha_out
+    show '$Ck_Estado_Geo ' $Ck_Estado_Geo
+    show '$Ck_Addre1_Geo ' $Ck_Addre1_Geo
+    show '$Ck_Addre2_Geo ' $Ck_Addre2_Geo
+    show '$Ck_Barrio_Geo ' $Ck_Barrio_Geo
+    show '--------RESULTADO GEOREFERENCIACION FIN----------'
+
+
+FROM PS_CK_ADDR_GEOREFE BAD
+where BAD.SETID           = $Setid 
+  and BAD.CUST_ID         = $Cust_id 
+  !and BAD.ADDRESS_SEQ_NUM = #Seq_Dir_Cli 
+  and BAD.ADDRESS_SEQ_NUM = #actseq
+  and BAD.EFFDT           = TO_DATE($fecha_out,'DD-MM-YYYY')
+end-select
+show 'Sale Buscar-Campos-Tabla-CK_ADDR_GEOREFE'
+end-procedure   Buscar-Campos-Tabla-CK_ADDR_GEOREFE
+!Fin 018
+
+
+
+
+!Inicio 018
+!-----------------------------------------------------------------------
+! Funcion: Buscar-Campos-Tabla-CK_ADDR_GEOREFE_TMP
+! Fecha: 2016-06-16
+! Autor: César Cuncanchún
+! Descripcion: Busca datos basicos de direccion en la tabla CK_ADDR_GEOREFE
+!-----------------------------------------------------------------------     
+begin-procedure Buscar-Campos-Tabla-CK_ADDR_GEOREFE_TMP
+show 'Entra Buscar-Campos-Tabla-CK_ADDR_GEOREFE_TMP'
+let $Ck_Estado_Geo = ' '
+let $Ck_Addre1_Geo = ' '
+let $Ck_Addre2_Geo = ' '
+let $Ck_Barrio_Geo = ' ' 
+begin-select
+BAD1.CK_ESTADO3,
+BAD1.CK_DIRECTRAD,
+BAD1.CK_DIRALTERNA,
+BAD1.CK_CODBAR 
+
+  let $Ck_Estado_Geo = &BAD1.CK_ESTADO3
+  let $Ck_Addre1_Geo = &BAD1.CK_DIRECTRAD
+  let $Ck_Addre2_Geo = &BAD1.CK_DIRALTERNA
+  let $Ck_Barrio_Geo = &BAD1.CK_CODBAR
+  
+  show ' encontro algo en esta tabla ** ** '
+  show ' $Ck_Estado_Geo ' $Ck_Estado_Geo
+  
+  	show '--------RESULTADO GEOREFERENCIACION INICIO----------'
+    show '$Setid ' $Setid
+    show '$Cust_id ' $Cust_id 
+    show '#Seq_Dir_Cli ' #Seq_Dir_Cli
+	show '$address_seq_num ' $address_seq_num
+    show '$fecha_out ' $fecha_out
+    show '$Ck_Estado_Geo ' $Ck_Estado_Geo
+    show '$Ck_Addre1_Geo ' $Ck_Addre1_Geo
+    show '$Ck_Addre2_Geo ' $Ck_Addre2_Geo
+    show '$Ck_Barrio_Geo ' $Ck_Barrio_Geo
+    show '--------RESULTADO GEOREFERENCIACION FIN----------'
+
+
+FROM PS_CK_ADDR_GEO_TMP BAD1
+where BAD1.SETID           = $Setid 
+  and BAD1.CUST_ID         = $Cust_id 
+  and BAD1.ADDRESS_SEQ_NUM = $address_seq_num   
+  and BAD1.EFFDT           = TO_DATE($fecha_out,'DD-MM-YYYY')
+  and BAD1.PROCESS_INSTANCE = #instanciaGeo
+end-select
+show 'Sale Buscar-Campos-Tabla-CK_ADDR_GEOREFE_TMP'
+end-procedure   Buscar-Campos-Tabla-CK_ADDR_GEOREFE_TMP 
+!Fin 018
+
+begin-procedure Buscar-Existe-Direcc-Ck-Address-Geo
+SHOW ' Buscar-Existe-Direcc-Ck-Address-Geo ' 
+!Inicio 018 
+!SHOW ' $setid       ' $setid
+!SHOW ' $cust_id     ' $cust_id
+!SHOW ' #Seq_Dir_Cli ' #Seq_Dir_Cli
+!SHOW ' $fecha_out   ' $fecha_out
+!
+!Let $Enc_Cli_Geo = ' '
+!let #Exi_Dic_Geo = 0
+!
+!begin-select
+!BEDG.CUST_ID 
+!
+!  Let $Enc_Cli_Geo = &BEDG.CUST_ID
+!  let #Exi_Dic_Geo = 1
+!
+!FROM PS_CK_ADDRESS_GEO BEDG
+!where BEDG.SETID           = $setid
+!  and BEDG.CUST_ID         = $cust_id
+!  and BEDG.ADDRESS_SEQ_NUM = #Seq_Dir_Cli 
+!  and BEDG.EFFDT           = TO_DATE($fecha_out,'DD-MM-YYYY')
+!end-select
+!Fin 018 
+end-procedure   Buscar-Existe-Direcc-Ck-Address-Geo
+
+!Inicio 018
+!-----------------------------------------------------------------------
+! Funcion: Buscar-Existe-Direcc-CK_ADDR_GEOREFE
+! Fecha: 2016-06-16
+! Autor: César Cuncanchún
+! Descripcion: Busca si existe la dirección en la tabla CK_ADDR_GEOREFE
+!-----------------------------------------------------------------------     
+begin-procedure Buscar-Existe-Direcc-CK_ADDR_GEOREFE
+SHOW ' Buscar-Existe-Direcc-CK_ADDR_GEOREFE ' 
+SHOW ' $setid       ' $setid
+SHOW ' $cust_id     ' $cust_id
+SHOW ' #Seq_Dir_Cli ' #Seq_Dir_Cli
+SHOW ' $fecha_out   ' $fecha_out
+
+Let $Enc_Cli_Geo = ' '
+let #Exi_Dic_Geo = 0
+
+begin-select
+BEDG.CUST_ID 
+
+  Let $Enc_Cli_Geo = &BEDG.CUST_ID
+  let #Exi_Dic_Geo = 1
+
+FROM PS_CK_ADDR_GEOREFE BEDG
+where BEDG.SETID           = $setid
+  and BEDG.CUST_ID         = $cust_id
+  !and BEDG.ADDRESS_SEQ_NUM = #Seq_Dir_Cli 
+  and BEDG.ADDRESS_SEQ_NUM = #actseq 
+  and BEDG.EFFDT           = TO_DATE($fecha_out,'DD-MM-YYYY')
+end-select
+end-procedure   Buscar-Existe-Direcc-CK_ADDR_GEOREFE
+!Fin 018
+
+begin-procedure Update-Registro-Tabla-Ck-Address-Geo
+begin-sql ON-ERROR=SQL-ERROR
+update PS_CK_ADDRESS_GEO 
+SET ADDRESS1 = REPLACE($Address1,'|'),
+    ADDRESS2 = REPLACE($Address2,'|'), 
+    CITY     = $City,
+    CUSTOMER_TYPE = $Canal    
+where SETID           = $setid
+  and CUST_ID         = $cust_id
+  and ADDRESS_SEQ_NUM = #Seq_Dir_Cli
+  and EFFDT           = TO_DATE($fecha_out,'DD-MM-YYYY')
+end-sql
+end-procedure   Update-Registro-Tabla-Ck-Address-Geo
+
+!Inicio 018
+!-----------------------------------------------------------------------
+! Funcion: Update-Registro-Tabla-CK_ADDR_GEOREFE
+! Fecha: 2016-06-16
+! Autor: César Cuncanchún
+! Descripcion: Actualiza la dirección en la tabla CK_ADDR_GEOREFE
+!-----------------------------------------------------------------------  
+begin-procedure Update-Registro-Tabla-CK_ADDR_GEOREFE
+begin-select
+TMPG.CK_DIRECTRAD,
+TMPG.CK_DIRALTERNA, 
+TMPG.CK_CX2,
+TMPG.CK_CY2,
+TMPG.CK_ESTADO3	
+	LET $CK_DIRECTRAD_TMPG = &TMPG.CK_DIRECTRAD
+	LET $CK_DIRALTERNA_TMPG = &TMPG.CK_DIRALTERNA
+	LET $CK_CX2_TMPG = &TMPG.CK_CX2
+	LET $CK_CY2_TMPG = &TMPG.CK_CY2
+	LET $CK_ESTADO3_TMPG = &TMPG.CK_ESTADO3		
+FROM PS_CK_ADDR_GEO_TMP TMPG
+WHERE TMPG.SETID           = $setid
+  and TMPG.CUST_ID         = $cust_id
+  and TMPG.ADDRESS_SEQ_NUM = #Seq_Dir_Cli  
+  and TMPG.EFFDT           = TO_DATE($fecha_out,'DD-MM-YYYY')
+end-select
+
+begin-sql ON-ERROR=SQL-ERROR
+update PS_CK_ADDR_GEOREFE 
+SET CK_DIRECTRAD = $CK_DIRECTRAD_TMPG ,
+	CK_DIRALTERNA = $CK_DIRALTERNA_TMPG ,
+	CK_CX2 =  $CK_CX2_TMPG ,
+	CK_CY2 = $CK_CY2_TMPG ,
+	CK_ESTADO3 =  $CK_ESTADO3_TMPG  
+where SETID           = $setid
+  and CUST_ID         = $cust_id
+  !and ADDRESS_SEQ_NUM = #Seq_Dir_Cli
+  and ADDRESS_SEQ_NUM = #actseq
+  and EFFDT           = TO_DATE($fecha_out,'DD-MM-YYYY')
+end-sql
+end-procedure   Update-Registro-Tabla-CK_ADDR_GEOREFE
+
+!Fin 018
+
+begin-procedure BUSCAR-EXISTE-CLIENTE-TABLA-CK-TBCLDIALK
+let #Bus_Cli_Exi = 0
+let $Cod_Cli_Tot = ' '
+begin-select
+BETCT.CUST_ID
+
+  let $Cod_Cli_Tot = &BETCT.CUST_ID
+  let #Bus_Cli_Exi = 1
+
+FROM PS_CK_TBCLDIALK BETCT
+WHERE BETCT.SETID   = $Setid
+  AND BETCT.CUST_ID = $Cust_id
+end-select
+end-procedure   BUSCAR-EXISTE-CLIENTE-TABLA-CK-TBCLDIALK
+
+begin-procedure INSERTAR-CLIENTE-TABLA-CK-TBCLDIALK
+show 'entra INSERTAR-CLIENTE-TABLA-CK-TBCLDIALK'
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CK_TBCLDIALK
+VALUES
+($Setid,	         
+ $Cust_id,             
+ 'N',
+ !Inicio 026 Cambia el orden de insert
+ !$Ind_Med_Com,
+ !' ',
+ $Oprid,
+ TO_DATE($fecha_out,'DD-MM-YYYY'),
+ $Ind_Med_Com,
+ ' ')
+ !Fin 026
+end-sql
+show 'sale INSERTAR-CLIENTE-TABLA-CK-TBCLDIALK'
+end-procedure   INSERTAR-CLIENTE-TABLA-CK-TBCLDIALK
+
+begin-procedure ACTUALIZAR-CLIENTE-TABLA-CK-TBCLDIALK
+show 'inicia ACTUALIZAR-CLIENTE-TABLA-CK-TBCLDIALK'
+begin-sql ON-ERROR=SQL-ERROR
+UPDATE PS_CK_TBCLDIALK 
+SET CK_MEDIO_CONOCIO  = $Ind_Med_Com
+where SETID           = $Setid
+  and CUST_ID         = $Cust_id
+end-sql
+show 'sale ACTUALIZAR-CLIENTE-TABLA-CK-TBCLDIALK'
+end-procedure   ACTUALIZAR-CLIENTE-TABLA-CK-TBCLDIALK
+                   
+Begin-procedure VERIFICAR-EXIST-CLIENTE
+display 'VERIFICAR-EXIST-CLIENTE'
+let $INDCLI = 'N'
+let $cust_id = ltrim ($Cust_id,' ')
+let $cust-ant = $cust_id
+display $cust-ant 
+if $Tipo_ident = '1' OR $Tipo_ident = '2' OR $Tipo_ident = '3' OR
+   $Tipo_ident = '4' OR $Tipo_ident = '5' OR $Tipo_ident = '6' OR
+   $Tipo_ident = '7' OR $Tipo_ident = '8' OR $Tipo_ident = '9' OR
+   $Tipo_ident = '0'
+   let $Cust_id = $Cust_id || $Tipo_ident
+end-if
+
+											
+begin-select
+customer.setid,
+customer.cust_id
+
+ LET $INDCLI           = 'Y'
+ LET $CUSTOMER.SETID   = &CUSTOMER.SETID
+ LET $CUSTOMER.CUST_ID = &CUSTOMER.CUST_ID
+
+from ps_customer customer
+where customer.setid = $setid
+and   customer.cust_id = $cust_id
+end-select
+
+display $setid
+display $cust_id
+
+display 'cliente existe ' noline
+display $INDCLI
+
+let $cust_id = $cust-ant
+
+end-procedure VERIFICAR-EXIST-CLIENTE
+
+!*************************************************************************
+! Procedure: VALIDAR-CODIGO-CLIENTE                                      !
+! Descr:     Se valida el codigo del cliente referenciado por el tipo de !
+!            documento!
+!***********************************************************************
+! Created by:  #023 - GMR - CK_CS_CR_13676_GMR						   !
+!***********************************************************************
+begin-procedure VALIDAR-CODIGO-CLIENTE  
+display 'VALIDAR-CODIGO-CLIENTE'
+Let $ErrorClient = 'N'
+Let $TipoError = ' '
+let $Val_Descripcion = ''
+begin-select
+Validar_CustId.Logica_Validacion($Cust_id,$Tipo_ident) &Validacion
+   let $Val_Descripcion = &Validacion 
+ 
+   if  $Val_Descripcion <> ''
+   		Let $ErrorClient = 'Y'
+		Let $TipoError = '02'
+		display $Cust_id  
+		display $Tipo_ident  
+		display $Val_Descripcion 
+		!Do CrearError
+   end-if
+   let #LAddress1 = length($Address1)
+   if  #LAddress1 < 8
+   		Let $ErrorClient = 'Y'
+		Let $TipoError = '09'
+		Let $Val_Descripcion = 'ERROR: EL CAMPO DIRECCION DEBE TENER MAS DE 8 CARACTERES'
+		display $Cust_id  
+		display $Tipo_ident  
+		display $Val_Descripcion 
+		!Do CrearError
+   end-if
+   
+   
+   
+FROM DUAL
+end-select
+end-procedure   VALIDAR-CODIGO-CLIENTE  
+!***********************************************************************
+! Procedure: VERIFICAR-ERRORES-CLIENTE                                 !
+! Descr:     Se valida si el cliente tiene problemas para generar error!
+!***********************************************************************
+! Created by:  #004 - JCC - CK_CS_AR_JCC_5953						   !
+!***********************************************************************
+Begin-procedure VERIFICAR-ERRORES-CLIENTE
+display 'VERIFICAR-ERRORES-CLIENTE'
+
+Let $ErrorClient = 'N'
+Let $TipoError = ' '
+
+if $INDCLI = 'Y'
+
+	!Procesar error por tipo de Identificación Diferente
+	Do Buscar_Tipo_Identificacion
+	If (NOT isblank($Tipo_Ident_Cliente)) and  $Tipo_ident <> $Tipo_Ident_Cliente
+		Let $ErrorClient = 'Y'
+		Let $TipoError = '01'
+		!Do CrearError
+	End-If
+	
+	display $setid
+	display $cust_id
+
+End-If
+
+display 'cliente en ERROR ' noline
+display $ErrorClient
+end-procedure VERIFICAR-ERRORES-CLIENTE
+
+
+!***********************************************************************
+! Procedure: Buscar_Tipo_Identificacion                                !
+! Descr:     Se busca el tipo de identificación del cliente            !
+!***********************************************************************
+! Created by:  #004 - JCC - CK_CS_AR_JCC_5953						   !
+!***********************************************************************
+Begin-procedure Buscar_Tipo_Identificacion
+display 'Buscar_Tipo_Identificacion'
+
+LET $Tipo_Ident_Cliente   = ' '
+
+begin-select
+lc_customer.setid,
+lc_customer.cust_id,
+lc_customer.tipo_identificac
+
+	LET $Tipo_Ident_Cliente   = &lc_customer.tipo_identificac
+
+from PS_LC_CUSTOMER_ID lc_customer
+where lc_customer.setid = $setid
+and   lc_customer.cust_id = $cust_id
+end-select
+
+Show '$Tipo_Ident_Cliente ' $Tipo_Ident_Cliente
+end-procedure Buscar_Tipo_Identificacion
+
+
+!***********************************************************************
+! Procedure: CrearError					                               !
+! Descr:     Se valida si el cliente tiene problemas para generar error!
+!***********************************************************************
+! Created by:  #004 - JCC - CK_CS_AR_JCC_5953						   !
+!***********************************************************************
+Begin-procedure CrearError
+display 'CrearError'
+
+Let $FieldNameError = ' '
+Let $ActionError	= ' '
+Let $OldValue		= ' '
+Let $NewValue		= ' '
+Let $ObservacionErr = ' '
+
+Evaluate $TipoError
+
+	When = '01'
+		Let $FieldNameError = 'TIPO_IDENTIFICAC'
+		Let $ActionError	= 'A'
+		Let $OldValue		= $Tipo_Ident_Cliente
+		Let $NewValue		= $Tipo_ident
+		Let $ObservacionErr = 'Error Tipo de Identificación Cliente'
+		Break
+	
+
+	When = '02'
+		Let $FieldNameError = 'TIPO_IDENTIFICAC'
+		Let $ActionError	= 'A'
+		Let $OldValue		= $Tipo_ident
+		Let $NewValue		= $Cust_id
+		Let $ObservacionErr = $Val_Descripcion
+		Break
+		
+	When = '09'
+		Let $FieldNameError = 'TIPO_IDENTIFICAC'
+		Let $ActionError	= 'A'
+		Let $OldValue		= $Tipo_ident
+		Let $NewValue		= $Cust_id
+		Let $ObservacionErr = 'Longitud de Direccion'
+		Break
+		
+End-Evaluate
+
+Begin-SQL
+INSERT INTO PS_CK_ERR_INTF_CUS 
+(
+PROCESS_INSTANCE,
+SETID,
+CUST_ID,
+LINE_SEQ,
+CK_ERR_INTF_CUST,
+FIELDNAME,
+ACTION_CD,
+OLDVALUE,
+NEWVALUE,
+CK_OBSERVACIONES,
+FILE_NAME,
+PROCESS_DATE,
+PROCESS_DTTM,
+OPRID,
+CONTROL_FLAG
+)
+VALUES 
+(
+#prcs_process_instance,
+$setid,
+$cust_id,
+#RowFile,
+$TipoError,
+$FieldNameError,
+$ActionError,
+$OldValue,
+$NewValue,
+$ObservacionErr,
+$file_name,
+SYSDATE,
+SYSDATE,
+$oprid,
+'N'
+)
+
+End-SQL
+
+display 'CREATE ERROR [OK]'
+end-procedure CrearError
+
+!Inicio 027
+begin-procedure VERIFICAR-DATOS-FAELEC-UPDATE
+let $Bol_Insert = 'False'
+let $Bol_InsertContact = 'False'
+let $InsertActivi = 'False'
+let $InsertActiviReg = 'False'
+Let $InsertActivi = 'False'
+begin-select
+OPTFEUPD.EFFDT
+OPTFEUPD.CK_CUSTO_FACT_ELEC
+OPTFEUPD.NAME1
+OPTFEUPD.EMAIL_ADDR
+SYSDATE
+
+	Let $EFFDT_OPTFE = &OPTFEUPD.EFFDT
+  Let $CK_CUSTO_FACT_ELEC_OPTFE = &OPTFEUPD.CK_CUSTO_FACT_ELEC
+  Let $NAME1_OPTFE = &OPTFEUPD.NAME1
+  Let $EMAIL_ADDR_OPTFE = &OPTFEUPD.EMAIL_ADDR
+  Let $DATE = &SYSDATE
+  
+  Show 'El cliente tiene marcacion FE ' $EFFDT_OPTFE
+  Show ' ' $CK_CUSTO_FACT_ELEC_OPTFE
+  Show ' ' $NAME1_OPTFE
+  Show ' ' $EMAIL_ADDR_OPTFE
+  Show ' ' $setid
+  Show ' ' $cust_id
+  Show ' ' $DATE
+
+  If $CK_CUSTO_FACT_ELEC_OPTFE = 'N/A' and $Str_Custo_Fact_Elect <> '' and $Str_Custo_Fact_Elect <> 'N/A' and $Str_Emailid <> ''
+    let  $Bol_Insert = 'True'
+  End-If
+  If $CK_CUSTO_FACT_ELEC_OPTFE = 'N/A' and $Str_Custo_Fact_Elect = '' and $Str_Emailid <> ''
+    let  $Str_Custo_Fact_Elect = 'ECE'
+    let  $Bol_Insert = 'True'
+  End-If
+  If $CK_CUSTO_FACT_ELEC_OPTFE = 'N/A' and $Str_Custo_Fact_Elect = 'N/A' and $Str_Emailid <> ''
+    let  $Str_Custo_Fact_Elect = 'ECE'
+    let  $Bol_Insert = 'True'
+  End-If
+  If $CK_CUSTO_FACT_ELEC_OPTFE = 'ECE' and $Str_Custo_Fact_Elect = 'RES'
+    let  $Bol_Insert = 'True'
+  End-If
+
+  If $NAME1_OPTFE = ' ' and $NAME1_OPTFE = '' and $Str_Contact_Name <> ' ' and $Str_Contact_Name <> ''
+    let $Bol_InsertContact = 'True'
+  End-if
+  If $NAME1_OPTFE <> ' ' and $NAME1_OPTFE <> '' and $Str_Contact_Name <> ' ' and $Str_Contact_Name <> '' and $NAME1_OPTFE <> $Str_Contact_Name
+    let $Bol_InsertContact = 'True'
+  End-if
+
+  If $Bol_Insert = 'True' 
+      If $EFFDT_OPTFE = $DATE
+        do ACTUALIZAR-MARCACION-FE
+      else
+        do INSERTAR-MARCACION-FE
+      End-if
+  End-if
+  If $Bol_InsertContact = 'True'
+      If $EFFDT_OPTFE = $DATE
+        do ACTUALIZAR-CONTACTO-FE
+      else
+        do INSERTAR-CONTACTO-FE
+      End-if
+  End-if
+
+
+FROM PS_CK_CUST_OPT_FE OPTFEUPD
+ WHERE OPTFEUPD.SETID = $setid
+   AND OPTFEUPD.CUST_ID = $cust_id
+   AND OPTFEUPD.EFFDT =
+       (SELECT MAX(OPTFEUPD2.EFFDT)
+          FROM PS_CK_CUST_OPT_FE OPTFEUPD2
+         WHERE OPTFEUPD.SETID = OPTFEUPD2.SETID
+           AND OPTFEUPD.CUST_ID = OPTFEUPD2.CUST_ID
+           AND OPTFEUPD2.EFFDT <= SYSDATE)
+end-select
+Let $Str_Existe_Emailid = 'False'
+
+begin-select
+EMAILIDADDR.EMAILID
+
+  let $EMAILID_ADDR = &EMAILIDADDR.EMAILID
+  IF $EMAILID_ADDR = $Str_Emailid
+    Let $Str_Existe_Emailid = 'True'
+    Show 'Correo Ya existe ' $EMAILID_ADDR
+  END-IF
+
+FROM PS_CK_CUSTO_FAELEC EMAILIDADDR
+  WHERE EMAILIDADDR.SETID = $setid
+  AND EMAILIDADDR.CUST_ID = $cust_id
+  AND EMAILIDADDR.ADDRESS_SEQ_NUM = $address_seq_num
+  AND EMAILIDADDR.EFFDT = 
+    (SELECT MAX(XEMAIL.EFFDT)
+      FROM PS_CK_CUSTO_FAELEC XEMAIL
+      WHERE XEMAIL.SETID = EMAILIDADDR.SETID
+      AND XEMAIL.CUST_ID = EMAILIDADDR.CUST_ID
+      AND XEMAIL.ADDRESS_SEQ_NUM = EMAILIDADDR.ADDRESS_SEQ_NUM
+      AND XEMAIL.EFFDT <= SYSDATE)
+end-select
+
+If $Str_Existe_Emailid = 'False'
+  do VALIDA-CARACTERES-DISPONIBLES-EMAIL
+    Let #Len_Email = length($Str_Emailid)
+    find  '@'  in  $Str_Emailid  2  #Pos_Email
+    let $thisEmail = substr($Str_Emailid, #Pos_Email + 1, #Len_Email)
+    find  '.'  in  $thisEmail  2  #Pos_thisEmail
+  If #Len_Email < #Caracteresdisponibles
+    If #Pos_Email >= 1 And #Pos_thisEmail >= 1
+      do INSERTA-EMAIL-ADDR-FAELE
+    else
+      Show 'El valor enviado para Email '  $Str_Emailid ' de facturación electrónica no es correcto'
+    End-If
+  else
+    Show 'No hay caracteres disponibles para almacenar el correo ' $Str_Emailid
+  end-if
+End-If
+
+begin-select
+TAXREG.CK_CODIGO
+TAXREG.EFFDT
+   let $ck_codigo_reg = &TAXREG.CK_CODIGO
+   let $Effdt_Reg = &TAXREG.EFFDT
+  FROM PS_CK_LC_CUST_TAX2 TAXREG
+ WHERE TAXREG.SETID = $setid
+   AND TAXREG.CUST_ID = $cust_id
+   AND TAXREG.EFFDT = (SELECT MAX(TAXREG2.EFFDT)
+                          FROM PS_CK_LC_CUST_TAX2 TAXREG2
+                         WHERE TAXREG2.SETID = TAXREG.SETID
+                           AND TAXREG2.CUST_ID = TAXREG.CUST_ID
+                           AND TAXREG2.EFFDT <= SYSDATE)
+end-select
+  let $Bol_InsertReg = 'False'
+  do VALIDA-REGIMEN
+  If isblank($Str_Regimen_Exist)
+      Show 'El valor de Régimen enviado ' $Str_Regimen ' No es un valor valido'
+      let $Bol_InsertReg = 'False'
+  else
+    If $ck_codigo_reg = '' and $Str_Regimen <> ''
+      let $Bol_InsertReg = 'True'
+    End-if
+    If $ck_codigo_reg <> '' and $Str_Regimen <> '' and $ck_codigo_reg <> $Str_Regimen 
+      let $Bol_InsertReg = 'True'
+    End-if
+  end-if
+
+  if $Bol_InsertReg = 'True'
+    if $Effdt_Reg = $DATE
+         ! do ACTUALIZAR-REGIMEN-FE
+    else
+      let $InsertActivi = 'True'
+      let $InsertActiviReg = 'True'
+      !do INSERTA-REGIMEN-FE
+    end-if
+  end-if
+
+do CONSULTA-FECHA-RES
+let $Con_Excluyente = ''
+do CONSULTA-INSERTA-RES
+IF $Str_Responsabilidad <> ''
+let #ContResp = 0
+let #start_pos = 1
+Let #cantidad = length($Str_Responsabilidad)
+  while   #start_pos < length($Str_Responsabilidad)
+    find  ';'  in  $Str_Responsabilidad  #start_pos  #pos_sep
+    If #pos_sep = -1 
+        let #pos_sep = 0
+    End-If
+    If #pos_sep = 0 
+        If #start_pos = 1
+        let $valor_campo = substr($Str_Responsabilidad, #start_pos, length($Str_Responsabilidad))
+        Else
+            let $valor_campo = substr($Str_Responsabilidad, #start_pos + 1, length($Str_Responsabilidad))
+        End-If
+        let $Str_ResponsabilidadLn = $valor_campo
+        !show '$Str_ResponsabilidadLn1 ' $Str_ResponsabilidadLn
+        let $Str_ResponsabilidadLn_Exis = ''
+        let #start_pos = length($Str_Responsabilidad)
+    Else
+        let #cant = #pos_sep - #start_pos
+        If #start_pos = 1
+            let $valor_campo = substr($Str_Responsabilidad, #start_pos, #pos_sep)
+        Else
+            let $valor_campo = substr($Str_Responsabilidad, #start_pos + 1, #cant)
+        End-If
+        let $Str_ResponsabilidadLn = $valor_campo
+        let $Str_ResponsabilidadLn_Exis = ''
+        let #start_pos = #pos_sep + 1
+    End-If
+
+    do CONSULTA-CAN-RES
+    if #Cant_resp <> #cantidad
+      let $InsertResDiferencia = 'True'
+    end-if
+    if $InsertResDiferencia = 'True'
+      Let #ContResp = #ContResp + 1
+      if $Con_Excluyente = 'Y'
+        if $Res_Excluyente =  $Str_ResponsabilidadLn
+          if $Res_EFFDT = $DATE
+            if $ActualizaFecha = ''
+              do MODIFICAR-RESPONSABILIDAD-CLIENTE-EXISTE
+            end-if
+            do INSERTAR-RESPONSABILIDAD-CLIENTE-EXISTE
+            !Show 'Modifica Res cliente' $Str_ResponsabilidadLn
+            let $InsertResDiferencia = 'False'
+          else
+            let $InsertActivi = 'True'
+            let $InsertActiviRes = 'True'
+            do INSERTAR-RESPONSABILIDAD-CLIENTE-EXISTE
+            !Show 'Inserta Res cliente' $Str_ResponsabilidadLn
+            let $InsertResDiferencia = 'False'
+          end-if  
+        end-if
+      else
+        do VALIDA-RESPONSABILIDAD
+        If IsBlank($Str_ResponsabilidadLn_Exis)
+            Show 'El valor de Responsabilidad enviado ' $Str_ResponsabilidadLn ' No es un valor valido'
+        Else
+          if $Res_EFFDT = $DATE
+            if $ActualizaFecha = ''
+              do MODIFICAR-RESPONSABILIDAD-CLIENTE-EXISTE
+            end-if
+            do INSERTAR-RESPONSABILIDAD-CLIENTE-EXISTE
+            !Show 'Modifica Res cliente' $Str_ResponsabilidadLn
+          else
+            let $InsertActivi = 'True'
+            let $InsertActiviRes = 'True'
+            do INSERTAR-RESPONSABILIDAD-CLIENTE-EXISTE
+            !Show 'Inserta Res cliente' $Str_ResponsabilidadLn
+          end-if
+        End-If
+      end-if
+    end-if
+  end-while
+End-If
+if $InsertActivi = 'True'
+  !do INSERTAR-NUEVAFECHA-ACTIVIDAD-CLIENTE
+  if $InsertActiviReg <> 'True'
+  !  do ACTUALIZA-FECHA-REG-CLIENTE
+  end-if
+  !if $InsertActiviRes <> 'True'
+  !  do ACTUALIZA-FECHA-RES-CLIENTE
+  !end-if  
+end-if
+
+end-procedure   VERIFICAR-DATOS-FAELEC-UPDATE
+
+begin-procedure ACTUALIZAR-MARCACION-FE
+
+begin-sql ON-ERROR=SQL-ERROR
+UPDATE PS_CK_CUST_OPT_FE
+
+SET CK_CUSTO_FACT_ELEC = $Str_Custo_Fact_Elect
+
+WHERE SETID = $setid
+  AND CUST_ID = $cust_id
+  AND EFFDT = $DATE
+end-sql
+end-procedure   ACTUALIZAR-MARCACION-FE
+
+begin-procedure INSERTAR-MARCACION-FE
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CK_CUST_OPT_FE FE
+(FE.SETID,
+FE.CUST_ID,
+FE.EFFDT,
+FE.CK_CUSTO_FACT_ELEC,
+FE.FLAG,
+FE.NAME1,
+FE.FLAG2,
+FE.OPRID_ENTERED_BY,
+FE.ENTERED_DTTM,
+FE.OPRID_MODIFIED_BY,
+FE.LAST_UPDATE_DTTM,
+FE.EMAIL_ADDR)
+SELECT A.SETID,
+      A.CUST_ID,
+      $DATE,
+      $Str_Custo_Fact_Elect,
+      A.FLAG,
+      A.NAME1,
+      A.FLAG2,
+      A.OPRID_ENTERED_BY,
+      A.ENTERED_DTTM,
+      $oprid,
+      SYSDATE,
+      A.EMAIL_ADDR
+FROM PS_CK_CUST_OPT_FE A
+WHERE A.SETID = $setid
+  AND A.CUST_ID = $cust_id
+  AND A.EFFDT = (SELECT MAX(X.EFFDT)
+                  FROM PS_CK_CUST_OPT_FE X
+                  WHERE X.SETID = A.SETID
+                    AND X.CUST_ID = A.CUST_ID
+                    AND X.EFFDT <= SYSDATE)
+end-sql
+end-procedure   INSERTAR-MARCACION-FE
+
+
+begin-procedure ACTUALIZAR-CONTACTO-FE
+
+begin-sql ON-ERROR=SQL-ERROR
+UPDATE PS_CK_CUST_OPT_FE
+
+SET NAME1 = $Str_Contact_Name
+
+WHERE SETID = $setid
+  AND CUST_ID = $cust_id
+  AND EFFDT = $DATE
+end-sql
+
+end-procedure   ACTUALIZAR-CONTACTO-FE
+
+begin-procedure INSERTAR-CONTACTO-FE
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CK_CUST_OPT_FE FE
+(FE.SETID,
+FE.CUST_ID,
+FE.EFFDT,
+FE.CK_CUSTO_FACT_ELEC,
+FE.FLAG,
+FE.NAME1,
+FE.FLAG2,
+FE.OPRID_ENTERED_BY,
+FE.ENTERED_DTTM,
+FE.OPRID_MODIFIED_BY,
+FE.LAST_UPDATE_DTTM,
+FE.EMAIL_ADDR)
+SELECT A.SETID,
+      A.CUST_ID,
+      $DATE,
+      A.CK_CUSTO_FACT_ELEC,
+      A.FLAG,
+      $Str_Contact_Name,
+      A.FLAG2,
+      A.OPRID_ENTERED_BY,
+      A.ENTERED_DTTM,
+      $oprid,
+      SYSDATE,
+      A.EMAIL_ADDR
+FROM PS_CK_CUST_OPT_FE A
+WHERE A.SETID = $setid
+  AND A.CUST_ID = $cust_id
+  AND A.EFFDT = (SELECT MAX(X.EFFDT)
+                  FROM PS_CK_CUST_OPT_FE X
+                  WHERE X.SETID = A.SETID
+                    AND X.CUST_ID = A.CUST_ID
+                    AND X.EFFDT <= SYSDATE)
+end-sql
+end-procedure   INSERTAR-CONTACTO-FE
+
+begin-procedure VALIDA-CARACTERES-DISPONIBLES-EMAIL
+Show 'VALIDA-CARACTERES-DISPONIBLES-EMAIL ' 
+begin-select
+TOPEDIAN.DESCR100
+
+  let #Topedian = &TOPEDIAN.DESCR100
+  show '#Topedian ' #Topedian
+FROM PS_CK_FE_PARGRAL TOPEDIAN
+WHERE TOPEDIAN.CK_COD_PARAM = 'TOPE_DIAN'
+end-select
+
+begin-select
+CANTEMAIL.CK_CANTIDAD
+
+  let #Cant_uso = #Cant_uso + &CANTEMAIL.CK_CANTIDAD
+  show '#Cant_uso ' #Cant_uso
+  FROM PS_CK_CAN_EMAIL_VW CANTEMAIL
+ WHERE CANTEMAIL.SETID = $setid
+   AND CANTEMAIL.CUST_ID = $cust_id
+end-select
+
+let #Caracteresdisponibles = #Topedian - #Cant_uso
+show '#Caracteresdisponibles ' #Caracteresdisponibles
+
+end-procedure VALIDA-CARACTERES-DISPONIBLES-EMAIL
+
+
+begin-procedure INSERTA-EMAIL-ADDR-FAELE
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CK_CUSTO_FAELEC EMAILADDRFE
+  (EMAILADDRFE.SETID,
+   EMAILADDRFE.CUST_ID,
+   EMAILADDRFE.ADDRESS_SEQ_NUM,
+   EMAILADDRFE.EFFDT,
+   EMAILADDRFE.EMAILID,
+   EMAILADDRFE.LAST_UPDATE_DTTM)
+  SELECT DISTINCT EMAILIDADDR2.SETID,
+         EMAILIDADDR2.CUST_ID,
+         EMAILIDADDR2.ADDRESS_SEQ_NUM,
+         EMAILIDADDR2.EFFDT,
+         $Str_Emailid,
+         SYSDATE
+    FROM PS_CUST_ADDRESS EMAILIDADDR2
+   WHERE EMAILIDADDR2.SETID = $setid
+     AND EMAILIDADDR2.CUST_ID = $cust_id
+     AND EMAILIDADDR2.ADDRESS_SEQ_NUM = $address_seq_num
+     AND EMAILIDADDR2.EFFDT =
+         (SELECT MAX(XEMAIL2.EFFDT)
+            FROM PS_CUST_ADDRESS XEMAIL2
+           WHERE XEMAIL2.SETID = EMAILIDADDR2.SETID
+             AND XEMAIL2.CUST_ID = EMAILIDADDR2.CUST_ID
+             AND XEMAIL2.ADDRESS_SEQ_NUM = EMAILIDADDR2.ADDRESS_SEQ_NUM
+             AND XEMAIL2.EFFDT <= SYSDATE)
+end-sql
+end-procedure INSERTA-EMAIL-ADDR-FAELE
+
+begin-procedure ACTUALIZAR-REGIMEN-FE
+begin-sql ON-ERROR=SQL-ERROR
+UPDATE PS_CK_LC_CUST_TAX2 TAXUPDREG
+SET TAXUPDREG.CK_CODIGO = $Str_Regimen
+ WHERE TAXUPDREG.SETID = $setid
+   AND TAXUPDREG.CUST_ID = $cust_id
+   AND TAXUPDREG.EFFDT = (SELECT MAX(TAXUPDREG2.EFFDT)
+                          FROM PS_CK_LC_CUST_TAX2 TAXUPDREG2
+                         WHERE TAXUPDREG2.SETID = TAXUPDREG.SETID
+                           AND TAXUPDREG2.CUST_ID = TAXUPDREG.CUST_ID
+                           AND TAXUPDREG2.EFFDT <= SYSDATE)
+end-sql
+end-procedure ACTUALIZAR-REGIMEN-FE
+
+begin-procedure INSERTA-REGIMEN-FE
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CK_LC_CUST_TAX2
+VALUES ($setid,$cust_id,$DATE,$Str_Regimen)
+end-sql
+end-procedure INSERTA-REGIMEN-FE
+
+begin-procedure CONSULTA-CLIENTE-RESPONSABILIDAD
+let $Str_ResponGuarda = ''
+begin-select
+TAXUPDRES.CK_CODIGO
+  let  $Str_ResponGuarda = $Str_ResponsabilidadLn
+  FROM PS_CK_LC_CUST_TAXT TAXUPDRES
+ WHERE TAXUPDRES.SETID = $setid
+   AND TAXUPDRES.CUST_ID = $cust_id
+   AND TAXUPDRES.CK_CODIGO = $Str_ResponsabilidadLn
+   AND TAXUPDRES.EFFDT =
+       (SELECT MAX(TAXUPDRES2.EFFDT)
+          FROM PS_CK_LC_CUST_TAXT TAXUPDRES2
+         WHERE TAXUPDRES2.SETID = TAXUPDRES.SETID
+           AND TAXUPDRES2.CUST_ID = TAXUPDRES.CUST_ID
+           AND TAXUPDRES2.EFFDT <= SYSDATE)
+end-select
+end-procedure CONSULTA-CLIENTE-RESPONSABILIDAD
+
+begin-procedure VALIDA-RES-EXCLUYENTE
+!SHOW '$Str_ResponsabilidadLn ' $Str_ResponsabilidadLn
+let $Res_exclu = 'N'
+begin-select
+RSCTBL.FLAG_EX
+  Let $Res_exclu = &RSCTBL.FLAG_EX
+FROM PS_CK_CU_RESEXC_VW RSCTBL
+ WHERE RSCTBL.CK_CODIGO = $Str_ResponsabilidadLn
+end-select
+end-procedure VALIDA-RES-EXCLUYENTE
+
+begin-procedure CONSULTA-CAN-RES
+begin-select 
+CANRESP.CK_CANTIDAD
+  Let #Cant_resp = &CANRESP.CK_CANTIDAD
+FROM PS_CK_CAN_RESP_VW CANRESP
+  WHERE CANRESP.SETID = $setid
+  AND CANRESP.CUST_ID = $cust_id
+end-select
+end-procedure CONSULTA-CAN-RES
+
+begin-procedure CONSULTA-FECHA-RES
+
+begin-select
+TAXT5.EFFDT
+ let $Res_EFFDT = &TAXT5.EFFDT
+FROM PS_CK_RES_FECH_VW TAXT5
+ WHERE TAXT5.SETID = $setid
+ AND TAXT5.CUST_ID = $cust_id
+end-select
+end-procedure CONSULTA-FECHA-RES
+
+begin-procedure CONSULTA-INSERTA-RES
+let $InsertResDiferencia = 'False'
+Let $Str_ResponGuarda = ''
+let #start_pos = 1
+Let #cantidad = length($Str_Responsabilidad)
+while   #start_pos < length($Str_Responsabilidad)
+        find  ';'  in  $Str_Responsabilidad  #start_pos  #pos_sep
+        If #pos_sep = -1 
+            let #pos_sep = 0
+        End-If
+        If #pos_sep = 0 
+            If #start_pos = 1
+            let $valor_campo = substr($Str_Responsabilidad, #start_pos, length($Str_Responsabilidad))
+            Else
+                let $valor_campo = substr($Str_Responsabilidad, #start_pos + 1, length($Str_Responsabilidad))
+            End-If
+            let $Str_ResponsabilidadLn = $valor_campo
+            let $Str_ResponsabilidadLn_Exis = ''
+            do VALIDA-RESPONSABILIDAD
+            If IsBlank($Str_ResponsabilidadLn_Exis)
+                !Show 'El valor de Responsabilidad enviado ' $Str_ResponsabilidadLn ' No es un valor valido'
+            Else
+              do CONSULTA-CLIENTE-RESPONSABILIDAD
+            End-If
+            let #start_pos = length($Str_Responsabilidad)
+        Else
+            let #cant = #pos_sep - #start_pos
+            If #start_pos = 1
+                let $valor_campo = substr($Str_Responsabilidad, #start_pos, #pos_sep)
+            Else
+                let $valor_campo = substr($Str_Responsabilidad, #start_pos + 1, #cant)
+            End-If
+            let $Str_ResponsabilidadLn = $valor_campo
+            let $Str_ResponsabilidadLn_Exis = ''
+            do VALIDA-RESPONSABILIDAD
+            If IsBlank($Str_ResponsabilidadLn_Exis)
+                !Show 'El valor de Responsabilidad enviado ' $Str_ResponsabilidadLn ' No es un valor valido'
+            Else
+              do CONSULTA-CLIENTE-RESPONSABILIDAD
+            End-If
+            let #start_pos = #pos_sep + 1
+        End-If
+        IF $Con_Excluyente <> 'Y'
+          If $Str_ResponGuarda = ''
+            !Show 'responsabilidad es nueva ' $Str_ResponsabilidadLn
+            let $InsertResDiferencia = 'True'
+          End-if
+            let $Res_exclu = 'N'
+            do VALIDA-RES-EXCLUYENTE
+            if $Res_exclu = 'Y'
+              let $Res_Excluyente =  $Str_ResponsabilidadLn
+              Show 'La Responsabilidad ' $Res_Excluyente ' está marcada como excluyente'
+              let $Con_Excluyente = 'Y'
+            end-if
+        End-if
+end-while
+end-procedure CONSULTA-INSERTA-RES
+
+begin-procedure INSERTAR-NUEVAFECHA-ACTIVIDAD-CLIENTE
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_LC_CUST_TAXTYPE
+SELECT TAXTYPERES.SETID,
+       TAXTYPERES.CUST_ID,
+       $DATE,
+       TAXTYPERES.STATUS,
+       TAXTYPERES.CTB_TYPE_HO,
+       TAXTYPERES.TIPO_PER_HO,
+       TAXTYPERES.MUNI_FLD_HO,
+       TAXTYPERES.ACT_ICA_HO,
+       TAXTYPERES.LC_AGENTE_RETENC,
+       TAXTYPERES.LC_AUTO_RET_RTA,
+       TAXTYPERES.LC_RES_RET_REN,
+       TAXTYPERES.LC_RES_RET_ICA,
+       TAXTYPERES.LC_AGENTE_RET_ICA,
+       TAXTYPERES.LC_RES_RET_IVA,
+       TAXTYPERES.LC_AUTO_RET_IVA,
+       TAXTYPERES.LC_RES_RET_REM,
+       TAXTYPERES.LC_AUTO_RET_REM,
+       TAXTYPERES.EXT_REN_HO,
+       TAXTYPERES.RES_REN_HO,
+       TAXTYPERES.EXT_ICA_HO,
+       TAXTYPERES.RES_ICA_HO,
+       TAXTYPERES.EXT_IVA_HO,
+       TAXTYPERES.RES_RIVA_HO,
+       TAXTYPERES.EXT_REM_HO,
+       TAXTYPERES.RES_REM_HO
+  FROM PS_LC_CUST_TAXTYPE TAXTYPERES
+ WHERE TAXTYPERES.SETID = $setid
+   AND TAXTYPERES.CUST_ID = $cust_id
+   AND TAXTYPERES.EFFDT =
+       (SELECT MAX(TAXTYPERES2.EFFDT)
+          FROM PS_LC_CUST_TAXTYPE TAXTYPERES2
+         WHERE TAXTYPERES2.SETID = TAXTYPERES.SETID
+           AND TAXTYPERES2.CUST_ID = TAXTYPERES.CUST_ID
+           AND TAXTYPERES2.EFFDT <= SYSDATE)
+end-sql
+
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_LC_CUSTTXTYP_CH
+  SELECT TXTYPRES.SETID,
+         TXTYPRES.CUST_ID,
+         $DATE,
+         TXTYPRES.MUNI_FLD_HO,
+         TXTYPRES.LC_RES_RET_ICA,
+         TXTYPRES.LC_AGENTE_RET_ICA,
+         TXTYPRES.RES_ICA_HO,
+         TXTYPRES.EXT_ICA_HO
+    FROM PS_LC_CUSTTXTYP_CH TXTYPRES
+   WHERE TXTYPRES.SETID = $setid
+     AND TXTYPRES.CUST_ID = $cust_id
+     AND TXTYPRES.EFFDT =
+         (SELECT MAX(TXTYPRES2.EFFDT)
+            FROM PS_LC_CUSTTXTYP_CH TXTYPRES2
+           WHERE TXTYPRES2.SETID = TXTYPRES.SETID
+             AND TXTYPRES2.CUST_ID = TXTYPRES.CUST_ID
+             AND TXTYPRES2.EFFDT <= SYSDATE)
+end-sql
+end-procedure INSERTAR-NUEVAFECHA-ACTIVIDAD-CLIENTE
+
+begin-procedure MODIFICAR-RESPONSABILIDAD-CLIENTE-EXISTE
+let $ActualizaFecha = 'True'
+begin-sql ON-ERROR=SQL-ERROR
+DELETE FROM PS_CK_LC_CUST_TAXT TAXT3
+ WHERE TAXT3.SETID = $setid
+   AND TAXT3.CUST_ID = $cust_id
+   AND TAXT3.EFFDT = (SELECT MAX(TAXT4.EFFDT)
+                        FROM SYSADM.PS_CK_LC_CUST_TAXT TAXT4
+                       WHERE TAXT4.SETID = TAXT3.SETID
+                         AND TAXT4.CUST_ID = TAXT3.CUST_ID
+                         AND TAXT4.EFFDT <= SYSDATE)
+end-sql
+end-procedure MODIFICAR-RESPONSABILIDAD-CLIENTE-EXISTE
+
+begin-procedure ACTUALIZA-FECHA-REG-CLIENTE
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CK_LC_CUST_TAX2
+  SELECT TAX2RES.SETID
+  ,TAX2RES.CUST_ID
+  ,$DATE
+  ,TAX2RES.CK_CODIGO
+    FROM PS_CK_LC_CUST_TAX2 TAX2RES
+  WHERE TAX2RES.SETID = $setid
+  AND TAX2RES.CUST_ID = $cust_id
+  AND TAX2RES.EFFDT = (SELECT MAX(X.EFFDT)
+                            FROM SYSADM.PS_CK_LC_CUST_TAX2 X
+                          WHERE X.SETID = TAX2RES.SETID
+                          AND X.CUST_ID = TAX2RES.CUST_ID
+                          AND X.EFFDT <= SYSDATE)
+end-sql
+end-procedure ACTUALIZA-FECHA-REG-CLIENTE
+
+begin-procedure ACTUALIZA-FECHA-RES-CLIENTE
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CK_LC_CUST_TAXT
+  SELECT 
+  $setid,
+  $cust_id,
+  $DATE,
+  CK_CODIGO
+    FROM PS_CK_LC_CUST_TAXT CUSTTAXTRES
+   WHERE CUSTTAXTRES.SETID = $setid
+     AND CUSTTAXTRES.CUST_ID = $cust_id
+     AND CUSTTAXTRES.EFFDT =
+         (SELECT MAX(CUSTTAXTRES2.EFFDT)
+            FROM PS_CK_LC_CUST_TAXT CUSTTAXTRES2
+           WHERE CUSTTAXTRES2.SETID = CUSTTAXTRES.SETID
+             AND CUSTTAXTRES2.CUST_ID = CUSTTAXTRES.CUST_ID
+             AND CUSTTAXTRES2.EFFDT <= SYSDATE)
+end-sql
+end-procedure ACTUALIZA-FECHA-RES-CLIENTE
+
+begin-procedure INSERTAR-RESPONSABILIDAD-CLIENTE-EXISTE
+!Inicio 029
+ If $DATE <>  ''
+ 
+begin-sql
+INSERT INTO PS_CK_LC_CUST_TAXT 
+VALUES ($setid,
+   $cust_id,
+   $DATE,
+   $Str_ResponsabilidadLn)
+end-sql
+
+  End-if 
+!Inicio 029
+
+end-procedure INSERTAR-RESPONSABILIDAD-CLIENTE-EXISTE
+!Fin 027		
+
+begin-procedure VERIFICAR-DATOS-CLIENTES
+ do VERIFICAR-ZONA
+ do VERIFICAR-STATE
+ do VERIFICAR-CITY
+ do VERIFICAR-COUNTY
+end-procedure   VERIFICAR-DATOS-CLIENTES
+
+
+begin-procedure VERIFICAR-ZONA
+let $ind_zona = 'N'
+begin-select
+'X'
+  let $ind_zona = 'Y'
+
+from ps_ck_team_ac_vw ckteam
+where ckteam.setid = $setid
+  and ckteam.support_team_cd = $Subcust_qual1
+end-select
+If $ind_zona = 'N'
+  
+   let #Secuencia    = #Secuencia + 1
+   let #message_seq  = #message_seq + 1   
+   let #NbrSet       = 21000
+   let #Nbr          = 10
+   Do  Insertar_Mensaje
+              
+   let #ParamSecuencia = 1
+   let $Parametro      = $Subcust_qual1
+   Do Insertar_Parametro_mensaje
+   
+   let #ParamSecuencia = 2
+   let $Parametro      = $cust_id
+   Do Insertar_Parametro_mensaje
+             
+  let #sw_descuadre   = 1
+end-if 
+end-procedure VERIFICAR-ZONA
+
+
+begin-procedure VERIFICAR-STATE
+show ' entro  VERIFICAR-STATE '
+show ' $state ' $state
+let $ind_state = 'N'
+begin-select
+'Y' 
+  let $ind_state = 'Y'
+
+from ps_state_tbl state
+where state.country = 'COL'
+  and state.state   = $state
+end-select
+show ' salio  VERIFICAR-STATE '
+show ' $ind_state ' $ind_state
+If $ind_state = 'N'
+  
+   let #Secuencia    = #Secuencia + 1
+   let #message_seq  = #message_seq + 1   
+   let #NbrSet       = 21000
+   let #Nbr          = 11
+   Do  Insertar_Mensaje
+              
+   let #ParamSecuencia = 1
+   let $Parametro      = $state
+   Do Insertar_Parametro_mensaje
+   
+   let #ParamSecuencia = 2
+   let $Parametro      = $cust_id
+   Do Insertar_Parametro_mensaje
+             
+  let #sw_descuadre   = 1
+end-if   
+end-procedure VERIFICAR-STATE
+
+begin-procedure VERIFICAR-CITY
+show ' entro  VERIFICAR-CITY '
+let $ind_city = 'N'
+show ' $city ' $city
+
+begin-select
+'Z'
+ let $ind_city = 'Y'
+
+from ps_muni_tbl_ho  muni
+where muni.muni_fld_ho = $city
+end-select
+
+show ' $ind_city ' $ind_city
+
+If $ind_city = 'N'
+  
+   let #Secuencia    = #Secuencia + 1
+   let #message_seq  = #message_seq + 1   
+   let #NbrSet       = 21000
+   let #Nbr          = 12
+   Do  Insertar_Mensaje
+              
+   let #ParamSecuencia = 1
+   let $Parametro      = $city
+   Do Insertar_Parametro_mensaje
+   
+   let #ParamSecuencia = 2
+   let $Parametro      = $cust_id
+   Do Insertar_Parametro_mensaje
+             
+  let #sw_descuadre   = 1
+end-if   
+end-procedure VERIFICAR-CITY
+
+begin-procedure VERIFICAR-COUNTY
+SHOW ' ENTRO VERIFICAR-COUNTY '
+let $ind_county = 'N'
+let $ind_barrio = 'N'
+show ' $city   ' $city
+show ' $county ' $county
+begin-select 
+barrio.ck_barrio
+
+  let $ind_county = 'Y'
+  let $ind_barrio = 'Y'
+  let $barrio = &barrio.ck_barrio
+
+from ps_ck_barrio_tbl barrio
+where barrio.muni_fld_ho = $city
+  and barrio.ck_barrio   = $county
+  and eff_status         = 'A'
+end-select
+If $ind_county = 'N' 
+  if $county = '88888'
+    let $ind_county = 'Y'
+    let $barrio = '99999' 
+    !do verificar-barrio99
+    if $ind_barrio = 'N'
+       let #Secuencia    = #Secuencia + 1
+       let #message_seq  = #message_seq + 1       
+       let #NbrSet       = 21000
+       let #Nbr          = 13
+       Do  Insertar_Mensaje
+              
+       let #ParamSecuencia = 1
+       let $Parametro      = $county !$barrio
+       Do Insertar_Parametro_mensaje
+   
+       let #ParamSecuencia = 2
+       let $Parametro      = $cust_id
+       Do Insertar_Parametro_mensaje
+
+       let #ParamSecuencia = 3
+       let $Parametro      = $City !$county
+       Do Insertar_Parametro_mensaje
+             
+       let #sw_descuadre   = 1
+    end-if
+  else    
+   let #Secuencia    = #Secuencia + 1
+   let #message_seq  = #message_seq + 1   
+   let #NbrSet       = 21000
+   let #Nbr          = 13
+   Do  Insertar_Mensaje
+              
+   let #ParamSecuencia = 1
+   let $Parametro      = $county !$barrio
+   Do  Insertar_Parametro_mensaje
+   
+   let #ParamSecuencia = 2
+   let $Parametro      = $cust_id
+   Do  Insertar_Parametro_mensaje
+
+   let #ParamSecuencia = 3
+   let $Parametro      = $City !$county
+   Do  Insertar_Parametro_mensaje
+   let #sw_descuadre   = 1
+  end-if
+end-if
+SHOW ' $ind_county ' $ind_county
+SHOW ' $ind_county ' $ind_barrio
+SHOW ' SALIO VERIFICAR-COUNTY '
+end-procedure VERIFICAR-COUNTY
+
+begin-procedure VERIFICAR-BARRIO99
+display $barrio
+let $ind_barrio = 'N'
+begin-select ON-ERROR = SQL-error 
+bar.ck_barrio
+
+   let $ind_barrio = 'Y'
+   
+from ps_ck_barrio_tbl bar
+where bar.muni_fld_ho = $city
+and bar.ck_barrio   = $barrio
+end-select	
+end-procedure VERIFICAR-BARRIO99
+
+!-------------------------------------------------------------------
+! Actualizacion del Barrio
+!-------------------------------------------------------------------
+begin-procedure Actualizar_barrio   !Modif JJRC abril 28/04    
+
+begin-sql ON-ERROR=SQL-ERROR
+UPDATE PS_CK_BARRIO_TBL
+
+SET ck_barrio = $barrio
+
+where muni_fld_ho = $city
+  and ck_barrio   = $barrio
+end-sql
+end-procedure 
+
+!-----------------------------------------------------------------------
+! Insert de datos en la tabla PS_CUSTOMER
+!-----------------------------------------------------------------------
+Begin-procedure INSERTAR-DATOS-CLIENTES
+display 'INSERTAR-DATOS-CLIENTES'
+let $Vlr_Num_Seq        = ' '
+let $Setid	        = ltrim ($Setid,' ')			
+let $Cust_id	   	= ltrim ($Cust_id,' ')		
+let $Tipo_ident	   	= ltrim ($Tipo_ident,' ')		
+let $Cust_status	= ltrim ($Cust_status,' ')		
+let $fecha_out	        = ltrim ($fecha_out,' ')		
+let $Name1		= ltrim ($Name1,' ')			
+let $Name_Short	        = ltrim ($Name_Short,' ')		
+let $Subcust_qual1	= ltrim ($Subcust_qual1,' ')	
+let $address_seq_num    = ltrim ($address_seq_num,' ')        
+let $State		= ltrim ($State,' ')			
+let $City		= ltrim ($City,' ')			
+let $County		= ltrim ($County,' ')			
+let $Address1    	= ltrim ($Address1,' ')		
+let $Phone		= ltrim ($Phone,' ')			
+let $Fax		= ltrim ($Fax,' ')	
+If $Tipo_ident = '1' OR $Tipo_ident = '2' OR $Tipo_ident = '3' OR
+   $Tipo_ident = '4' OR $Tipo_ident = '5' OR $Tipo_ident = '6' OR
+   $Tipo_ident = '7' OR $Tipo_ident = '8' OR $Tipo_ident = '9' OR
+   $Tipo_ident = '0'
+   Let $Cust_id = $Cust_id || $Tipo_ident
+   Let $Tipo_ident = 'N'
+End-If
+If $Address2 = ''
+   Let $Address2 = ' '
+End-If
+do BUSCAR-DATOS-ZONA
+
+if $Ind_Dir_Des = 'Y' 
+   let $Vlr_Num_Seq = $address_seq_num
+else
+   let $Vlr_Num_Seq = '1'
+end-if
+SHOW ' $Cust_id     ' $Cust_id
+SHOW ' $Vlr_Num_Seq ' $Vlr_Num_Seq
+SHOW '$fecha_out' $fecha_out
+show '$Setid:' $Setid
+Show '$Name1: ' $Name1
+Show '$Cust_status: ' $Cust_status
+Show '$Canal: ' $Canal
+Show '$Name_Short: '  $Name_Short 
+Show '$address_seq_num: ' $address_seq_num
+Show '$Subcust_qual1: ' $Subcust_qual1
+Show '$City: ' $City
+Show '$Vlr_Num_Seq: ' $Vlr_Num_Seq
+Show '$oprid:' $oprid
+
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CUSTOMER
+(SETID,                          
+CUST_ID,                        
+NAME1,                          
+CNTCT_SEQ_NUM,                  
+CUST_STATUS,                    
+CUST_STATUS_DT,                 
+NAMESHORT,                      
+CUSTOMER_TYPE,                  
+SINCE_DT,                       
+ADD_DT,                         
+NAME2,                          
+NAME3,                          
+NAME1_AC,                       
+NAME2_AC,                       
+NAME3_AC,                       
+ADDRESS_SEQ_NUM,                
+CORPORATE_SETID,                
+CORPORATE_CUST_ID,              
+REMIT_FROM_SETID,               
+REMIT_FROM_CUST_ID,             
+CRSPD_SETID,                    
+CRSPD_CUST_ID,                  
+CONSOL_BUS_UNIT,                
+VENDOR_SETID,                   
+VENDOR_ID,                      
+REFER_TO_SETID,                 
+REFER_TO_CUST_ID,               
+REVIEW_DAYS,                    
+FORMER_NAME_1,                  
+FORMER_NAME_2,                  
+SUBCUST_USE,                    
+SUBCUST_QUAL1,                  
+SUBCUST_QUAL2,                  
+CUR_RT_TYPE,                   
+CURRENCY_CD,                    
+SHIP_TO_FLG,                    
+BILL_TO_FLG,                    
+SOLD_TO_FLG,                    
+BROKER_FLG,                     
+INDIRECT_CUST_FLG,              
+CUST_LEVEL,                     
+ADDRESS_SEQ_SOLD,               
+CNTCT_SEQ_SOLD,                 
+ADDRESS_SEQ_SHIP,               
+CNTCT_SEQ_SHIP,                 
+ADDRESS_SEQ_BRK,                
+ADDRESS_SEQ_IND,                
+HOLD_UPDATE_SW,                 
+ROLEUSER,                       
+TAXPAYER_ID,                    
+WEB_URL,                        
+STOCK_SYMBOL,                   
+REPORTS_TO_SPONSOR,             
+SPNSR_LEVEL,                    
+SPNSR_TYPE,                     
+SPNSR_PROGRAM,                  
+COST_LIV_INCR_PCT,              
+CFDA_NBR,                       
+FOREIGN_FLAG,                   
+GM_FEDERAL_FLAG,                
+US_FLAG_CARRIER,                
+LOC_INDICATOR,                  
+GM_LOC_SPONSOR_ID,              
+FA_SPNSR_BASE_ID,               
+GM_DEL_LOC_REFS_SW,             
+GRANTS_SPONSOR_FLG,             
+FEDERAL_INDICATOR,              
+TRADING_PARTNER,                
+IPAC_INTERFACE,                 
+CNTCT_SEQ_IPAC,                 
+CUSTOMER_ALC,                   
+CUST_FIELD_C1_A,                
+CUST_FIELD_C1_B,                
+CUST_FIELD_C1_C,                
+CUST_FIELD_C1_D,                
+CUST_FIELD_C2,                  
+CUST_FIELD_C4,                  
+CUST_FIELD_C6,                  
+CUST_FIELD_C8,                  
+CUST_FIELD_C10_A,               
+CUST_FIELD_C10_B,               
+CUST_FIELD_C10_C,               
+CUST_FIELD_C10_D,               
+CUST_FIELD_C30_A,               
+CUST_FIELD_C30_B,               
+CUST_FIELD_C30_C,               
+CUST_FIELD_C30_D,               
+CUST_FIELD_N12_A,               
+CUST_FIELD_N12_B,               
+CUST_FIELD_N12_C,               
+CUST_FIELD_N12_D,               
+CUST_FIELD_N15_A,               
+CUST_FIELD_N15_B,               
+CUST_FIELD_N15_C,               
+CUST_FIELD_N15_D,               
+LAST_MAINT_OPRID,               
+DATE_LAST_MAINT,
+STCUST_DAYS,                    
+EXPIRATION_DATE,                
+TEMPLATE_ADDR,                  
+SPNSR_SALARY_CAP)
+VALUES
+($Setid,            
+$Cust_id,
+initcap($Name1),
+1,
+$Cust_status, 
+TO_DATE($fecha_out,'DD-MM-YYYY'),
+INITCAP($Name_Short),  
+$Canal,
+TO_DATE($fecha_out,'DD-MM-YYYY'),         
+TO_DATE($fecha_out,'DD-MM-YYYY'),            
+' ',
+' ',            
+' ',            
+' ',           
+' ',            
+$address_seq_num, !ADDRESS_SEQ_NUM
+$Setid,
+$Cust_id,
+$Setid,
+$Cust_id,
+$Setid,
+$Cust_id,  
+' ',
+' ',
+' ',
+' ',
+' ',
+0,
+' ',    
+' ',
+'Y',   !**   Este Campo de ir en Y
+$Subcust_qual1,    
+$City, 
+'TRM',
+'COP',
+'Y',
+'Y',
+'Y',
+'N',
+'N',
+'N',       
+1,
+0,    
+$Vlr_Num_Seq,! ANTES HABIA EL NUMERO * * 1 * *
+0,
+0,
+0,
+'N',    
+' ',        
+' ',       
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+0,
+0,
+'N',
+'N',
+'N',
+'N',
+' ',
+' ',
+' ',
+' ',
+'N',
+' ',
+'N',
+0,
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+$oprid,
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+0,
+0,
+0,
+0,
+0,
+0,
+0,
+0,
+
+
+
+
+$oprid,
+TO_DATE($fecha_out,'DD-MM-YYYY'),
+0,  
+NULL, 
+0,            !'N'  ANTES TENIA ESTO
+0)        !0    ANTES TENIA ESTO
+end-sql
+
+end-procedure INSERTAR-DATOS-CLIENTES
+
+!Inicio 025
+!-----------------------------------------------------------------------
+! Insert de datos en la tabla PS_CK_LC_CUST_TAX2
+!-----------------------------------------------------------------------
+Begin-procedure INSERTAR-REGIMEN-CLIENTE
+!026 begin-select
+!REG.CK_CODIGO 
+!  let $regimen = &REG.CK_CODIGO
+!  FROM PS_CK_COD_LNFE_TBL  REG
+! WHERE REG.CK_COD_PARAM_FE = 'RREC' 
+!   AND REG.FLAG = 'Y'
+!end-select
+begin-sql
+INSERT INTO PS_CK_LC_CUST_TAX2
+(SETID,
+CUST_ID,
+EFFDT,
+CK_CODIGO) 
+VALUES 
+($Setid,            
+$Cust_id,
+TO_DATE($fecha_out,'DD-MM-YYYY'),
+!026 $regimen)
+$Str_Regimen)
+end-sql
+end-procedure INSERTAR-REGIMEN-CLIENTE
+
+!-----------------------------------------------------------------------
+! Insert de datos en la tabla PS_CK_LC_CUST_TAXT
+!-----------------------------------------------------------------------
+Begin-procedure INSERTAR-RESPONSABILIDAD-CLIENTE
+!026 begin-select
+!RESP.CK_CODIGO 
+!let $responsab = &RESP.CK_CODIGO
+!  FROM PS_CK_COD_LNFE_TBL  RESP
+! WHERE RESP.CK_COD_PARAM_FE = 'RRSC' 
+!   AND RESP.FLAG = 'Y'
+!end-select
+begin-sql
+INSERT INTO PS_CK_LC_CUST_TAXT
+(SETID,
+CUST_ID,
+EFFDT,
+CK_CODIGO) 
+VALUES 
+($Setid,            
+$Cust_id,
+TO_DATE($fecha_out,'DD-MM-YYYY'),
+! 026 $responsab)
+$Str_ResponsabilidadLn)
+end-sql
+end-procedure INSERTAR-RESPONSABILIDAD-CLIENTE
+!Fin 025
+
+!Inicio 026
+!-----------------------------------------------------------------------
+! Valida información ingresada del cliente para facturación electrónica
+!-----------------------------------------------------------------------
+Begin-procedure VALIDA-INFO-FACT-ELEC
+
+Let #Len_Email = length($Str_Emailid)
+find  '@'  in  $Str_Emailid  2  #Pos_Email
+let $thisEmail = substr($Str_Emailid, #Pos_Email + 1, #Len_Email)
+find  '.'  in  $thisEmail  2  #Pos_thisEmail
+	If #Pos_Email >= 1 And #Pos_thisEmail >= 1
+		!Email OK
+	else
+		Show 'El valor enviado para Email '  $Str_Emailid ' de facturación electrónica no es correcto, se asigna marcación como N/A '
+		let $Str_Emailid = ''
+		let $Str_Custo_Fact_Elect = 'N/A'
+	End-If
+
+    If $Str_Custo_Fact_Elect <> 'ECE' and $Str_Custo_Fact_Elect <> 'RES' and $Str_Custo_Fact_Elect <> 'N/A'
+        let $Str_Custo_Fact_Elect = 'N/A'
+        Show 'El valor enviado para la marcación de facturación electrónica no es el correcto, se asigna ' $Str_Custo_Fact_Elect
+    else
+        If $Str_Emailid = ''
+            let $Str_Custo_Fact_Elect = 'N/A'
+             Show 'Se asigna el valor por defecto ' $Str_Custo_Fact_Elect ' de Marcación FE, debido a que no envía Email de FE'
+		else
+			If  $Str_Custo_Fact_Elect = 'N/A'
+				let $Str_Custo_Fact_Elect = 'ECE'
+				Show 'Se asigna el valor ECE de Marcación FE, debido a que envía Email de FE'
+			End-If
+        End-If
+    End-If
+  
+    If $Str_Custo_Fact_Elect = ''
+        let $Str_Custo_Fact_Elect = 'N/A'
+        If $TipoPersona = 'J'
+            Show 'Se asigna el valor por defecto ' $Str_Custo_Fact_Elect ' de Marcación FE'
+        End-If
+    End-If
+
+    If $Str_Regimen = ''
+        do CONSULTA-REGIMEN
+        If $TipoPersona = 'J'
+            let $Str_Regimen = $REGJUR
+            Show 'Se asigna el valor por defecto ' $Str_Regimen ' de Régimen'
+        else
+            let $Str_Regimen = $REGNAC
+        End-If
+        do INSERTAR-REGIMEN-CLIENTE
+    Else
+    Show 'Régimen enviado ' $Str_Regimen
+        do VALIDA-REGIMEN
+        If isblank($Str_Regimen_Exist)
+            Show 'El valor de Régimen enviado ' $Str_Regimen ' No es un valor valido'
+            do CONSULTA-REGIMEN
+            If $TipoPersona = 'J'
+                let $Str_Regimen = $REGJUR
+                Show 'Se asigna el valor por defecto ' $Str_Regimen ' de Régimen'
+            else
+                let $Str_Regimen = $REGNAC
+            End-If
+        End-If
+        do INSERTAR-REGIMEN-CLIENTE
+    End-If
+
+    do CONSULTA-RESPONSABILIDAD
+
+    If $TipoPersona = 'J'
+        let $Str_ResponsabilidadJur = $RESJUR
+    else
+        let $Str_ResponsabilidadNac = $RESNAC
+    End-If
+
+    If $Str_Responsabilidad = ''
+        If $TipoPersona = 'J'
+            let $Str_ResponsabilidadLn = $Str_ResponsabilidadJur
+            Show 'Se asigna el valor por defecto ' $Str_ResponsabilidadLn ' como responsabilidad'
+        else
+            let $Str_ResponsabilidadLn = $Str_ResponsabilidadNac
+        End-If
+        !do INSERTAR-RESPONSABILIDAD-CLIENTE
+    Else
+        let #start_pos = 1
+        Let $Str_ExisteRes = ' '
+        Let $Str_InsertaVlorDfto = 'N'
+        Let #cantidad = length($Str_Responsabilidad)
+        while   #start_pos < length($Str_Responsabilidad)
+                find  ';'  in  $Str_Responsabilidad  #start_pos  #pos_sep
+                If #pos_sep = -1 
+                    let #pos_sep = 0
+                End-If
+                If #pos_sep = 0 
+                    If #start_pos = 1
+                    let $valor_campo = substr($Str_Responsabilidad, #start_pos, length($Str_Responsabilidad))
+                    Else
+                        let $valor_campo = substr($Str_Responsabilidad, #start_pos + 1, length($Str_Responsabilidad))
+                    End-If
+                    let $Str_ResponsabilidadLn = $valor_campo
+                    show '$Str_ResponsabilidadLn1 ' $Str_ResponsabilidadLn
+                    let $Str_ResponsabilidadLn_Exis = ''
+                    do VALIDA-RESPONSABILIDAD
+                        If IsBlank($Str_ResponsabilidadLn_Exis)
+                            Show 'El valor de Responsabilidad enviado ' $Str_ResponsabilidadLn ' No es un valor valido'
+                            Let $Str_InsertaVlorDfto = 'Y'
+                        Else
+                            If $TipoPersona = 'J'
+                                If $Str_ResponsabilidadLn = $Str_ResponsabilidadJur
+                                    Let $Str_InsertaVlorDfto = 'Y'
+                                Else
+                                   ! do INSERTAR-RESPONSABILIDAD-CLIENTE
+                                End-if
+                            else
+                                If $Str_ResponsabilidadLn = $Str_ResponsabilidadNac
+                                    Let $Str_InsertaVlorDfto = 'Y'
+                                Else
+                                    !do INSERTAR-RESPONSABILIDAD-CLIENTE
+                                End-if
+                            End-If
+                        End-If
+                    let #start_pos = length($Str_Responsabilidad)
+                Else
+                    let #cant = #pos_sep - #start_pos
+                    If #start_pos = 1
+                        let $valor_campo = substr($Str_Responsabilidad, #start_pos, #pos_sep)
+                    Else
+                        let $valor_campo = substr($Str_Responsabilidad, #start_pos + 1, #cant)
+                    End-If
+                    let $Str_ResponsabilidadLn = $valor_campo
+                    let $Str_ResponsabilidadLn_Exis = ''
+                    do VALIDA-RESPONSABILIDAD
+                    Show 'El valor de Responsabilidad enviado es ' $Str_ResponsabilidadLn
+                    If IsBlank($Str_ResponsabilidadLn_Exis)
+                        Show 'El valor de Responsabilidad enviado ' $Str_ResponsabilidadLn ' No es un valor valido'
+                    Else
+                        If $TipoPersona = 'J'
+                            If $Str_ResponsabilidadLn = $Str_ResponsabilidadJur
+                                Let $Str_InsertaVlorDfto = 'Y'
+                            Else
+                               ! do INSERTAR-RESPONSABILIDAD-CLIENTE
+                            End-if
+                        else
+                            If $Str_ResponsabilidadLn = $Str_ResponsabilidadNac
+                                Let $Str_InsertaVlorDfto = 'Y'
+                            Else
+                                !do INSERTAR-RESPONSABILIDAD-CLIENTE
+                            End-if
+                        End-If
+                    End-If
+                    let #start_pos = #pos_sep + 1
+                End-If
+        end-while
+        If $Str_InsertaVlorDfto = 'Y'
+            If $TipoPersona = 'J'
+                let $Str_ResponsabilidadLn = $Str_ResponsabilidadJur
+                Show 'Se asigna el valor por defecto ' $Str_ResponsabilidadLn ' como responsabilidad'
+            else
+                let $Str_ResponsabilidadLn = $Str_ResponsabilidadNac
+            End-If
+           ! do INSERTAR-RESPONSABILIDAD-CLIENTE
+        End-If
+    End-If
+
+    If $Str_Contact_Name = ''
+        If $TipoPersona = 'J'
+            let $Str_Contact_Name = $Name1
+            Show 'Se asigna el valor por defecto ' $Str_Contact_Name ' de Contacto para FE'
+        Else
+            let $Str_Contact_Name = $PrimerNombre || ' ' || $SegundoNombre || ' ' || $PrimerApellido || ' ' || $SegundoApellido
+        End-If
+    End-If
+
+end-procedure VALIDA-INFO-FACT-ELEC
+
+
+Begin-procedure CONSULTA-REGIMEN
+
+begin-select 
+REGN.CK_CODIGO
+
+    let $REGNAC = &REGN.CK_CODIGO
+
+  FROM PS_CK_LNFE_RGC_TBL REGN
+ WHERE REGN.FLAG = 'Y'
+   AND REGN.EFFDT = (SELECT MAX(X.EFFDT)
+                    FROM PS_CK_LNFE_RGC_TBL X
+                   WHERE X.CK_CODIGO = REGN.CK_CODIGO
+                     AND X.EFFDT <= SYSDATE)
+   AND REGN.EFF_STATUS = 'A'
+end-select
+
+begin-select 
+REGJ.CK_CODIGO
+
+    let $REGJUR = &REGJ.CK_CODIGO
+
+  FROM PS_CK_LNFE_RGC_TBL REGJ
+ WHERE REGJ.FLAG1 = 'Y'
+   AND REGJ.EFFDT = (SELECT MAX(X.EFFDT)
+                    FROM PS_CK_LNFE_RGC_TBL X
+                   WHERE X.CK_CODIGO = REGJ.CK_CODIGO
+                     AND X.EFFDT <= SYSDATE)
+   AND REGJ.EFF_STATUS = 'A'
+end-select
+
+end-procedure CONSULTA-REGIMEN
+
+Begin-procedure CONSULTA-RESPONSABILIDAD
+
+begin-select 
+RESN.CK_CODIGO
+
+    let $RESNAC = &RESN.CK_CODIGO
+
+     FROM PS_CK_LNFE_RSC_TBL RESN
+    WHERE RESN.FLAG = 'Y'
+      AND RESN.EFFDT = (SELECT MAX(X.EFFDT)
+                       FROM PS_CK_LNFE_RSC_TBL X
+                      WHERE X.CK_CODIGO = RESN.CK_CODIGO
+                        AND X.EFFDT <= SYSDATE)
+      AND RESN.EFF_STATUS = 'A'
+end-select
+
+begin-select 
+RESJ.CK_CODIGO
+
+    let $RESJUR = &RESJ.CK_CODIGO
+
+     FROM PS_CK_LNFE_RSC_TBL RESJ
+    WHERE RESJ.FLAG1 = 'Y'
+      AND RESJ.EFFDT = (SELECT MAX(X.EFFDT)
+                       FROM PS_CK_LNFE_RSC_TBL X
+                      WHERE X.CK_CODIGO = RESJ.CK_CODIGO
+                        AND X.EFFDT <= SYSDATE)
+      AND RESJ.EFF_STATUS = 'A'
+end-select
+
+end-procedure CONSULTA-RESPONSABILIDAD
+
+Begin-procedure VALIDA-REGIMEN
+begin-select 
+RGCLI.CK_CODIGO
+
+    let $Str_Regimen_Exist = &RGCLI.CK_CODIGO
+
+  FROM PS_CK_LNFE_RGC_TBL RGCLI
+ WHERE RGCLI.CK_CODIGO = $Str_Regimen
+end-select
+end-procedure VALIDA-REGIMEN
+
+Begin-procedure VALIDA-RESPONSABILIDAD
+begin-select 
+RSCLI.CK_CODIGO
+
+    let $Str_ResponsabilidadLn_Exis = &RSCLI.CK_CODIGO
+
+  FROM PS_CK_RSCLI_PN1_VW RSCLI
+ WHERE RSCLI.CK_CODIGO = $Str_ResponsabilidadLn
+end-select
+end-procedure VALIDA-RESPONSABILIDAD
+
+Begin-procedure INSERTA-INFO-FACT-ELEC
+begin-sql
+INSERT INTO PS_CK_CUST_OPT_FE
+    (SETID,
+    CUST_ID,
+    EFFDT,
+    CK_CUSTO_FACT_ELEC,
+    FLAG,
+    NAME1,
+    OPRID_ENTERED_BY,
+    ENTERED_DTTM,
+    OPRID_MODIFIED_BY,
+    LAST_UPDATE_DTTM,
+    FLAG2,
+    EMAIL_ADDR) 
+VALUES 
+    ($Setid,            
+    $Cust_id,
+    TO_DATE($fecha_out,'DD-MM-YYYY'),
+    $Str_Custo_Fact_Elect,
+    'N',
+    $Str_Contact_Name,
+    $Oprid,
+    TO_DATE($fecha_out,'DD-MM-YYYY'),
+    $Oprid,
+    TO_DATE($fecha_out,'DD-MM-YYYY'),
+    'N',
+    ' ')
+end-sql
+end-procedure INSERTA-INFO-FACT-ELEC
+
+Begin-procedure INSERTA-EMAIL-FACT-ELEC
+begin-sql
+INSERT INTO PS_CK_CUSTO_FAELEC
+    (SETID,
+    CUST_ID,
+    ADDRESS_SEQ_NUM,
+    EFFDT,
+    EMAILID,
+    LAST_UPDATE_DTTM) 
+VALUES 
+    ($Setid,            
+    $Cust_id,
+    $address_seq_num,
+    TO_DATE($fecha_out,'DD-MM-YYYY'),
+    $Str_Emailid,
+    TO_DATE($fecha_out,'DD-MM-YYYY'))
+end-sql
+end-procedure INSERTA-EMAIL-FACT-ELEC
+
+!Fin 026
+
+! AJUSTES MEDIOS MAGNETICOS EAS 16/06/2010 INICIO
+
+!-----------------------------------------------------------------------
+! Funcion: InsertaDatosTercerosMediosMagneticos
+! Descripcion: Insercion en tablas de medios
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE InsertaDatosTercerosMediosMagneticos
+
+begin-select ON-ERROR=SQL-ERROR
+SETIDAAA.SETID
+
+  let $setIdTercero = &SETIDAAA.SETID
+
+FROM PS_SET_CNTRL_REC SETIDAAA
+WHERE SETIDAAA.RECNAME = 'LC_RPOS_TERC_HD'
+  AND SETIDAAA.SETCNTRLVALUE = $Setid
+End-Select
+
+
+	! CABECERA DEL TERCERO
+	Let $ExisteTerceroLinea = 'N'
+	Do ExisteTerceroLinea($setIdTercero, $Setid, $Cust_id, 'AR', $Tipo_ident, $ExisteTerceroLinea, $IdTercero, $ckCodOrigen)
+
+	If $ExisteTerceroLinea = 'N'
+	   
+	   Do ExisteTercero($setIdTercero, $IdTercero, $ExisteTercero)
+	   If $ExisteTercero = 'N'
+           
+              Do RegistrarTerceroCabecera($setIdTercero, $IdTercero)
+             
+           End-If
+           
+	! LINEA DEL TERCERO
+	   
+        End-If
+	
+	!Inicio modificación 012
+	let $ckCodOrigen = '1'
+	If $ExisteTerceroLinea = 'Y'
+	   do AumentarSecuenciaTerceroLn($setIdTercero, $IdTercero, 'AR', $Setid)	   
+	!Else 
+	!   Show 'ModificarTerceroLinea' 
+	!   Do ModificarTerceroLinea($setIdTercero, $IdTercero, 'AR', $ckCodOrigen, $Tipo_ident, ' ',' ',' ',' ', $Setid, $Cust_id, $DigitoVerificacion, $TipoPersona, $current-date, $current-date, '')
+	End-if
+	Show 'RegistrarTerceroLinea 1'  $setIdTercero
+	Do RegistrarTerceroLinea($setIdTercero, $IdTercero, 'AR', $ckCodOrigen, $Tipo_ident, ' ',' ',' ',' ', $Setid, $Cust_id, $DigitoVerificacion, $TipoPersona, '', $current-date, '')
+
+	Show 'Va por ExisteNombreTablaRPOS'
+	Let $ExisteRPOS = 'N'
+	Do ExisteNombreTablaRPOS($setIdTercero, $IdTercero, $Tipo_ident, 'AR', $ckCodOrigen, $Setid, $fecha_out, $ExisteRPOS)
+	If $ExisteRPOS = 'Y'
+		do AumentarSecuenciaTerceroName($setIdTercero, $IdTercero, 'AR', $Setid)		
+	!Else
+	!	Do ModificarNombreTablaRPOS($setIdTercero, $IdTercero, $Tipo_ident, 'AR', $ckCodOrigen, $fecha_out, $Nombre1, $PrimerNombre, $SegundoNombre, $PrimerApellido, $SegundoApellido)
+	End-if
+	Do RegistrarNombreTablaRPOS($setIdTercero, $IdTercero, $Tipo_ident, 'AR', $ckCodOrigen, $Setid, $fecha_out, $Nombre1, $PrimerNombre, $SegundoNombre, $PrimerApellido, $SegundoApellido)
+
+	Show 'Va por ExisteDireccionTablaRPOS'
+	Let $ExisteRPOS = 'N'
+	Do ExisteDireccionTablaRPOS($setIdTercero, $IdTercero, $Tipo_ident, 'AR', $ckCodOrigen, $Setid, $fecha_out, $ExisteRPOS)
+	If $ExisteRPOS = 'Y'
+		do AumentarSecuenciaTerceroDire($setIdTercero, $IdTercero, 'AR', $Setid)
+	!Else
+	!	Do ModificarDireccionTablaRPOS($setIdTercero, $IdTercero, $Tipo_ident, 'AR', $ckCodOrigen, $fecha_out, 'COL', $Address1, $Address2, ' ', ' ', $State, $City, ' ')
+	End-if
+	Do RegistrarDireccionTablaRPOS($setIdTercero, $IdTercero, $Tipo_ident, 'AR', $ckCodOrigen, $Setid, $fecha_out, 'COL', $Address1, $Address2, ' ', ' ', $State, $City, ' ')
+
+	Show 'Va por ExisteNombreTablaCustomName'
+	Let $ExisteRPOS = 'N'
+	Do ExisteNombreTablaCustomName($Setid, $Cust_id,  $fecha_out, $ExisteRPOS)
+	If $ExisteRPOS = 'N'
+		Show 'no ModificarNombreTablaCustomName'
+		Do RegistrarNombreTablaCustomName($Setid, $Cust_id, $fecha_out, $TipoPersona, $Nombre1, $Nombre2, $PrimerNombre, $SegundoNombre, $PrimerApellido, $SegundoApellido)
+	Else
+		Show 'ModificarNombreTablaCustomName'
+		Do ModificarNombreTablaCustomName($Setid, $Cust_id, $fecha_out, $TipoPersona, $Nombre1, $Nombre2, $PrimerNombre, $SegundoNombre, $PrimerApellido, $SegundoApellido)
+	End-if
+	Show 'Terminacion'
+	!Fin modificación 012
+
+
+
+END-PROCEDURE
+
+
+!-----------------------------------------------------------------------
+! Funcion: EncontrarTipoPersona
+! Descripcion: Busca el tipo de persona que le corresponde al tipo de documento de identidad
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE EncontrarTipoPersona($tipoDocumento, :$tipoPersona)
+
+ ! Inicializaciòn de variables
+ let $tipoPersona = ' '
+
+BEGIN-SELECT ON-ERROR=SQL-ERROR
+A.TIPO_PER_HO
+
+  let $tipoPersona = &A.TIPO_PER_HO
+
+FROM PS_CK_TIPO_DOCUMNT A 
+WHERE A.CK_TIPO_IDENT =  $tipoDocumento
+  AND A.EFFDT = ( SELECT MAX(B.EFFDT) 
+                     FROM PS_CK_TIPO_DOCUMNT B 
+                    WHERE B.CK_TIPO_IDENT = A.CK_TIPO_IDENT 
+                      AND B.EFFDT <= SYSDATE )
+END-SELECT
+
+END-PROCEDURE 
+
+!-----------------------------------------------------------------------
+! Funcion: ExisteTercero
+! Descripcion: Verifica la existencia del tercero
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE ExisteTercero($setidTercero, $Nit, :$ExisteTercero)
+
+  Show 'Inicio ExisteTercero' $setidTercero ' ' $Nit
+
+	Let $ExisteTercero = 'N'
+BEGIN-SELECT
+'EXISTE TERCERO'
+	Let $ExisteTercero = 'Y'
+FROM PS_LC_RPOS_TERC_HD
+WHERE SETID         = $setidTercero
+  AND NIT_PROVEEDOR = $Nit
+END-SELECT
+
+  Show 'Salidas ExisteTercero' $ExisteTercero
+
+
+END-PROCEDURE
+
+
+
+!-----------------------------------------------------------------------
+! Funcion: ExisteTerceroLinea
+! Descripcion: Verifica la existencia del tercero
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE ExisteTerceroLinea($setIdTercero, $Setid, $Nit, $Origen, $TipoIdentificacion, :$ExisteTerceroLinea, :$IdTercero, :$ModOrigen)
+
+show 'Entradas ExisteTerceroLinea' $setIdTercero ' ' $Setid ' ' $Nit ' ' $Origen ' ' $TipoIdentificacion
+
+	Let $ExisteTerceroLinea = 'N'
+	
+	let $ModOrigen = '1'
+	
+BEGIN-SELECT
+'EXISTE LINEA TERCERO'
+TL.NIT_PROVEEDOR
+TL.CK_COD_ORIGEN
+
+
+	Let $ExisteTerceroLinea = 'Y'
+	let $IdTercero = &TL.NIT_PROVEEDOR
+	let $ModOrigen = &TL.CK_COD_ORIGEN
+	Show ' Si encontro tercero'
+	
+	
+FROM PS_LC_RPOS_TERC_LN TL
+WHERE TL.SETID = $setIdTercero
+  AND TL.CK_MOD_ORIGEN  = $Origen
+  AND TL.SETID_CUSTOMER = $Setid
+  AND TL.CUST_ID = $Nit
+END-SELECT
+
+If $ExisteTerceroLinea = 'N'
+
+  ! Verifica si el tipo de identificaciòn requiere digito de verificaciòn en cuyo caso lo quita del nit
+  DO reqDigitoVerificacion($TipoIdentificacion, $RequiereDigito)
+  
+  If $RequiereDigito = 'Y'
+  
+     let #lengthNit = length($Nit)
+     let $IdTercero = substr($Nit, 1, #lengthNit -1 )
+  
+  Else
+  
+     let $IdTercero = $Nit
+  
+  End-If
+
+
+BEGIN-SELECT ON-ERROR=SQL-ERROR
+MAX(TL1.CK_COD_ORIGEN) &CKCODORIGEN
+
+   let $ModOrigen = &CKCODORIGEN 
+   let $ModOrigen = to_char(to_number($ModOrigen) + 1)
+
+FROM PS_LC_RPOS_TERC_LN TL1
+WHERE TL1.SETID = $setIdTercero
+  AND TL1.NIT_PROVEEDOR = $IdTercero
+  AND TL1.CK_MOD_ORIGEN = $Origen
+END-SELECT 
+
+END-IF
+
+show 'Salidas ExisteTerceroLinea' $ExisteTerceroLinea ' ' $IdTercero ' ' $ModOrigen
+
+  
+END-PROCEDURE
+
+!-----------------------------------------------------------------------
+! Funcion: RegistrarTerceroCabecera
+! Descripcion: Registra la cabecera del tercero
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE RegistrarTerceroCabecera($setIdTercero, $IdTercero)
+
+Show 'Entradas RegistrarTerceroCabecera:' $setIdTercero ' ' $IdTercero
+
+BEGIN-SQL
+INSERT INTO PS_LC_RPOS_TERC_HD(SETID, NIT_PROVEEDOR) VALUES($setIdTercero, $IdTercero)
+END-SQL
+
+END-PROCEDURE
+
+!-----------------------------------------------------------------------
+! Funcion: RegistrarTerceroLinea
+! Descripcion: Registra la linea del tercero
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE RegistrarTerceroLinea($setIdTercero, $IdTercero, $Origen, $ModoOrigen, $TipoIdentificacion, $SetidTerc, $Tercero, $SetidVendor, $Vendor, $SetidCliente, $Cliente, $DigitoVerificacion, $TipoPersona, $AddDt, $ModifiedDt, $ChekoutDt)
+
+Show 'Entradas RegistrarTerceroLinea: '$setIdTercero $IdTercero $Origen $ModoOrigen $TipoIdentificacion $SetidTerc $Tercero $SetidVendor $Vendor $SetidCliente $Cliente $DigitoVerificacion $TipoPersona $AddDt $ModifiedDt $ChekoutDt
+
+BEGIN-SQL
+INSERT INTO PS_LC_RPOS_TERC_LN(SETID,  NIT_PROVEEDOR, CK_MOD_ORIGEN, CK_COD_ORIGEN, TIPO_IDENTIFICAC,    CK_SETID_TERCERO, LC_TERCERO, SETID_VENDOR, VENDOR_ID, SETID_CUSTOMER, CUST_ID,  LC_DIGITO_VERIF,     TIPO_PER_HO,   ADD_DT, MODIFIED_DT, CHECKOUT_DT) 
+VALUES($setIdTercero, $IdTercero,      $Origen,       $ModoOrigen,   $TipoIdentificacion, $SetidTerc,    $Tercero,   $SetidVendor, $Vendor,   $SetidCliente,  $Cliente, $DigitoVerificacion, $TipoPersona , $AddDt, $ModifiedDt, $ChekoutDt)
+END-SQL
+
+END-PROCEDURE
+
+!-----------------------------------------------------------------------
+! Funcion: ModificarTerceroLinea
+! Descripcion: Modifica la linea del tercero
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE ModificarTerceroLinea($setIdTercero, $IdTercero, $Origen, $ModoOrigen, $TipoIdentificacion, $SetidTercero, $Tercero, $SetidVendor, $Vendor, $SetidCliente, $Cliente, $DigitoVerificacion, $TipoPersona, $AddDt, $ModifiedDt, $ChekoutDt)
+
+BEGIN-SQL
+UPDATE PS_LC_RPOS_TERC_LN
+   SET CK_SETID_TERCERO = $SetidTercero,
+   LC_TERCERO = $Tercero, 
+   SETID_VENDOR = $SetidVendor, 
+   VENDOR_ID = $Vendor, 
+   SETID_CUSTOMER = $SetidCliente, 
+   CUST_ID = $Cliente,  
+   LC_DIGITO_VERIF = $DigitoVerificacion,     
+   TIPO_PER_HO = $TipoPersona,   
+   ADD_DT = $AddDt,
+   MODIFIED_DT = $ModifiedDt,
+   CHECKOUT_DT = $ChekoutDt
+WHERE SETID = $setIdTercero
+  AND NIT_PROVEEDOR = $IdTercero
+  AND CK_MOD_ORIGEN = $Origen
+  AND CK_COD_ORIGEN = $ModoOrigen
+  AND TIPO_IDENTIFICAC = $TipoIdentificacion
+END-SQL
+
+END-PROCEDURE
+
+!Inicio modificación 012
+!-----------------------------------------------------------------------
+! Funcion: AumentarSecuenciaTerceroLn
+! Descripcion: Modifica la linea del tercero Aumentando la secuencia
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE AumentarSecuenciaTerceroLn($setIdTercero, $IdTercero, $Origen, $SetidCliente)
+
+BEGIN-SQL
+UPDATE PS_LC_RPOS_TERC_LN
+   SET CK_COD_ORIGEN = CK_COD_ORIGEN + 1
+WHERE SETID = $setIdTercero
+  AND NIT_PROVEEDOR = $IdTercero
+  AND CK_MOD_ORIGEN = $Origen
+  AND SETID_CUSTOMER = $SetidCliente
+END-SQL
+
+END-PROCEDURE
+!Fin modificación 012
+
+!-----------------------------------------------------------------------
+! Funcion: ExisteNombreTablaRPOS
+! Descripcion: Verifica si el nombre ya existe en la tabla LC_RPOS_LN_NAME
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE ExisteNombreTablaRPOS($setIdTercero, $IdTercero, $TipoIdentificacion, $Origen, $ModoOrigen, $Setid, $Cust_status_dt, :$ExisteRPOS)
+
+	Let $ExisteRPOS = 'N'
+BEGIN-SELECT
+'EXISTE PS_LC_RPOS_LN_NAME'
+	Let $ExisteRPOS = 'Y'
+FROM PS_LC_RPOS_LN_NAME
+WHERE SETID = $setIdTercero
+  AND NIT_PROVEEDOR = $IdTercero
+  !Inicio modificación 012
+  !AND TIPO_IDENTIFICAC = $TipoIdentificacion
+  AND CK_MOD_ORIGEN = $Origen
+  !AND CK_COD_ORIGEN = $ModoOrigen
+  AND SETID_SOURCE = $Setid
+  !AND START_DATE = TO_DATE($Cust_status_dt,'DD/MM/YYYY')
+  !Fin modificación 012
+END-SELECT
+
+END-PROCEDURE
+
+!-----------------------------------------------------------------------
+! Funcion: ExisteDireccionTablaRPOS
+! Descripcion: Verifica si la direccion ya existe en la tabla LC_RPOS_LN_DIRE
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE ExisteDireccionTablaRPOS($setIdTercero, $IdTercero, $TipoIdentificacion, $Origen, $ModoOrigen, $Setid, $Cust_status_dt, :$ExisteRPOS)
+
+	Let $ExisteRPOS = 'N'
+BEGIN-SELECT
+'EXISTE PS_LC_RPOS_LN_DIRE'
+	Let $ExisteRPOS = 'Y'
+FROM PS_LC_RPOS_LN_DIRE
+WHERE SETID = $setIdTercero
+  AND NIT_PROVEEDOR = $IdTercero  
+  !Inicio modificación 012
+  !AND TIPO_IDENTIFICAC = $TipoIdentificacion
+  AND CK_MOD_ORIGEN = $Origen
+  !AND CK_COD_ORIGEN = $ModoOrigen
+  AND SETID_SOURCE = $Setid
+  !AND START_DATE = TO_DATE($Cust_status_dt,'DD/MM/YYYY')
+  !Fin modificación 012
+END-SELECT
+
+END-PROCEDURE
+
+!-----------------------------------------------------------------------
+! Funcion: ExisteNombreTablaCustomName
+! Descripcion: Verifica si el nombre ya existe en la tabla PS_LC_CUSTOM_NAME
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE ExisteNombreTablaCustomName($Setid, $Cust_id, $Cust_status_dt, :$ExisteRPOS)
+
+	Let $ExisteRPOS = 'N'
+BEGIN-SELECT
+'EXISTE PS_LC_CUSTOM_NAME'
+	Let $ExisteRPOS = 'Y'
+FROM PS_LC_CUSTOM_NAME
+WHERE SETID = $Setid
+  AND CUST_ID = $Cust_id
+  AND EFFDT = TO_DATE($Cust_status_dt,'DD/MM/YYYY')
+END-SELECT
+
+END-PROCEDURE
+
+!Inicio modificación 012
+!-----------------------------------------------------------------------
+! Funcion: RegistrarNombreTablaRPOS
+! Descripcion: Registra el nombre en la tabla LC_RPOS_LN_NAME
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE RegistrarNombreTablaRPOS($setIdTercero, $IdTercero, $TipoIdentificacion, $Origen, $ModoOrigen, $Setid, $Cust_status_dt, $NombreTercero, $PrimerNombre, $SegundoNombre, $PrimerApellido, $SegundoApellido)
+
+BEGIN-SQL
+INSERT INTO PS_LC_RPOS_LN_NAME(SETID,  NIT_PROVEEDOR, TIPO_IDENTIFICAC,    CK_MOD_ORIGEN, CK_COD_ORIGEN, SETID_SOURCE, START_DATE,                            EFF_STATUS, NOM_TERCERO,    LC_MMG_PRIM_NOMBRE, LC_MMG_SEGU_NOMBRE, LC_MMG_PRI_APELLID, LC_MMG_SEG_APELLID)
+		        VALUES($setIdTercero, $IdTercero,      $TipoIdentificacion, $Origen,       $ModoOrigen, $Setid,   TO_DATE($Cust_status_dt,'DD/MM/YYYY'), 'A',        $NombreTercero, $PrimerNombre,      $SegundoNombre,     $PrimerApellido,    $SegundoApellido)
+END-SQL
+
+END-PROCEDURE 
+!Fin modificación 012
+
+!-----------------------------------------------------------------------
+! Funcion: RegistrarNombreTablaCustomName
+! Descripcion: Registra el nombre en la tabla PS_LC_CUSTOM_NAME
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE RegistrarNombreTablaCustomName($Setid, $Cust_id, $Cust_status_dt, $TipoPersona, $Nombre1, $Nombre2, $PrimerNombre, $SegundoNombre, $PrimerApellido, $SegundoApellido)
+
+BEGIN-SQL
+INSERT INTO PS_LC_CUSTOM_NAME(SETID,  CUST_ID,  EFFDT,                                 EFF_STATUS, TIPO_PER_HO,  NAME1,    NAME2,    LC_MMG_PRIM_NOMBRE, LC_MMG_SEGU_NOMBRE, LC_MMG_PRI_APELLID, LC_MMG_SEG_APELLID)
+		       VALUES($Setid, $Cust_id, TO_DATE($Cust_status_dt,'DD/MM/YYYY'), 'A',        $TipoPersona, $Nombre1, $Nombre2, $PrimerNombre,      $SegundoNombre,     $PrimerApellido,    $SegundoApellido)
+END-SQL
+
+END-PROCEDURE 
+
+!-----------------------------------------------------------------------
+! Funcion: ModificarNombreTablaCustomName
+! Descripcion: Modifica el nombre en la tabla PS_LC_CUSTOM_NAME
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE ModificarNombreTablaCustomName($Setid, $Cust_id, $Cust_status_dt, $TipoPersona, $Nombre1, $Nombre2, $PrimerNombre, $SegundoNombre, $PrimerApellido, $SegundoApellido)
+
+BEGIN-SQL
+UPDATE PS_LC_CUSTOM_NAME
+   SET TIPO_PER_HO = $TipoPersona,
+   NAME1 = $Nombre1,
+   NAME2 = $Nombre2,
+   LC_MMG_PRIM_NOMBRE = $PrimerNombre,
+   LC_MMG_SEGU_NOMBRE = $SegundoNombre,
+   LC_MMG_PRI_APELLID = $PrimerApellido,
+   LC_MMG_SEG_APELLID = $SegundoApellido
+WHERE SETID = $Setid
+  AND CUST_ID = $Cust_id
+  AND EFFDT = TO_DATE($Cust_status_dt,'DD/MM/YYYY')
+END-SQL
+
+END-PROCEDURE 
+
+!-----------------------------------------------------------------------
+! Funcion: ModificarNombreTablaRPOS
+! Descripcion: Modifica el nombre en la tabla LC_RPOS_LN_NAME
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE ModificarNombreTablaRPOS($setIdTercero, $IdTercero, $TipoIdentificacion, $Origen, $ModoOrigen, $Cust_status_dt, $NombreTercero, $PrimerNombre, $SegundoNombre, $PrimerApellido, $SegundoApellido)
+
+BEGIN-SQL
+UPDATE PS_LC_RPOS_LN_NAME
+   SET EFF_STATUS = 'A',
+   NOM_TERCERO = $NombreTercero, 
+   LC_MMG_PRIM_NOMBRE = $PrimerNombre, 
+   LC_MMG_SEGU_NOMBRE = $SegundoNombre,
+   LC_MMG_PRI_APELLID = $PrimerApellido,
+   LC_MMG_SEG_APELLID =  $SegundoApellido
+WHERE SETID = $setIdTercero
+  AND NIT_PROVEEDOR = $IdTercero
+  AND TIPO_IDENTIFICAC = $TipoIdentificacion
+  AND CK_MOD_ORIGEN = $Origen
+  AND CK_COD_ORIGEN = $ModoOrigen
+  AND START_DATE = TO_DATE($Cust_status_dt,'DD/MM/YYYY')
+END-SQL
+
+END-PROCEDURE 
+
+!Inicio modificación 012
+!-----------------------------------------------------------------------
+! Funcion: AumentarSecuenciaTerceroName
+! Descripcion: Aumenta la secuencia de los códigos de los nombres
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE AumentarSecuenciaTerceroName($setIdTercero, $IdTercero, $Origen, $Setid)
+
+BEGIN-SQL
+UPDATE PS_LC_RPOS_LN_NAME
+   SET CK_COD_ORIGEN = CK_COD_ORIGEN + 1
+WHERE SETID = $setIdTercero
+  AND NIT_PROVEEDOR = $IdTercero
+  AND CK_MOD_ORIGEN = $Origen
+  AND SETID_SOURCE = $Setid
+END-SQL
+
+END-PROCEDURE
+!Fin modificación 012
+
+!Inicio modificación 012
+!-----------------------------------------------------------------------
+! Funcion: RegistrarDireccionTablaRPOS
+! Descripcion: Registra la direccion en la tabla PS_LC_RPOS_LN_DIRE
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE RegistrarDireccionTablaRPOS($setIdTercero, $IdTercero, $TipoIdentificacion, $Origen, $ModoOrigen, $Setid, $Cust_status_dt, $Pais, $Dir1, $Dir2, $Dir3, $Dir4, $Depto, $Ciudad, $CodigoGeo)
+!Inicio 018
+let $Pais = nvl($Pais, ' ')
+let $Dir1 = nvl($Dir1, ' ')
+let $Dir2 = nvl($Dir2, ' ')
+let $Dir3 = nvl($Dir3, ' ')
+let $Dir4 = nvl($Dir4, ' ')
+let $Depto = nvl($Depto, ' ')
+let $Ciudad = nvl($Ciudad, ' ')
+let $CodigoGeo = nvl($CodigoGeo, ' ')
+!Fin 018
+
+BEGIN-SQL
+INSERT INTO PS_LC_RPOS_LN_DIRE(SETID,  NIT_PROVEEDOR, TIPO_IDENTIFICAC,    CK_MOD_ORIGEN, CK_COD_ORIGEN, SETID_SOURCE, START_DATE,                            EFF_STATUS, COUNTRY, ADDRESS1, ADDRESS2, ADDRESS3, ADDRESS4, STATE,  CITY,    GEO_CODE)
+		        VALUES($setIdTercero, $IdTercero,      $TipoIdentificacion, $Origen,       $ModoOrigen, $Setid,   TO_DATE($Cust_status_dt,'DD/MM/YYYY'), 'A',        $Pais,   $Dir1,    $Dir2,    $Dir3,    $Dir4,    $Depto, $Ciudad, $CodigoGeo)
+END-SQL
+
+END-PROCEDURE 
+!Fin modificación 012
+
+!-----------------------------------------------------------------------
+! Funcion: ModificarDireccionTablaRPOS
+! Descripcion: Modifica la direccion en la tabla PS_LC_RPOS_LN_DIRE
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE ModificarDireccionTablaRPOS($setIdTercero, $IdTercero, $TipoIdentificacion, $Origen, $ModoOrigen, $Cust_status_dt, $Pais, $Dir1, $Dir2, $Dir3, $Dir4, $Depto, $Ciudad, $CodigoGeo)
+
+BEGIN-SQL
+UPDATE PS_LC_RPOS_LN_DIRE
+   SET EFF_STATUS = 'A',
+   COUNTRY = $Pais, 
+   ADDRESS1 = $Dir1, 
+   ADDRESS2 = $Dir2, 
+   ADDRESS3 = $Dir3, 
+   ADDRESS4 = $Dir4, 
+   STATE = $Depto, 
+   CITY  = $Ciudad, 
+   GEO_CODE = $CodigoGeo 
+WHERE SETID = $setIdTercero
+  AND NIT_PROVEEDOR = $IdTercero
+  AND TIPO_IDENTIFICAC = $TipoIdentificacion
+  AND CK_MOD_ORIGEN = $Origen
+  AND CK_COD_ORIGEN = $ModoOrigen
+  AND START_DATE = TO_DATE($Cust_status_dt,'DD/MM/YYYY')
+END-SQL
+
+END-PROCEDURE 
+
+!Inicio modificación 012
+!-----------------------------------------------------------------------
+! Funcion: AumentarSecuenciaTerceroDire
+! Descripcion: Aumenta la secuencia de los códigos de las direcciones
+!-----------------------------------------------------------------------
+BEGIN-PROCEDURE AumentarSecuenciaTerceroDire($setIdTercero, $IdTercero, $Origen, $Setid)
+
+BEGIN-SQL
+UPDATE PS_LC_RPOS_LN_DIRE
+   SET CK_COD_ORIGEN = CK_COD_ORIGEN + 1
+WHERE SETID = $setIdTercero
+  AND NIT_PROVEEDOR = $IdTercero
+  AND CK_MOD_ORIGEN = $Origen
+  AND SETID_SOURCE = $Setid
+END-SQL
+
+END-PROCEDURE
+!Fin modificación 012
+
+BEGIN-PROCEDURE reqDigitoVerificacion($tipoDocumento, :$RequiereDigito)
+   
+   let $RequiereDigito = 'N'
+
+BEGIN-SELECT ON-ERROR=SQL-ERROR
+'reqDigitoVerificacion'
+
+
+   let $RequiereDigito = 'Y'
+
+FROM PS_CK_TIPO_DOCUMNT A 
+WHERE A.CK_TIPO_IDENT  = $tipoDocumento
+  AND A.LC_DIGITO_FLAG = 'Y' 
+  AND A.EFFDT = (SELECT MAX(B.EFFDT) 
+                   FROM PS_CK_TIPO_DOCUMNT B 
+                  WHERE A.CK_TIPO_IDENT=B.CK_TIPO_IDENT 
+                    AND B.EFFDT<= SYSDATE )
+  AND A.EFF_STATUS='A'
+END-SELECT
+   
+END-PROCEDURE
+
+
+! AJUSTES MEDIOS MAGNETICOS EAS 16/06/2010 FIN
+
+!-----------------------------------------------------------------------
+! Insert de datos en la tabla PS_CUST_ADDR_SEQ. Datos Direccion
+!-----------------------------------------------------------------------
+begin-procedure INSERTAR-DATOS-DIRECCION
+display 'INSERTAR-DATOS-DIRECCION'
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CUST_ADDR_SEQ
+(SETID,                  
+CUST_ID,                
+ADDRESS_SEQ_NUM,        
+DESCR,                  
+BILL_TO_ADDR,           
+SHIP_TO_ADDR,           
+SOLD_TO_ADDR,           
+CRSPD_TO_ADDR,          
+BROKER_ADDR,            
+INDIRECT_ADDR,          
+LAST_MAINT_OPRID,       
+DATE_LAST_MAINT,        
+RFID_ENABLED)
+VALUES
+($Setid,
+$Cust_id,
+$address_seq_num,
+'PRINCIPAL',
+'Y',
+'Y',
+'Y',
+'Y',
+' ',
+' ',
+$Oprid,
+TO_DATE($fecha_out,'DD-MM-YYYY'),
+' ')
+end-sql
+end-procedure INSERTAR-DATOS-DIRECCION
+
+
+!-----------------------------------------------------------------------
+! Busca la ruta que corresponde al barrio del cliente
+!-----------------------------------------------------------------------
+begin-procedure BUSCAR-RUTA
+display 'BUSCAR-RUTA'
+  Let $Ruta = ' '
+Begin-SELECT 
+RTC.ROUTE_CD
+  Let $Ruta = &RTC.ROUTE_CD
+  Show 'Ruta : ' $Ruta
+  Do INSERTAR-RUTA
+FROM PS_CK_BARRIO_TBL RTC
+WHERE RTC.MUNI_FLD_HO = $City
+AND   RTC.CK_BARRIO = $barrio
+End-SELECT
+end-procedure BUSCAR-RUTA
+
+!-----------------------------------------------------------------------
+! Insert de datos en la tabla PS_CUST_ADDRESS. Datos de la direccion.
+!-----------------------------------------------------------------------
+begin-procedure INSERTAR-DIRECCION-CLIENTE
+show ' ENTRO INSERTAR-DIRECCION-CLIENTE'
+! Inicio 018
+Do Buscar-Campos-Tabla-CK_ADDR_GEOREFE_TMP
+
+if isblank($Ck_Addre1_Geo)
+  show ' Valor en blanco $Ck_Addre1_Geo:ccg ' $Ck_Addre1_Geo
+  else
+  	let $Address1 = $Ck_Addre1_Geo
+end-if  										 
+
+if isblank($Ck_Addre2_Geo)
+  	show ' Valor en blanco $Ck_Addre2_Geo:ccg ' $Ck_Addre2_Geo									                
+  else 
+   let $Address2 = $Ck_Addre2_Geo              
+end-if 
+
+if isblank($Ck_Barrio_Geo)
+  	show ' Valor en blanco $Ck_Addre1_Geo:ccg ' $Ck_Addre1_Geo								
+  else
+  	let $barrio   = $Ck_Barrio_Geo  
+end-if  
+! Fin 018
+
+! Inicio 014
+let  #Num_Max_Cam = 55
+! Fin 014
+show ' $City          ' $City 
+show ' $County        ' $County
+show ' $State         ' $State
+show ' $Phone         ' $Phone
+show ' $Fax           ' $Fax
+show ' $Oprid         ' $Oprid
+SHOW ' $Address1      ' $Address1   
+show ' $Address2      ' $Address2
+let  $Address1 = substr($Address1, 1, #Num_Max_Cam)
+let  $Address2 = substr($Address2, 1, #Num_Max_Cam)
+if   isblank($Address1)
+     let $Address1 = ' '
+end-if
+if   isblank($Address2)
+     let $Address2 = ' '
+end-if
+let  $City          = ltrim($City,' ')
+
+! Inicio 018
+if $Address2 = 'NO CAMBIO' 
+	Let $Address2 = ' '
+end-if
+! Fin 018
+ 
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CUST_ADDRESS
+VALUES 
+($Setid,	         
+$Cust_id,             
+$address_seq_num,
+TO_DATE($fecha_out,'DD-MM-YYYY'),                 
+$Cust_status,             
+' ',
+' ',
+$lenguaje,
+' ',
+'COL',
+$Address1,
+$Address2,
+' ',
+' ',
+$City,                 
+' ',
+' ',
+' ',
+' ', !CAMPO NUEVO ADDR_FIELD1                            
+' ', !CAMPO NUEVO ADDR_FIELD2                            
+' ', !CAMPO NUEVO ADDR_FIELD3                            
+$barrio, !$County, 
+$State,  !CAMPO DE                 
+' ',
+' ',
+' ',
+'51',
+$Phone,
+' ',
+$Fax,
+' ', !CAMPO NUEVO PHYSICAL_NATURE.    PREGUNTA QUE MANEJA 'G' (Y/o) 'S'
+' ', !CAMPO NUEVO VAT_SVC_PERFRM_FLG. PREGUNTA QUE MANEJA 1,2,3,4
+'',  !CAMPO NUEVO LAST_EXP_CHK_DTTM   PREGUNTA QUE MANEJA
+$Oprid,
+TO_DATE($fecha_out,'DD-MM-YYYY'),
+' ') !CAMPO NUEVO URL_LONG            PREGUNTA QUE MANEJA)
+end-sql
+
+! Inicio 018
+! insert en la PS_CK_ADDR_GEOREFE
+begin-sql ON-ERROR=SQL-ERROR
+! Inicio 024
+!INSERT INTO PS_CK_ADDR_GEOREFE (SETID,CUST_ID,ADDRESS_SEQ_NUM,EFFDT,CITY, ADDRESS1, ADDRESS2, CK_DIRECTRAD,CK_VALIDACION,CK_VALIDA_PLACA,CK_ESAMBIGUA,CK_FUENTE2	,CK_DIRALTERNA	,CK_BARRIOTRADUCIDO,CK_CODIGODIRECCION,CK_CODDIRPLACA,CK_NIVSOCIO,		CK_MANZANA,			CK_BARRIO1,CK_CODBAR,CK_LOCALIDAD1,CK_CX2,CK_CY2,CK_BARRIO_PEOPLE,CK_ESTADO3,CK_MENSAJE1, CK_LOCATION_ID)
+!SELECT SETID,CUST_ID,ADDRESS_SEQ_NUM,EFFDT,CITY, ADDRESS1, ADDRESS2,CK_DIRECTRAD,CK_VALIDACION,CK_VALIDA_PLACA,CK_ESAMBIGUA,CK_FUENTE2	,CK_DIRALTERNA	,CK_BARRIOTRADUCIDO,CK_CODIGODIRECCION,CK_CODDIRPLACA,CK_NIVSOCIO,		CK_MANZANA,			CK_BARRIO1,CK_CODBAR,CK_LOCALIDAD1,CK_CX2,CK_CY2,CK_BARRIO_PEOPLE,CK_ESTADO3,CK_MENSAJE1, ' ' 
+INSERT INTO PS_CK_ADDR_GEOREFE (SETID,CUST_ID,ADDRESS_SEQ_NUM,EFFDT,CITY, ADDRESS1, ADDRESS2, CK_DIRECTRAD,CK_VALIDACION,CK_VALIDA_PLACA,CK_ESAMBIGUA,CK_FUENTE2	,CK_DIRALTERNA	,CK_BARRIOTRADUCIDO,CK_CODIGODIRECCION,CK_CODDIRPLACA,CK_NIVSOCIO,		CK_MANZANA,			CK_BARRIO1,CK_CODBAR,CK_LOCALIDAD1,CK_CX2,CK_CY2,CK_BARRIO_PEOPLE,CK_ESTADO3,CK_MENSAJE1, CK_POSTAL, CK_LOCATION_ID)
+SELECT SETID,CUST_ID,ADDRESS_SEQ_NUM,EFFDT,CITY, ADDRESS1, ADDRESS2,CK_DIRECTRAD,CK_VALIDACION,CK_VALIDA_PLACA,CK_ESAMBIGUA,CK_FUENTE2	,CK_DIRALTERNA	,CK_BARRIOTRADUCIDO,CK_CODIGODIRECCION,CK_CODDIRPLACA,CK_NIVSOCIO,		CK_MANZANA,			CK_BARRIO1,CK_CODBAR,CK_LOCALIDAD1,CK_CX2,CK_CY2,CK_BARRIO_PEOPLE,CK_ESTADO3,CK_MENSAJE1, CK_POSTAL, ' ' 
+!Fin 024
+FROM PS_CK_ADDR_GEO_TMP CCTMP
+WHERE CCTMP.SETID = $Setid
+AND CCTMP.CUST_ID = $Cust_id
+AND CCTMP.ADDRESS_SEQ_NUM = $address_seq_num
+AND CCTMP.EFFDT = TO_DATE($fecha_out,'DD-MM-YYYY')
+end-sql
+! Fin 018
+
+show ' SALIO INSERTAR-DIRECCION-CLIENTE'
+end-procedure INSERTAR-DIRECCION-CLIENTE
+
+!-----------------------------------------------------------------------
+! Insert de datos en la tabla PS_CK_CUST_ADDR_AR - Nueva para Cartera.
+!-----------------------------------------------------------------------
+! Se adiciona nueva rutina para insertar en la nueva estructura de Dirección de Cartera
+! Inicio 007
+begin-procedure INSERTAR-DIRECCION-CARTERA
+show ' ENTRO INSERTAR-DIRECCION-CARTERA'
+! Inicio 014
+let  #Num_Max_Cam = 55
+! Fin 014
+show ' $City          ' $City 
+show ' $County        ' $County
+show ' $State         ' $State
+show ' $Phone         ' $Phone
+SHOW ' $Address1      ' $Address1   
+show ' $Address2      ' $Address2
+let  $Address1 = substr($Address1, 1, #Num_Max_Cam)
+let  $Address2 = substr($Address2, 1, #Num_Max_Cam)
+if   isblank($Address1)
+     let $Address1 = ' '
+end-if
+if   isblank($Address2)
+     let $Address2 = ' '
+end-if
+let  $City          = ltrim($City,' ')
+
+! Inicio 018
+if $Address2 = 'NO CAMBIO' 
+	Let $Address2 = ' '
+end-if
+! Fin 018
+ 
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CK_CUST_ADDR_AR
+VALUES 
+($Setid,	         
+$Cust_id,             
+$address_seq_num,
+TO_DATE($fecha_out,'DD-MM-YYYY'),                 
+$Cust_status,             
+'PRINCIPAL',
+'COL',
+$Address1,
+$Address2,
+$State,
+$City,                 
+$barrio, !$County, 
+'51',
+$Phone,
+' ',
+' ',
+'',
+$Oprid,
+TO_DATE($fecha_out,'DD-MM-YYYY'),
+' ') 
+end-sql
+show ' SALIO INSERTAR-DIRECCION-CARTERA'
+end-procedure INSERTAR-DIRECCION-CARTERA
+! Se adiciona nueva rutina para insertar en la nueva estructura de Dirección de Cartera
+! Fin 007
+
+! Inicio 021
+begin-procedure Insertar-Flag-DirCartera
+show ' Entró Insertar-Flag-DirCartera'
+ 
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CK_ADDR_CAR_TBL
+VALUES 
+($Setid,	         
+$Cust_id,             
+$address_seq_num,
+'Y') 
+end-sql
+show ' Salió Insertar-Flag-DirCartera'
+end-procedure Insertar-Flag-DirCartera
+! Fin 021
+
+!-----------------------------------------------------------------------
+! Insert de datos en la tabla PS_CK_CUST_ADDRESS. Datos de la ruta.
+!-----------------------------------------------------------------------
+begin-procedure INSERTAR-RUTA
+display 'INSERTAR-RUTA'
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CK_CUST_ADDRESS
+VALUES 
+($Setid,	         
+$Cust_id,             
+$address_seq_num,
+TO_DATE($fecha_out,'DD-MM-YYYY'),                 
+$Ruta)
+end-sql
+end-procedure INSERTAR-RUTA
+
+!-----------------------------------------------------------------------
+! Insert en la tabla PS_LC_CUSTOMER_ID. Identificador de tipo de cliente.
+!-----------------------------------------------------------------------
+begin-procedure INSERTAR-IDENTIF-CLIENTE
+display 'INSERTAR-IDENTIF-CLIENTE'
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_LC_CUSTOMER_ID (SETID, 
+CUST_ID,	
+TIPO_IDENTIFICAC,
+NIT_PROVEEDOR,
+LC_DIGITO_VERIF
+)
+VALUES($Setid,
+$Cust_id, 
+$Tipo_ident,	 
+$IdTercero,     
+$DigitoVerificacion
+)
+end-sql
+end-procedure INSERTAR-IDENTIF-CLIENTE
+!*******************************************************************!
+!begin-procedure Buscar-Tabla-Customer-Id
+!LET $TIPO_IDENTIFICA_PL = ' '
+!begin-select
+!E.TIPO_IDENTIFICAC
+!
+!    LET $TIPO_IDENTIFICA_PL = &E.TIPO_IDENTIFICAC
+!
+!from PS_LC_CUSTOMER_ID E
+!where  E.SETID           = $Setid_Panel
+!AND    E.CUST_ID         = $Cust_id_Ant
+!end-select
+!end-procedure   Buscar-Tabla-Customer-Id
+!*******************************************************************!
+!-----------------------------------------------------------------------
+! Insert en la tabla PS_CUST_REGN_TYPE. Tipo de region del cliente.
+!-----------------------------------------------------------------------
+begin-procedure INSERTAR-REGION-CLIENTE
+display 'INSERTAR-REGION-CLIENTE'
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CUST_REGN_TYPE
+VALUES
+($Setid,
+$Cust_id,
+'RPT',
+' ',
+$Oprid,
+TO_DATE($fecha_out,'DD-MM-YYYY'))
+end-sql
+end-procedure INSERTAR-REGION-CLIENTE
+
+
+!-----------------------------------------------------------------------
+! Insert en la tabla PS_CUST_TEAM. Zona correspondiente al cliente
+!-----------------------------------------------------------------------
+begin-procedure INSERTAR-ZONA-CLIENTE1
+display 'INSERTAR-ZONA-CLIENTE1'
+
+show $Setid                  
+show $Cust_id                
+show $Subcust_qual1        
+show $oprid
+show $fecha_out
+
+let $Exi_cust_team = 'N'
+
+begin-select
+'Y' &Exi_cust_team
+
+  let $Exi_cust_team = &Exi_cust_team
+
+FROM PS_CUST_TEAM CUSTM
+where CUSTM.SETID           = $setid
+  and CUSTM.CUST_ID         = $cust_id
+  and CUSTM.SUPPORT_TEAM_CD = $Subcust_qual1 
+end-select
+
+show $Exi_cust_team
+
+if $Exi_cust_team ='N'
+
+begin-sql ON-ERROR=SQL-Error
+INSERT INTO PS_CUST_TEAM
+VALUES
+($Setid,                  
+$Cust_id,                
+$Subcust_qual1,        
+'Y',           
+$oprid,
+TO_DATE($fecha_out,'DD-MM-YYYY'))        
+end-sql
+
+end-if
+end-procedure INSERTAR-ZONA-CLIENTE1
+
+
+begin-procedure BUSCAR-DATOS-ZONA
+display 'BUSCAR-DATOS-ZONA'
+display $subcust_qual1
+display $setid
+begin-select
+TEAM.SUPPORT_TEAM_MBR
+
+  let $vend_cobra = &TEAM.SUPPORT_TEAM_MBR
+
+from
+   PS_TEAM_MEMBERS TEAM
+
+WHERE TEAM.SETID = $setid
+and   TEAM.SUPPORT_TEAM_CD = $subcust_qual1
+and   TEAM.EFFDT           = (select MAX(TEAM1.EFFDT)
+                              from PS_TEAM_MEMBERS TEAM1
+                              where TEAM1.SETID = TEAM.SETID
+                              and   TEAM1.SUPPORT_TEAM_CD = TEAM.SUPPORT_TEAM_CD
+                              and   TEAM1.EFFDT <= sysdate)
+and   TEAM.MANAGER         <> 'Y'
+end-select
+Show 'Termino Buscar-Datos-Zona'
+end-procedure BUSCAR-DATOS-ZONA
+
+
+begin-procedure INSERTAR-ZONA-CLIENTE2
+display 'INSERTAR-ZONA-CLIENTE2'
+begin-sql ON-ERROR=SQL-Error
+INSERT INTO PS_CUST_TEAM
+VALUES(
+$Setid,                  
+$Cust_id,                
+$Subcust_qual2,        
+'N',           
+$oprid,	
+TO_DATE($fecha_out,'DD-MM-YYYY'))        
+end-sql
+end-procedure INSERTAR-ZONA-CLIENTE2
+
+
+begin-procedure INSERTAR-ZONA-CLIENTE3
+display 'INSERTAR-ZONA-CLIENTE3'
+begin-sql ON-ERROR=SQL-Error
+INSERT INTO PS_CUST_TEAM
+VALUES(
+$Setid,                  
+$Cust_id,                
+$Subcust_qual3,        
+'N',           
+$oprid,
+TO_DATE($fecha_out,'DD-MM-YYYY'))        
+end-sql
+end-procedure INSERTAR-ZONA-CLIENTE3
+
+
+begin-procedure INSERTAR-ZONA-CLIENTE4
+display 'INSERTAR-ZONA-CLIENTE4'
+begin-sql ON-ERROR=SQL-Error
+INSERT INTO PS_CUST_TEAM
+VALUES(
+$Setid,                  
+$Cust_id,                
+$Subcust_qual4,        
+'N',           
+$oprid,
+TO_DATE($fecha_out,'DD-MM-YYYY'))        
+end-sql
+end-procedure INSERTAR-ZONA-CLIENTE4
+!**********************************************************************
+!-----------------------------------------------------------------------
+! Busca Agente retendor de ICA 
+!-----------------------------------------------------------------------
+begin-procedure DATOS-ICA-CLIENTE
+Show  'Busca Actividad Ica'
+show ' $oprid ' $oprid
+  Let $Nro_Res  = ' '
+  Let $Agen_Ret = 'N'
+Begin-SELECT 
+ICA.LC_RES_RET_ICA
+  Let $Nro_Res = &ICA.LC_RES_RET_ICA
+  Let $Agen_Ret = 'Y'
+   
+     Do  Buscar-Existe-Cliente
+     if  #Cli_Exi = 0
+        SHOW ' Cliente No Existe ,' noline  !Lo Inserta
+        SHOW $Cod_Cli
+        do INSERTA_ICA
+     else
+         Do  ACTUALIZA_ICA  !Lo Actualiza
+     end-if
+
+  FROM PS_BUS_UNIT_TC_HO ICA
+  WHERE ICA.SETID  = $oprid
+         AND ICA.EFFDT = (SELECT MAX(A_EC.EFFDT)
+         FROM PS_BUS_UNIT_TC_HO A_EC
+         WHERE ICA.SETID = A_EC.SETID
+               AND A_EC.EFFDT <= SYSDATE)
+End-SELECT
+Show 'Actividad de ICA  '    $Nro_Res
+end-procedure DATOS-ICA-CLIENTE
+!-----------------------------------------------------------------------
+! Busca Agente retendor de ICA 
+!-----------------------------------------------------------------------
+
+begin-procedure Buscar-Existe-Cliente
+Show  'Buscar Cliente en LC_CUSTTXTYP_CH '
+let  $Setid         = Ltrim($Setid,' ')
+let  $Cust_id       = Ltrim($Cust_id,' ')
+let  $City          = Ltrim($City,' ')
+
+SHOW ' $Setid     ' $Setid
+SHOW ' $Cust_id   ' $Cust_id
+show ' $City      ' $City
+show ' $fecha_out ' $fecha_out
+let #Cli_Exi = 0
+begin-select
+A.CUST_ID
+
+     !let $Cod_Cli = &A.CUST_ID
+     let #Cli_Exi = 1
+
+FROM PS_LC_CUSTTXTYP_CH A
+  !WHERE A.EFFDT =
+        !(SELECT MAX(A_ED.EFFDT) FROM PS_LC_CUSTTXTYP_CH A_ED
+        !WHERE A.SETID = A_ED.SETID
+        !  AND A.CUST_ID = A_ED.CUST_ID
+        !  AND A_ED.EFFDT <= SYSDATE)
+  WHERE A.SETID = $Setid
+     AND A.CUST_ID = $Cust_id
+     AND A.MUNI_FLD_HO = $City
+     AND A.EFFDT       = $fecha_out
+end-select
+SHOW ' #Cli_Exi ' #Cli_Exi
+show ' $fecha_out ' $fecha_out
+end-procedure   Buscar-Existe-Cliente
+
+
+ !-----------------------------------------------------------------------
+ ! Inserta ICA                      !
+ !-----------------------------------------------------------------------
+  begin-procedure INSERTA_ICA
+
+
+SHOW ' ENTRO INSERTA_ICA '
+SHOW  $Setid	         
+SHOW  $Cust_id             
+SHOW  $fecha_out
+SHOW  $City 
+SHOW  $Nro_Res  
+SHOW  $Agen_Ret  
+
+ begin-sql ON-ERROR=SQL-ERROR
+  INSERT INTO PS_LC_CUSTTXTYP_CH
+  VALUES (
+    $Setid,	         
+    $Cust_id,             
+    TO_DATE($fecha_out,'DD-MM-YYYY'),
+    $City, 
+    $Nro_Res,  
+    $Agen_Ret,   
+    ' ',  
+    'N')
+  end-sql
+  SHOW ' SALIO INSERTA_ICA '
+  end-procedure INSERTA_ICA
+!-----------------------------------------------------------------------
+! Inserta ICA                     
+!-----------------------------------------------------------------------  
+   begin-procedure ACTUALIZA_ICA
+   show ' entra ACTUALIZA_ICA '
+   show ' $Setid   ' $Setid
+   show ' $Cust_id ' $Cust_id
+   begin-sql ON-ERROR=SQL-ERROR
+    UPDATE PS_LC_CUSTTXTYP_CH AR
+    SET  AR.LC_RES_RET_ICA    = $Nro_Res,
+         AR.LC_AGENTE_RET_ICA = $Agen_Ret,
+         AR.MUNI_FLD_HO       = $City
+         !WHERE AR.EFFDT = (SELECT MAX(A_ER.EFFDT)
+         !FROM PS_LC_CUSTTXTYP_CH A_ER
+	 !        WHERE AR.SETID    = A_ER.SETID
+	 !          AND AR.CUST_ID  = A_ER.CUST_ID
+	 !          AND A_ER.EFFDT <= SYSDATE)
+   WHERE AR.SETID        = $Setid
+     AND AR.CUST_ID      = $Cust_id
+     AND AR.MUNI_FLD_HO  = $City
+     AND AR.EFFDT        = $fecha_out
+    end-sql
+    show ' salio ACTUALIZA_ICA '
+  end-procedure ACTUALIZA_ICA
+  
+  !-----------------------------------------------------------------------
+  ! Termina Actualiza ICA					!
+  !----------------------------------------------------------------------- 
+
+!**********************************************************************
+!-----------------------------------------------------------------------
+! Insert enla tabla PS_LC_CUST_TAXTYP.Cliente NATURAL o JURIDICO
+!-----------------------------------------------------------------------
+begin-procedure DATOS-JURIDICOS-CLIENTE
+display 'DATOS-JURIDICOS-CLIENTE'
+!Inicio 009
+!IF $Tipo_ident    = 'C'
+!   LET $Tipo_Per  = 'N'
+!   LET $Res_Reten = ' '
+!   Let $agente    = 'N'
+!   let $cbt_type_ho  = 'RES'
+!ELSE
+!   LET $Tipo_Per  = 'J'
+!   LET $Res_Reten = '12345'  !12345 para DIBOG - 67890 para DICAL
+!   let $agente    = 'Y'
+!   let $cbt_type_ho  = 'REC'
+!END-IF
+IF $Tipo_ident    = 'N' 
+
+   LET $Tipo_Per  = 'J'
+   LET $Res_Reten = '12345'
+   let $agente    = 'Y'
+   let $cbt_type_ho  = 'REC'
+ELSE
+!Inicio 010 EHA
+   IF $Tipo_ident    = 'O'
+	LET $Tipo_Per  = 'J'
+	LET $Res_Reten = ' '
+	let $agente    = 'N'
+        let $cbt_type_ho  = 'REC'
+!Fin 010 EHA
+   ELSE
+      LET $Tipo_Per  = 'N'
+      LET $Res_Reten = ' '
+      Let $agente    = 'N'
+      let $cbt_type_ho  = 'RES'
+   END-IF
+END-IF
+!Fin 009
+
+!begin-sql ON-ERROR=SQL-ERROR
+!INSERT INTO PS_LC_CUST_TAXTYPE
+!VALUES(
+!$Setid,                           
+!$Cust_id,            		  
+!TO_DATE($fecha_out,'DD-MM-YYYY'),                	  
+!$cust_status,                 	  
+!
+!$cbt_type_ho,				  
+!$Tipo_Per,            		  
+!' ',            	   
+!' ',		           
+!$agente,			   
+!' ',
+!$Res_Reten,         	   
+!' ',       !Aqui se coloca la Resolucion   =   		         	
+!'N',	   !Aqui Coloca Y 	
+! ' ',         	
+! ' ',       	
+! ' ',         	
+! ' ',        	
+! 'N',           
+! ' ',           
+!'N',           	
+! ' ',            	
+! 'N',            	
+! ' ',           	   
+! 'N',            	   
+! ' ')           	   
+!end-sql
+end-procedure DATOS-JURIDICOS-CLIENTE
+
+!-------------------------------------------------------------------
+! Actualiza tablas que  People llena por debajo!
+!-------------------------------------------------------------------
+begin-procedure INSERTAR-DATOS-INTERNOS
+display 'INSERTAR-DATOS-INTERNOS'
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CUST_BILLTO
+VALUES(
+$setid,
+$Cust_id,            		  
+$Cust_id,
+1,
+$Oprid,
+TO_DATE($fecha_out,'DD-MM-YYYY'))
+end-sql
+
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CUST_SHIPTO
+VALUES(
+$setid,
+$Cust_id,            		  
+$Cust_id,
+1,
+$Oprid,
+TO_DATE($fecha_out,'DD-MM-YYYY'))
+end-sql
+end-procedure INSERTAR-DATOS-INTERNOS
+
+begin-procedure INSERTAR-FECHA-OPTION
+DISPLAY 'INSERTAR-FECHA-OPTION'
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CUST_OPTION
+(SETID,                           
+ CUST_ID,                         
+ EFFDT,                           
+ EFF_STATUS,                      
+ PYMNT_TERMS_CD,                  
+ PYMNT_TERMS_AMT,                 
+ GRACE_DUE_DAYS,                  
+ GRACE_DISC_DAYS,                 
+ RETENTION_DAYS,                  
+ PP_HOLD,                         
+ PP_METHOD,                       
+ REF_QUALIFIER_CODE,              
+ PARTIAL_PY_SW,                   
+ PO_REQUIRED,                     
+ BILL_BY_ID,                      
+ FREIGHT_BILL_TYPE,               
+ BILL_CYCLE_ID,                   
+ BILL_INQUIRY_PHONE,              
+ BILL_TYPE_ID,                    
+ BILLING_SPECIALIST,              
+ BILLING_AUTHORITY,               
+ COLLECTOR,                       
+ CR_ANALYST,                      
+ INVOICE_FORM_ID,                 
+ DST_ID_AR,                       
+ DRAFT_APPROVAL,                  
+ DRAFT_DOC,                       
+ DRAFT_TYPE,                      
+ DD_PROFILE_ID,                   
+ DD_GROUP,                        
+ PAYMENT_METHOD,                  
+ DIRECT_INVOICING,                
+ CUSTOMER_PO,                     
+ START_DATE,                     
+ END_DATE,                        
+ MICR_ID,                         
+ CONSOL_SETID,                    
+ CONSOL_CUST_ID,                  
+ CONSOL_KEY,                      
+ INTERUNIT_FLG,                   
+ BUSINESS_UNIT_GL,                
+ AR_SPECIALIST,                   
+ MAX_WRITE_OFF_AMT,               
+ MAX_WRITE_OFF_DAYS,              
+ MAX_WRITE_OFF_PCT,               
+ HOL_PROC_OPT,                    
+ HOL_PROC_DAYS,                   
+ HOL_PROC_OVERFL,                 
+ REBATE_METHOD,                   
+ BI_PROMPT_CURR,                  
+ LAST_MAINT_OPRID,                
+ DATE_LAST_MAINT,                 
+ IMMEDIATE_PAYMENT,               
+ DEPOSIT_PCT,                     
+ DISPLAY_PRICES)             
+VALUES
+($setid,                  
+$Cust_id,
+TO_DATE($fecha_out,'DD-MM-YYYY'),   
+'A',
+'30-D',      
+' ',
+0,
+0,       
+0,     
+' ',     
+' ',     
+' ',     
+'N',
+' ',
+' ',     
+' ',     
+' ',
+' ',     
+' ',
+' ',
+$Bill_specialist,
+' ',
+$Bill_specialist,
+' ',
+' ',     
+' ',     
+' ',     
+' ',     
+' ',     
+' ',
+'CHK', 
+'Y',
+' ',
+'',          
+'',          
+' ',          
+' ',        
+' ',
+!'N',
+!************************************************************
+! Se realiza el cambio porque en la paratrizacion de clientes
+! significa hace factura consolida y no debe ser asi, sino que
+! debe generar una factura por cliente, el cambio que se 
+! realizo fue que el campo CONSOL_KEY estaba siendo llenado
+! con 'N' ahora debe ir en espacios ' '. Esta modificacion es
+! solicitada por Jose Joaquin Rojas Cubillos.
+! Inicio Nueva modificación                  2009-04-16 JPC.
+!************************************************************
+' ',
+!************************************************************
+! Se realiza el cambio porque en la paratrizacion de clientes
+! significa hace factura consolida y no debe ser asi, sino que
+! debe generar una factura por cliente, el cambio que se 
+! realizo fue que el campo CONSOL_KEY estaba siendo llenado
+! con 'N' ahora debe ir en espacios ' '. Esta modificacion es
+! solicitada por Jose Joaquin Rojas Cubillos.
+! Fin Nueva modificación                  2009-04-16 JPC.
+!************************************************************
+' ',       
+' ', !'PTM', !CAMPO PAYMENT_TYPE QUE
+$Bill_specialist,
+2000,   !*** ESTABA EN  0   Y SE COLOCO  2000   PORQUE  NO PERMITIA  CRUCES DE VALORES PEQUEÑOS ***!!!
+0,
+0,
+' ',
+0,
+' ',
+' ',
+' ',
+$oprid, 
+TO_DATE($fecha_out,'DD-MM-YYYY'),
+' ',
+0,
+' ')
+end-sql
+SHOW 'SALIO INSERTAR-FECHA-OPTION'
+end-procedure INSERTAR-FECHA-OPTION
+
+begin-procedure INSERTAR-FECHA-SOLDTO
+display 'INSERTAR-FECHA-SOLDTO'
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CUST_SOLDTO_OPT
+VALUES 
+($setid,      
+$Cust_id,    
+TO_DATE($fecha_out,'DD-MM-YYYY'),  
+'A',         
+' ',
+' ',
+0,       
+' ',       
+' ',       
+$oprid,
+TO_DATE($fecha_out,'DD-MM-YYYY'),
+' ',         
+'S',         
+'N',        
+' ',
+'N',
+' ',
+' ',
+' ',
+' ')
+end-sql
+end-procedure INSERTAR-FECHA-SOLDTO
+
+begin-procedure INSERTAR-FECHA-SHIPTO
+display 'INSERTAR-FECHA-SHIPTO'
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CUST_SHIPTO_OPT
+VALUES 
+($setid,                         
+$Cust_id,                    
+TO_DATE($fecha_out,'DD-MM-YYYY'),                    
+'A',             	     
+' ',    		     
+' ',    		     
+'N',    		     
+'Y',    		     
+'Y',    		     
+$lenguaje,        	     
+' ',     		     
+' ',
+$oprid,
+TO_DATE($fecha_out,'DD-MM-YYYY'),
+' ',    		     
+' ',    		     
+0,    			     
+0,    			     
+'Y',    		     
+' ',    		     
+'N',    		     
+'N',    		     
+'N',    		     
+'N',    		     
+' ',
+' ',
+' ',
+' ',
+' ',    		     
+' ',    		     
+' ',    		     
+' ',
+' ',    		     
+' ',    		     
+' ',
+0,
+0,
+' ',
+0,
+' ',
+' ',
+' ',
+' ',
+0,
+' ',
+' ',
+' ',
+' ',
+' ',
+' ')        	             
+!' ',     		   ROUTE_CD                
+end-sql
+end-procedure   INSERTAR-FECHA-SHIPTO
+
+!-------------------------------------------------------------------
+! Cupo de credito manejado por el cliente.				
+!-------------------------------------------------------------------
+begin-procedure INSERTAR-CUPO-CREDITO
+display 'INSERTAR-CUPO-CREDITO'
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CUST_CREDIT
+VALUES (
+$setid,                  
+$Cust_id,                
+TO_DATE($fecha_out,'DD-MM-YYYY'),                 
+'A',             
+0,               
+90,  !%Limite       
+TO_DATE($fecha_out,'DD-MM-YYYY'),            
+0,          
+0,      
+'',       
+'',        
+' ',         
+'',             
+0,         
+' ',      
+'',          
+'M',              
+'A',           
+'Y',           
+0,          
+0,  !%Tolerancia         
+0,         
+'COP',            
+'TRM',                
+$oprid,       
+TO_DATE($fecha_out,'DD-MM-YYYY'),        
+' ',         
+' ',               
+0,
+' ',
+' ',
+0,
+' ')           
+end-sql
+end-procedure   INSERTAR-CUPO-CREDITO
+
+!------------------------------------------------------------------------
+! Actualiza la secuencia de contactos del cliente que esta actualizando.		
+!------------------------------------------------------------------------
+begin-procedure INSERTAR-SEQ-CONTACTOS
+display 'INSERTAR-SEQ-CONTACTOS'
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CUST_CNTCT_SEQ
+VALUES 
+($Setid,                     
+$Cust_id,                   
+1,       	         
+$oprid,
+$AsOfToday)
+end-sql
+end-procedure INSERTAR-SEQ-CONTACTOS
+
+
+!-------------------------------------------------------------------
+! Actualiza los contactos del cliente que esta actualizando.		
+!-------------------------------------------------------------------
+begin-procedure INSERTAR-CONTACTOS
+display 'INSERTAR-CONTACTOS'
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CUST_CONTACT
+VALUES (
+$Setid,                     
+$Cust_id,                   
+1,       	         
+TO_DATE($fecha_out,'DD-MM-YYYY'),                 
+$Cust_status,               
+$Name1,                     
+' ',                     
+$address_seq_num,           
+$lenguaje,               
+' ',                     
+'C',                     
+' ',          	         
+' ',                     
+$oprid,		         
+TO_DATE($fecha_out,'DD-MM-YYYY'),              
+' ')		         
+end-sql
+
+begin-sql on-error=sql-error
+INSERT INTO PS_CUST_CNTCT_PHN
+VALUES (
+$Setid,                  
+$Cust_id,                
+$address_seq_num,      
+TO_DATE($fecha_out,'DD-MM-YYYY'),                  
+'HOME', 
+'51',
+$Phone,                
+' ',              
+$oprid,       
+TO_DATE($fecha_out,'DD-MM-YYYY'))        
+end-sql
+end-procedure   INSERTAR-CONTACTOS
+
+
+!-------------------------------------------------------------------
+! Actualizacion de la segunda direccion en las tablas respectivas.
+!-------------------------------------------------------------------
+begin-procedure INSERTAR-IVA-CLIENTE
+display 'INSERTAR-IVA-CLIENTE'
+begin-sql  ON-ERROR=SQL-ERROR
+INSERT INTO PS_CUST_VAT_REG
+VALUES(
+$Setid,                 
+$Cust_id,                
+'COL',
+' ',          
+'CO',          
+'Y',
+$oprid,       
+$AsofToday)        
+end-sql
+end-procedure   INSERTAR-IVA-CLIENTE
+
+!-------------------------------------------------------------------
+! Actualizacion Tabla utilizada para Corbepuntos
+!-------------------------------------------------------------------
+begin-procedure INSETAR-PUNTOS
+SHOW 'INSETAR-PUNTOS ENTRO POR ESTE LADO'
+SHOW ' $Setid '$Setid
+SHOW ' $Cust_id '$Cust_id 
+show '$Canal'  $Canal
+begin-sql on-error=sql-error
+INSERT INTO PS_CK_CLIPUNTOS
+(SETID,          
+CUST_ID,        
+NAME1,          
+CUSTOMER_TYPE,  
+SUBCUST_QUAL1,  
+CK_PUNFAC,      
+CK_PUNDEV,      
+CK_PUNENT,      
+CK_PTMORA,      
+CK_PTADIC,      
+CK_PUNTNC,      
+CK_PUNRED,      
+CK_PUNTOT)
+VALUES(
+$Setid,
+$Cust_id,
+$name1,
+$Canal,
+$Subcust_qual1,
+0,
+0,
+0,
+0,
+0,
+0,
+0,
+0)
+end-sql
+SHOW 'SALIO INSETAR-PUNTOS ENTRO POR ESTE LADO'
+end-procedure INSERTAR-PUNTOS
+
+
+Begin-procedure get-defaults-bu-ar
+display 'get-defaults-bu-ar'
+!Se obtienen los valores por defecto para la unidad de negocios de AR
+begin-select ON-ERROR=SQL-ERROR
+A.GRACE_DISC_DAYS
+A.GRACE_DUE_DAYS
+A.BILLING_SPECIALIST
+A.CR_ANALYST
+
+  let $GRACE_DISC_DAYS    = &A.GRACE_DISC_DAYS
+  let $GRACE_DUE_DAYS     = &A.GRACE_DUE_DAYS
+  let $BILLING_SPECIALIST = &A.BILLING_SPECIALIST
+  let $CR_ANALYST         = &A.CR_ANALYST
+
+  FROM PS_CK_CAPTU_DISTRI A
+  WHERE A.BUSINESS_UNIT = &run_cntl_in.business_unit
+end-select
+end-procedure !get-defaults-bu-ar
+
+!-------------------------------------------------------------------
+! Actualizacion de la segunda direccion en las tablas respectivas.
+!-------------------------------------------------------------------
+begin-procedure CONTROL-DIRECCION
+   
+   	display 'CONTROL-DIRECCION'
+   	do VERIFICAR-DATOS-CLIENTES-EXISTEN
+   	show ' $ind_state ' $ind_state
+   	show ' $ind_city  ' $ind_city
+   	show ' $ind_county' $ind_county
+   	show ' $ind_barrio' $ind_barrio
+   	
+   	    if $ind_state  = 'N' or $ind_city   = 'N' or $ind_county = 'N' or $ind_barrio = 'N'
+      		show '* * Cliente No fue Creado en Ps * *' $Cust_id
+      		let #cnt_error = #cnt_error + 1
+   	    else
+        	let $encontro_barrio = 'N'
+        	!****************************************************************************
+        	! Rutina donde se va a asignar la georeferenciación de los clientes que 
+        	! venga del POS hacia PS y que el cliente sea nuevo.
+        	! Inicio Nuevo Codigo                                       2005-11-09
+        	!****************************************************************************
+       		Do Valida-Municipio-Existe
+        	
+			! Si encuentra municipio en la tabla PS_MUNI_TBL_HO entra aqui
+        	if #find-geocity = 1 and $Canal <> '0'
+				!Inicio 018
+           		!Do Buscar-Existe-Direcc-Ck-Address-Geo
+				!Fin 018
+           		!if #Exi_Dic_Geo = 0
+				!		!Inicio 018
+              	!		!Do Insertar-Registro-Tabla-Ck-Address-Geo
+				!		Do Insertar-Registro-Tabla-CK_ADDR_GEOREFE 
+				!		!Fin 018
+           		!else
+				!		!Inicio 018
+              	!		!Do Update-Registro-Tabla-Ck-Address-Geo
+				!		Do Update-Registro-Tabla-CK_ADDR_GEOREFE
+				!		!Fin 018
+           		!end-if
+           		
+				!Inicio 018
+           		!Do Buscar-Campos-Tabla-Ck-Address-Geo
+				!Do Buscar-Campos-Tabla-CK_ADDR_GEOREFE
+				!Fin 018
+           		if $Ck_Estado_Geo = 'E' or $Ck_Estado_Geo = 'F' or $Ck_Estado_Geo = ' '  
+           			show '* * Dirección ingresada no pudo ser geo-refenciada * *' $Cust_id
+           		else
+              			
+              			!	if isblank($Ck_Addre1_Geo)
+                	!	 	show ' Valor en blanco $Ck_Addre1_Geo ' $Ck_Addre1_Geo
+              		!	 else
+                	!	 	let $Address1 = $Ck_Addre1_Geo
+              		!	end-if   
+              		!
+              		!	if isblank($Ck_Addre2_Geo)
+                	!	 	show ' Valor en blanco $Ck_Addre1_Geo ' $Ck_Addre1_Geo
+              		!	 else
+                	!	 	let $Address2 = $Ck_Addre2_Geo              
+              		!	end-if
+              		!
+              		!	if isblank($Ck_Barrio_Geo)
+                	!	 	show ' Valor en blanco $Ck_Addre1_Geo ' $Ck_Addre1_Geo
+              		!	else
+              		!		let $encontro_barrio = 'Y'
+                	!	 	let $barrio = $Ck_Barrio_Geo  
+                	!	 	!let $county = $Ck_Barrio_Geo  Modificacion EAS 08/05/2009 Variable errada
+              		!	end-if    
+           	    end-if !$Ck_Estado_Geo = 'E' or $Ck_Estado_Geo = 'F' 
+	        end-if !#find-geocity = 1 and $Canal <> '0'
+        
+	    	!CK2000 Modificación Edgar Murillo 03-dic-2003
+		!Se valida la existencia de la dirección enviada por el POS
+		!Si no existe se crea una nueva secuencia 
+		do find-address
+    	if $find-address = 'N'
+        	do BUSCAR-ULTIMA-SEQ
+        	do INSERTAR-DATOS-DIRECCION2
+        	do INSERTAR-DIRECCION-CLIENTE2
+        	!Inicio 011
+        	do GetSetidIpo
+		    do INSERTAR-INFO-IPOCONSUMO2
+		    !Fin 011
+            ! <#005> do CAMBIAR-VALORES  !Validar si se inactiva la dirección anterior para envíos    
+        	do CAMBIAR-VALORES1        
+        	
+        	SHOW ' $Ind_Dir_Des ' $Ind_Dir_Des 
+        	if $Ind_Dir_Des = 'Y'
+           	!<Inicio #005>
+           	!	Do Actualizar-Address-Seq-Ship-Customer     
+           		do CAMBIAR-VALORES
+           	!<Fin #005>
+           	end-if     		
+		else
+        	!Inicio #001 - JCC 05Nov09 - Funcion que actualiza el barrio y ciudad si cambiaron
+			Do find-City-Conty		
+			If $find-City-Conty = 'N'			
+				Do BUSCAR-ULTIMA-SEQ-DIRECCION
+				Do VERIFICAR-DIRECCION-PROTEGIDA
+				
+				If $DireccionProtegida = 'N'
+					Do CORRECCION-DIRECCION-CLIENTE
+				 Else
+					do BUSCAR-ULTIMA-SEQ
+			       	do INSERTAR-DATOS-DIRECCION2
+	        		do INSERTAR-DIRECCION-CLIENTE2
+	        		!<#005 JCC> Let #SecuenciaDireccionActual = #actseq 
+        		End-If				
+			End-If
+        	!Fin #001 - JCC 05Nov09 - Funcion que actualiza el barrio y ciudad si cambiaron
+		end-if
+     	!Fin de la modificación     
+	    ! ACTUALIZA LA DIRECCION DE ENVIO MODIFICACION 22/04/2010 EAS
+	    SHOW ' $Ind_Dir_Des ' $Ind_Dir_Des ! <#005 JCC>
+		if $Ind_Dir_Des = 'Y' AND #SecuenciaDireccionActual <> 0 
+			Do Actualizar-Address-Seq-Ship-Customer
+		End-If	     	
+     	do CAMBIAR-NOMBRE     	
+   	end-if
+end-procedure   CONTROL-DIRECCION
+
+!*******************************************************************************
+! Procedure: Actualizar-Address-Seq-Ship-Customer
+!*******************************************************************************
+begin-procedure Actualizar-Address-Seq-Ship-Customer   
+	
+	show ' entro Actualizar-Address-Seq-Ship-Customer '
+	show ' $Setid  ' $Setid
+	show ' $Cust_id' $Cust_id
+	
+begin-sql ON-ERROR=SQL-ERROR                
+UPDATE PS_CUSTOMER A
+SET A.ADDRESS_SEQ_SHIP = #SecuenciaDireccionActual
+WHERE A.SETID   = $Setid
+  AND A.CUST_ID = $Cust_id
+end-sql
+
+BEGIN-SQL ON-ERROR=SQL-ERROR
+UPDATE PS_CUST_ADDR_SEQ
+   SET ship_to_addr = 'Y'
+ WHERE setid = $setid
+   AND cust_id = $cust_id
+   AND address_seq_num = #SecuenciaDireccionActual !<#005 JCC> #ultseq 
+END-SQL
+	
+end-procedure   Actualizar-Address-Seq-Ship-Customer     
+
+!*******************************************************************************
+! Procedure: Actualizar-Barrio-Cliente
+!*******************************************************************************
+begin-procedure Actualizar-Barrio-Cliente
+display 'Actualizar-Barrio-Cliente'
+display $Setid
+display $Cust_id
+display $Address1
+begin-sql ON-ERROR=SQL-ERROR
+UPDATE PS_CUST_ADDRESS AB1
+SET AB1.COUNTY     = $barrio
+WHERE AB1.SETID    = $Setid
+  AND AB1.CUST_ID  = $Cust_id
+  AND AB1.ADDRESS1 = $Address1
+  AND AB1.EFFDT    =
+     (SELECT MAX(A_ED1.EFFDT) FROM PS_CUST_ADDRESS A_ED1
+      WHERE AB1.SETID           = A_ED1.SETID
+        AND AB1.CUST_ID         = A_ED1.CUST_ID
+        AND AB1.ADDRESS_SEQ_NUM = A_ED1.ADDRESS_SEQ_NUM
+        AND A_ED1.EFFDT         <= SYSDATE)
+end-sql
+end-procedure   Actualizar-Barrio-Cliente
+
+!*******************************************************************************
+! Procedure: find-address
+!*******************************************************************************
+begin-procedure find-address
+	let $find-address = 'N'
+	let $address-to-find = rtrim($Address1,' ')
+	Let #SecuenciaDireccionActual = 0
+	
+begin-select ON-ERROR=SQL-ERROR
+A.FAX      &find-address
+A.ADDRESS_SEQ_NUM	&SecuenciaDireccionActual
+
+	Let #SecuenciaDireccionActual = &SecuenciaDireccionActual
+   	show '*** Dirección ya existe ***'
+   	let  $find-address = 'Y'
+
+FROM PS_CUST_ADDRESS A
+WHERE A.SETID    = $setid
+  AND A.CUST_ID  = $Cust_id
+!<Inicio #005> Se deben comparar en ambas partes sin espacios en blanco al final
+!  AND A.ADDRESS1 = $address-to-find
+  AND RTRIM(A.ADDRESS1) = $address-to-find
+!<Fin #005>
+  AND A.EFFDT    = (SELECT MAX(A_ED.EFFDT) FROM PS_CUST_ADDRESS A_ED
+                     WHERE A.SETID           = A_ED.SETID
+                       AND A.CUST_ID         = A_ED.CUST_ID
+                       AND A.ADDRESS_SEQ_NUM = A_ED.ADDRESS_SEQ_NUM
+                       AND A_ED.EFFDT       <= SYSDATE)
+end-select
+show ' $address-to-find ' $address-to-find	
+show ' $find-address ' $find-address
+	
+end-procedure find-address
+
+begin-procedure VERIFICAR-DATOS-CLIENTES-EXISTEN
+ display 'VERIFICAR-DATOS-CLIENTES-EXISTEN'
+ do VERIFICAR-STATE
+ do VERIFICAR-CITY
+ if $ind_city = 'Y'
+     Do Actualizar_barrio   !Modif JJRC abril 28/04 Petición Jaime_Henry abril 28/04
+ end-if
+do VERIFICAR-COUNTY 
+end-procedure   VERIFICAR-DATOS-CLIENTES-EXISTEN
+
+
+begin-procedure BUSCAR-ULTIMA-SEQ
+show 'Entra BUSCAR-ULTIMA-SEQ '
+let #actseq = 0
+let #ultseq = 0
+
+show '$setid ' $setid
+show '$cust_id ' $cust_id
+begin-select
+MAX(ult.address_seq_num) &ultseq
+
+  let #ultseq = &ultseq
+
+from ps_cust_addr_seq ult
+where ult.setid = $setid
+  and ult.cust_id = $cust_id
+end-select
+
+let #actseq = #ultseq + 1
+
+!<Inicio #005>
+Let #SecuenciaDireccionActual = #actseq
+!<Fin #005>
+end-procedure   BUSCAR-ULTIMA-SEQ
+
+
+
+!-----------------------------------------------------------------------
+! Insert de datos en la tabla PS_CUST_ADDR_SEQ. Datos Direccion2
+!-----------------------------------------------------------------------
+begin-procedure INSERTAR-DATOS-DIRECCION2
+display 'INSERTAR-DATOS-DIRECCION2'
+show ' $Cust_id ' $Cust_id
+show ' #actseq ' #actseq
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CUST_ADDR_SEQ
+(SETID,                  
+CUST_ID,                
+ADDRESS_SEQ_NUM,        
+DESCR,                 
+BILL_TO_ADDR,           
+SHIP_TO_ADDR,           
+SOLD_TO_ADDR,           
+CRSPD_TO_ADDR,          
+BROKER_ADDR,            
+INDIRECT_ADDR,          
+RFID_ENABLED,           
+LAST_MAINT_OPRID,       
+DATE_LAST_MAINT)
+VALUES(
+$Setid,
+$Cust_id,
+#actseq,
+'PRINCIPAL',
+'Y',
+!<Inicio #005> No debe marcar la nueva secuencia de dirección como de envio
+!'Y',
+'Y',! Se deja por defecto la direccion de envio en Y
+!<Fin #005> No debe marcar la nueva secuencia de dirección como de envio
+'Y',
+'Y',
+' ',
+' ',
+' ',
+$Oprid,
+TO_DATE($fecha_out,'DD-MM-YYYY'))
+end-sql
+end-procedure INSERTAR-DATOS-DIRECCION2
+
+
+!-----------------------------------------------------------------------
+! Insert de datos en la tabla PS_CUST_ADDRESS. Datos de la direccion de
+! envio de mercancia.
+!-----------------------------------------------------------------------
+begin-procedure INSERTAR-DIRECCION-CLIENTE2
+display 'INSERTAR-DIRECCION-CLIENTE2'
+! Inicio 018
+Do Buscar-Campos-Tabla-CK_ADDR_GEOREFE_TMP
+
+if isblank($Ck_Addre1_Geo)
+  show ' Valor en blanco $Ck_Addre1_Geo:ccg ' $Ck_Addre1_Geo
+  else
+  	let $Address1 = $Ck_Addre1_Geo
+end-if  										 
+
+if isblank($Ck_Addre2_Geo)
+  	show ' Valor en blanco $Ck_Addre2_Geo:ccg ' $Ck_Addre2_Geo									                
+  else 
+   let $Address2 = $Ck_Addre2_Geo              
+end-if 
+
+if isblank($Ck_Barrio_Geo)
+  	show ' Valor en blanco $Ck_Addre1_Geo:ccg ' $Ck_Addre1_Geo								
+  else
+  	let $barrio   = $Ck_Barrio_Geo  
+end-if  
+! Fin 018
+
+! Inicio 014
+let  #Num_Max_Cam = 55
+! Fin 014
+let  $Ck_Address1geo = ltrim($Ck_Address1geo,' ')
+let  $Ck_Address2geo = ltrim($Ck_Address2geo,' ')
+let  $Address1 = substr($Address1,1,#Num_Max_Cam)
+let  $Address2 = substr($Address2,1,#Num_Max_Cam)
+if   isblank($Address2)
+     let $Address2 = ' '
+end-if
+let  $City           = ltrim($City,' ')
+let  $Ck_Barrio      = ltrim($Ck_Barrio,' ') 
+show ' $Cust_id ' $Cust_id
+show ' $Address1 ' $Address1
+show ' $Address2 ' $Address2
+show ' $barrio   ' $barrio
+show ' $county ' $county
+
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CUST_ADDRESS
+VALUES 
+($Setid,
+$Cust_id,             
+#actseq,
+TO_DATE($fecha_out,'DD-MM-YYYY'),                 
+$Cust_status,             
+' ',
+' ',
+$lenguaje,
+' ',
+'COL',
+$Address1,
+$Address2,
+' ',
+' ',
+$City,                 
+' ',
+' ',
+' ',
+' ',
+' ',
+' ',
+$barrio,
+$State,                  
+' ',
+' ',
+' ',
+'51',
+$Phone,
+' ',
+$Fax,
+' ',
+' ',
+'',
+$Oprid,
+TO_DATE($fecha_out,'DD-MM-YYYY'),
+' ')
+end-sql
+
+
+! Inicio 018
+! insert en la PS_CK_ADDR_GEOREFE
+begin-sql ON-ERROR=SQL-ERROR
+!Inicio 024
+!INSERT INTO PS_CK_ADDR_GEOREFE (SETID,CUST_ID,ADDRESS_SEQ_NUM,EFFDT,CITY, ADDRESS1, ADDRESS2, CK_DIRECTRAD,CK_VALIDACION,CK_VALIDA_PLACA,CK_ESAMBIGUA,CK_FUENTE2	,CK_DIRALTERNA	,CK_BARRIOTRADUCIDO,CK_CODIGODIRECCION,CK_CODDIRPLACA,CK_NIVSOCIO,		CK_MANZANA,			CK_BARRIO1,CK_CODBAR,CK_LOCALIDAD1,CK_CX2,CK_CY2,CK_BARRIO_PEOPLE,CK_ESTADO3,CK_MENSAJE1, CK_LOCATION_ID)
+!SELECT SETID,CUST_ID,#actseq,EFFDT,CITY, ADDRESS1, ADDRESS2,CK_DIRECTRAD,CK_VALIDACION,CK_VALIDA_PLACA,CK_ESAMBIGUA,CK_FUENTE2	,CK_DIRALTERNA	,CK_BARRIOTRADUCIDO,CK_CODIGODIRECCION,CK_CODDIRPLACA,CK_NIVSOCIO,		CK_MANZANA,			CK_BARRIO1,CK_CODBAR,CK_LOCALIDAD1,CK_CX2,CK_CY2,CK_BARRIO_PEOPLE,CK_ESTADO3,CK_MENSAJE1, ' ' 
+INSERT INTO PS_CK_ADDR_GEOREFE (SETID,CUST_ID,ADDRESS_SEQ_NUM,EFFDT,CITY, ADDRESS1, ADDRESS2, CK_DIRECTRAD,CK_VALIDACION,CK_VALIDA_PLACA,CK_ESAMBIGUA,CK_FUENTE2	,CK_DIRALTERNA	,CK_BARRIOTRADUCIDO,CK_CODIGODIRECCION,CK_CODDIRPLACA,CK_NIVSOCIO,		CK_MANZANA,			CK_BARRIO1,CK_CODBAR,CK_LOCALIDAD1,CK_CX2,CK_CY2,CK_BARRIO_PEOPLE,CK_ESTADO3,CK_MENSAJE1, CK_POSTAL, CK_LOCATION_ID)
+SELECT SETID,CUST_ID,#actseq,EFFDT,CITY, ADDRESS1, ADDRESS2,CK_DIRECTRAD,CK_VALIDACION,CK_VALIDA_PLACA,CK_ESAMBIGUA,CK_FUENTE2	,CK_DIRALTERNA	,CK_BARRIOTRADUCIDO,CK_CODIGODIRECCION,CK_CODDIRPLACA,CK_NIVSOCIO,		CK_MANZANA,			CK_BARRIO1,CK_CODBAR,CK_LOCALIDAD1,CK_CX2,CK_CY2,CK_BARRIO_PEOPLE,CK_ESTADO3,CK_MENSAJE1, CK_POSTAL, ' ' 
+!Fin 024
+FROM PS_CK_ADDR_GEO_TMP CCTMP
+WHERE CCTMP.SETID = $Setid
+AND CCTMP.CUST_ID = $Cust_id
+AND CCTMP.ADDRESS_SEQ_NUM = $address_seq_num
+AND CCTMP.EFFDT = TO_DATE($fecha_out,'DD-MM-YYYY')
+end-sql
+! Fin 018
+end-procedure INSERTAR-DIRECCION-CLIENTE2
+
+!-------------------------------------------------------------------
+! Actualizacion de flag de envio en la tabla CUST_ADDR_SEQ
+!-------------------------------------------------------------------
+begin-procedure CAMBIAR-VALORES
+display 'CAMBIAR-VALORES'
+begin-sql ON-ERROR=SQL-ERROR
+UPDATE PS_CUST_ADDR_SEQ
+SET ps_cust_addr_seq.ship_to_addr = 'N'
+where ps_cust_addr_seq.setid = $setid
+and   ps_cust_addr_seq.cust_id = $cust_id
+and   ps_cust_addr_seq.address_seq_num = #ultseq 
+end-sql
+end-procedure   CAMBIAR-VALORES
+
+!*******************************************************************
+! Rutina Anterior que estaba actualizando el campo de despacho y que 
+! estaba colocando el valor de la dirección y si el cliente tenia la
+! anterior dirección como despacho le colocaba la otra.
+!-------------------------------------------------------------------
+! Actualizacion del campo en el que se almacena el flag de direccion
+! principal de envio.
+!-------------------------------------------------------------------
+begin-procedure CAMBIAR-VALORES1
+display 'CAMBIAR-VALORES1'
+begin-sql ON-ERROR=SQL-ERROR
+UPDATE PS_CUSTOMER
+SET ps_customer.SUBCUST_QUAL2     = $city,
+    ps_customer.NAMESHORT         = INITCAP($name_short),
+    ps_customer.NAME1             = INITCAP($name1)
+where ps_customer.setid           = $setid
+and   ps_customer.cust_id         = $cust_id
+and   ps_customer.address_seq_num = #ultseq
+end-sql
+end-procedure   CAMBIAR-VALORES1
+
+
+!*******************************************************************
+!------------------------------------------------------------------!
+! Procedure: find-City-Conty									   !
+! Descr:     Se verifica si cambio la ciudad o el barrio. 		   !
+!------------------------------------------------------------------!
+! Creación: #001 - JCC 05Nov09 									   !
+!------------------------------------------------------------------!
+begin-procedure find-City-Conty
+let $find-City-Conty = 'N'
+
+begin-select distinct ON-ERROR=SQL-ERROR
+A1.FAX      &find-City-Conty
+A1.ADDRESS_SEQ_NUM
+
+	show '*** Ciudad y Barrio son iguales ***'
+   	let  $find-City-Conty = 'Y'
+   	Let #SecuenciaDireccionActual = &A1.ADDRESS_SEQ_NUM
+
+FROM PS_CUST_ADDRESS A1
+WHERE A1.SETID    = $setid
+  AND A1.CUST_ID  = $Cust_id
+  AND A1.ADDRESS1 = $address-to-find
+  AND A1.COUNTY   = $barrio
+  AND A1.CITY	 = $City
+  AND A1.EFFDT    = (SELECT MAX(A_ED.EFFDT) FROM PS_CUST_ADDRESS A_ED
+                     WHERE A1.SETID           = A_ED.SETID
+                       AND A1.CUST_ID         = A_ED.CUST_ID
+                       AND A1.ADDRESS_SEQ_NUM = A_ED.ADDRESS_SEQ_NUM
+                       AND A_ED.EFFDT       <= SYSDATE)
+end-select
+show ' $find-City-Conty ' $find-City-Conty
+end-procedure find-City-Conty
+
+
+!*******************************************************************
+!------------------------------------------------------------------!
+! Procedure: BUSCAR-ULTIMA-SEQ-DIRECCION						   !
+! Descr:     Busca la ultima secuencia para esa dirección. 		   !
+!------------------------------------------------------------------!
+! Creación: #001 - JCC 05Nov09 									   !
+!------------------------------------------------------------------!
+begin-procedure BUSCAR-ULTIMA-SEQ-DIRECCION
+show ' Entra BUSCAR-ULTIMA-SEQ-DIRECCION '	
+	let #ultseqDir = 0
+
+begin-select
+MAX(ult.address_seq_num) &ultseqDir
+
+	Let #ultseqDir = &ultseqDir
+	Let #SecuenciaDireccionActual = &ultseqDir
+	
+from PS_CUST_ADDRESS ult
+where ult.setid    = $setid
+  and ult.cust_id  = $cust_id
+  and ult.address1 = $address-to-find 
+end-select
+
+end-procedure   BUSCAR-ULTIMA-SEQ-DIRECCION
+
+!*******************************************************************
+!------------------------------------------------------------------!
+! Procedure: VERIFICAR-DIRECCION-PROTEGIDA						   !
+! Descr:     Busca la ultima secuencia para esa dirección. 		   !
+!------------------------------------------------------------------!
+! Creación:  EAS 26/05/2010
+!------------------------------------------------------------------!
+BEGIN-PROCEDURE VERIFICAR-DIRECCION-PROTEGIDA
+
+	Let $DireccionProtegida = 'N'
+
+BEGIN-SELECT
+'PROTEGIDA' &PROTEGIDA
+	Let $DireccionProtegida = 'Y'
+FROM PS_CK_ADDR_AKDIS
+WHERE CUST_ID = $cust_id
+AND SETID = $setid
+AND ADDRESS_SEQ_NUM = #ultseqDir
+AND CK_FLAG_ACTUALIZA = 'Y'
+END-SELECT
+
+END-PROCEDURE
+
+
+!*******************************************************************
+!------------------------------------------------------------------!
+! Procedure: CORRECCION-DIRECCION-CLIENTE						   !
+! Descr:     Se corrige la dirección, El procedimiento crea una    !
+!			 nueva fecha efectiva.								   !
+!------------------------------------------------------------------!
+! Creación: #001 - JCC 05Nov09 									   !
+!------------------------------------------------------------------!
+begin-procedure CORRECCION-DIRECCION-CLIENTE
+display 'CORRECCION-DIRECCION-CLIENTE'
+! Inicio 014
+let  #Num_Max_Cam = 55 
+! Fin 014
+let  $City           = ltrim($City,' ')
+let  $barrio      	 = ltrim($barrio,' ') 
+let  $ExisteDir		 = 'N'
+let  $COUNTRYDIR	 = 'COL' !015
+let  $STATEDIR	     = ' '	!015
+show ' $City      ' $City
+show ' $barrio    ' $barrio
+show ' #ultseqDir ' #ultseqDir
+
+Begin-select ON-ERROR=SQL-ERROR
+EXS_CA.CUST_ID
+	let  $ExisteDir		 = 'Y'
+FROM PS_CUST_ADDRESS EXS_CA
+WHERE EXS_CA.SETID 		= $setid
+  AND EXS_CA.CUST_ID  	= $Cust_id
+  AND EXS_CA.ADDRESS_SEQ_NUM = #ultseqDir
+  AND EXS_CA.EFFDT    	= TO_DATE($fecha_out,'DD-MM-YYYY')
+End-Select
+
+!! 0015 INICIO
+Begin-select ON-ERROR=SQL-ERROR
+PA.COUNTRY,
+PA.STATE
+	let  $COUNTRYDIR		 = &PA.COUNTRY
+	let  $STATEDIR	     = &PA.STATE
+FROM SYSADM.PS_CK_PAIS_MUNI_VW PA
+WHERE PA.muni_fld_ho	= $City
+End-Select
+!!0015 FIN
+
+if $ExisteDir = 'N' 
+
+Show ' Inserta nueva Fecha Efectiva ' 
+!Inicio 022
+!begin-sql ON-ERROR=SQL-ERROR
+!INSERT INTO PS_CUST_ADDRESS
+!SELECT SETID,
+!CUST_ID,
+!ADDRESS_SEQ_NUM,
+!TO_DATE($fecha_out,'DD-MM-YYYY'),	!EFFDT,
+!EFF_STATUS,
+!ALT_NAME1,
+!ALT_NAME2,
+!LANGUAGE_CD,
+!TAX_CD,
+!$COUNTRYDIR, !country 0015
+!ADDRESS1,
+!ADDRESS2,
+!ADDRESS3,
+!ADDRESS4,
+!$City,								!CITY,
+!NUM1,
+!NUM2,
+!HOUSE_TYPE,
+!ADDR_FIELD1,
+!ADDR_FIELD2,
+!ADDR_FIELD3,
+!$barrio, 							!COUNTY,
+!$STATEDIR,				!STATE 0015
+!POSTAL,
+!GEO_CODE,
+!IN_CITY_LIMIT,
+!COUNTRY_CODE,
+!PHONE,
+!EXTENSION,
+!FAX,
+!PHYSICAL_NATURE,
+!VAT_SVC_PERFRM_FLG,
+!LAST_EXP_CHK_DTTM,
+!LAST_MAINT_OPRID,
+!DATE_LAST_MAINT,
+!URL_LONG
+!FROM PS_CUST_ADDRESS A
+!WHERE A.SETID    = $setid
+!  AND A.CUST_ID  = $Cust_id
+!  !AND A.ADDRESS1 = $address-to-find
+!  AND A.ADDRESS_SEQ_NUM = #ultseqDir
+!  AND A.EFFDT    = (SELECT MAX(A_ED.EFFDT) FROM PS_CUST_ADDRESS A_ED
+!                     WHERE A.SETID           = A_ED.SETID
+!                       AND A.CUST_ID         = A_ED.CUST_ID
+!                       AND A.ADDRESS_SEQ_NUM = A_ED.ADDRESS_SEQ_NUM
+!                       AND A_ED.EFFDT       <= SYSDATE)
+!end-sql
+!fin 022
+!inicio 008
+!buscamos si la ultima fecha efectiva tenia registro telefonico
+do Maneja-telefono
+!fin 008
+
+Else
+
+Show ' Se corrige la ultima fecha efectiva '
+
+begin-sql ON-ERROR=SQL-ERROR
+UPDATE PS_CUST_ADDRESS ACA
+  SET ACA.COUNTY   = $barrio, 
+	  ACA.CITY	   = $City,
+	  ACA.COUNTRY  = $COUNTRYDIR, !0015
+	  ACA.STATE    = $STATEDIR	  !0015
+WHERE ACA.SETID    = $Setid
+  AND ACA.CUST_ID  = $Cust_id
+  AND ACA.ADDRESS_SEQ_NUM = #ultseqDir
+  AND ACA.EFFDT    = TO_DATE($fecha_out,'DD-MM-YYYY')
+end-sql
+
+End-If
+end-procedure CORRECCION-DIRECCION-CLIENTE
+
+!inicio 008
+!*******************************************************************
+!------------------------------------------------------------------!
+! Procedure: Maneja-telefono				           !
+! Descr:     Añade datos de telefono         .                     !
+!------------------------------------------------------------------!
+begin-procedure Maneja-telefono
+display 'Maneja-telefono'
+
+let $ExisteTel = 'N'
+
+let $ContieneTel = 'N'
+
+Begin-select ON-ERROR=SQL-ERROR
+CUSADDR.CUST_ID
+   let $ExisteTel = 'Y'
+FROM PS_CUST_ADDRESS CUSADDR, PS_CK_BU_PHONE_TBL CBPHO
+WHERE CUSADDR.SETID = $setid
+  AND   CUSADDR.CUST_ID = $Cust_id
+  AND   CUSADDR.ADDRESS_SEQ_NUM = #ultseqDir
+  AND   CBPHO.SETID = CUSADDR.SETID
+  AND   CBPHO.CUST_ID = CUSADDR.CUST_ID
+  AND   CBPHO.ADDRESS_SEQ_NUM = CUSADDR.ADDRESS_SEQ_NUM
+  AND   CUSADDR.EFFDT = (SELECT MAX(A_DR.EFFDT) FROM PS_CUST_ADDRESS A_DR
+                          WHERE CUSADDR.SETID           = A_DR.SETID
+                            AND CUSADDR.CUST_ID         = A_DR.CUST_ID
+                            AND CUSADDR.ADDRESS_SEQ_NUM = A_DR.ADDRESS_SEQ_NUM
+                            AND A_DR.EFFDT       < TO_DATE($fecha_out,'DD-MM-YYYY'))
+END-SELECT
+
+
+If $ExisteTel = 'Y'
+
+Begin-select ON-ERROR=SQL-ERROR
+CBPHO_1.CUST_ID
+   let $ContieneTel = 'Y'
+FROM PS_CK_BU_PHONE_TBL CBPHO_1
+WHERE CBPHO_1.SETID = $setid
+  AND   CBPHO_1.CUST_ID = $Cust_id
+  AND   CBPHO_1.ADDRESS_SEQ_NUM = #ultseqDir
+  AND   CBPHO_1.EFFDT = TO_DATE($fecha_out,'DD-MM-YYYY')
+END-SELECT
+      
+If $ContieneTel = 'N'
+
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO PS_CK_BU_PHONE_TBL
+SELECT CBPHO_2.SETID,
+CBPHO_2.CUST_ID,
+CBPHO_2.ADDRESS_SEQ_NUM,
+TO_DATE($fecha_out,'DD-MM-YYYY'),
+CBPHO_2.FAX,
+CBPHO_2.CK_CELULAR_FLD
+FROM PS_CK_BU_PHONE_TBL CBPHO_2
+WHERE CBPHO_2.SETID = $setid
+  AND   CBPHO_2.CUST_ID = $Cust_id
+  AND   CBPHO_2.ADDRESS_SEQ_NUM = #ultseqDir
+  AND   CBPHO_2.EFFDT = (SELECT MAX(CB_DR.EFFDT) FROM PS_CK_BU_PHONE_TBL CB_DR
+                          WHERE CBPHO_2.SETID           = CB_DR.SETID
+                            AND CBPHO_2.CUST_ID         = CB_DR.CUST_ID
+                            AND CBPHO_2.ADDRESS_SEQ_NUM = CB_DR.ADDRESS_SEQ_NUM
+                            AND CB_DR.EFFDT       < TO_DATE($fecha_out,'DD-MM-YYYY'))
+end-sql
+
+End-If
+
+End-If
+end-procedure Maneja-telefono
+!fin 008
+
+!*******************************************************************
+!------------------------------------------------------------------!
+! Procedure: INACTIVAR-DIRECCION-CLIENTE-SEQ-ADDRESS			   !
+! Descr:     Se inactiva las secuencias anteriores				   !
+!------------------------------------------------------------------!
+! Creación: #001 - JCC 05Nov09 									   !
+!------------------------------------------------------------------!
+begin-procedure INACTIVAR-DIRECCION-CLIENTE-SEQ-ADDRESS
+display 'INACTIVAR-DIRECCION-CLIENTE-SEQ-ADDRESS'
+
+begin-sql ON-ERROR=SQL-ERROR
+UPDATE PS_CUST_ADDRESS ICUA
+SET ICUA.EFF_STATUS = 'I'
+WHERE ICUA.SETID    = $Setid
+  AND ICUA.CUST_ID  = $Cust_id
+  AND ICUA.ADDRESS_SEQ_NUM = #ultseqDir
+  AND ICUA.EFFDT    <> TO_DATE($fecha_out,'DD-MM-YYYY')
+  AND ICUA.EFFDT 	<>
+     (SELECT MAX(A_ED1.EFFDT) FROM PS_CUST_ADDRESS A_ED1
+      WHERE ICUA.SETID           = A_ED1.SETID
+        AND ICUA.CUST_ID         = A_ED1.CUST_ID
+        AND ICUA.ADDRESS_SEQ_NUM = A_ED1.ADDRESS_SEQ_NUM
+        AND A_ED1.EFFDT         <= SYSDATE)
+end-sql
+
+end-procedure INACTIVAR-DIRECCION-CLIENTE-SEQ-ADDRESS
+
+
+!*******************************************************************
+!------------------------------------------------------------------!
+! Procedure: Actualizar-Address-Seq-Ship-Customer-Correccion-Dir   !
+! Descr:     Se inactiva las secuencias anteriores				   !
+!------------------------------------------------------------------!
+! Creación: #003 - JCC 01Dic09 									   !
+!------------------------------------------------------------------!
+begin-procedure Actualizar-Address-Seq-Ship-Customer-Correccion-Dir   
+show ' entro Actualizar-Address-Seq-Ship-Customer-Correccion-Dir '
+show ' #ultseqDir ' #ultseqDir
+show ' $Setid  ' $Setid
+show ' $Cust_id' $Cust_id
+begin-sql ON-ERROR=SQL-ERROR                
+UPDATE PS_CUSTOMER A
+SET A.ADDRESS_SEQ_SHIP = #ultseqDir
+WHERE A.SETID   = $Setid
+  AND A.CUST_ID = $Cust_id
+end-sql
+show ' salio Actualizar-Address-Seq-Ship-Customer-Correccion-Dir '
+end-procedure   Actualizar-Address-Seq-Ship-Customer-Correccion-Dir     
+
+
+begin-procedure CAMBIAR-NOMBRE
+
+	If isblank($name1) 
+		Let $name1 = ' '
+	End-if
+	
+display 'CAMBIAR-NOMBRE'
+begin-sql ON-ERROR=SQL-ERROR
+UPDATE PS_CUST_CONTACT
+SET ps_cust_contact.name1 = initcap($name1)
+where ps_cust_contact.setid           = $setid
+and   ps_cust_contact.cust_id         = $cust_id
+end-sql
+
+begin-sql ON-ERROR=SQL-ERROR
+UPDATE PS_CK_CLIPUNTOS
+   SET ps_ck_clipuntos.name1 = initcap($name1)
+where ps_ck_clipuntos.setid   = $setid
+and   ps_ck_clipuntos.cust_id = $cust_id
+end-sql
+end-procedure   CAMBIAR-NOMBRE
+
+Begin-procedure execute-commit
+begin-sql ON-ERROR=SQL-ERROR
+COMMIT
+end-sql
+end-procedure !execute-commit
+
+begin-procedure GRABAR-ARCHIVO-CONTROL
+
+begin-sql
+INSERT INTO PS_CK_CONT_CLIENTE
+VALUES
+('ALKOS',   
+SYSDATE,
+$unidad,
+#prcs_process_instance,
+#tot_leido,
+#tot-rows, 
+#cnt-rows, 
+#no-tot-rows,
+#cnt_error)
+end-sql
+end-procedure   GRABAR-ARCHIVO-CONTROL
+
+
+begin-procedure actualizar-requerimiento
+begin-SQL On-Error=SQL-Error
+UPDATE PSPRCSRQST
+   SET RUNSTATUS = 10
+ WHERE PRCSINSTANCE = #prcs_process_instance
+end-sql
+end-procedure actualizar-requerimiento
+
+
+begin-procedure TERMINATE
+  if #prcs_process_instance > 0
+     do Update-prcs-run-status
+  end-if   
+   if #ErrorCount > 0 
+      do rollback-transaction
+      display 'Hizo Rollback Terminate'
+    end-if
+   do reset
+end-procedure
+
+!Inicio 011
+begin-procedure GetSetidIpo
+
+BEGIN-SELECT ON-ERROR=SQL-ERROR
+SETIPO.SETID
+
+	Let $SetidIpo = &SETIPO.SETID
+ 
+FROM PS_SET_CNTRL_REC SETIPO
+
+WHERE SETIPO.RECNAME = 'CK_CUST_EXS_DEF'
+AND SETIPO.SETCNTRLVALUE = $Setid
+
+END-SELECT
+
+end-procedure
+
+begin-procedure INSERTAR-INFO-IPOCONSUMO
+
+display 'INSERTAR-INFO-IPOCONSUMO'
+show ' $Cust_id ' $Cust_id
+show ' $address_seq_num ' $address_seq_num
+
+BEGIN-SELECT ON-ERROR=SQL-ERROR
+
+EXS_DEF.EXS_TAX_RATE_CD
+
+	let $sExsTaxRateCd = &EXS_DEF.EXS_TAX_RATE_CD
+
+FROM PS_CK_CUST_EXS_DEF EXS_DEF
+WHERE SETID = $SetidIpo
+AND EXS_TAX_TYPE = 'E'
+
+END-SELECT
+
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO ps_CUST_ADDR_EXS
+(SETID,
+CUST_ID,
+ADDRESS_SEQ_NUM,
+EXD_APPL_FLG,
+STX_LST_RGSTN,
+EXD_ECC_NBR,
+EXD_RGSTN_NBR,
+EXD_RANGE,
+EXD_DIVISION,
+EXD_COLLECTORATE,
+EXD_ZONE,
+EXD_REGION,
+EXD_CIRCLE,
+EXD_SERV_TAX_RGSTN,
+EXD_TAX_CATG_CD,
+STX_TAX_CATG_CD,
+STX_APPL_FLG,
+STX_CST_RGSTN,
+EXS_TAX_TXN_TYPE)
+VALUES 
+($Setid,	         
+$Cust_id,             
+$address_seq_num,
+'Y',
+' ',
+1,
+1,
+1,
+1,
+1,
+1,
+1,
+1,
+1,
+$sExsTaxRateCd,
+' ',
+'N',
+' ',
+'DOM')
+end-sql
+
+end-procedure INSERTAR-INFO-IPOCONSUMO
+
+begin-procedure INSERTAR-INFO-IPOCONSUMO2
+
+display 'INSERTAR-INFO-IPOCONSUMO2'
+show ' $Cust_id ' $Cust_id
+show ' #actseq ' #actseq
+
+BEGIN-SELECT ON-ERROR=SQL-ERROR
+
+EXS_DEF_1.EXS_TAX_RATE_CD
+
+	let $sExsTaxRateCd = &EXS_DEF_1.EXS_TAX_RATE_CD
+
+FROM PS_CK_CUST_EXS_DEF EXS_DEF_1
+WHERE SETID = $SetidIpo
+AND EXS_TAX_TYPE = 'E'
+
+END-SELECT
+
+begin-sql ON-ERROR=SQL-ERROR
+INSERT INTO ps_CUST_ADDR_EXS
+(SETID,
+CUST_ID,
+ADDRESS_SEQ_NUM,
+EXD_APPL_FLG,
+STX_LST_RGSTN,
+EXD_ECC_NBR,
+EXD_RGSTN_NBR,
+EXD_RANGE,
+EXD_DIVISION,
+EXD_COLLECTORATE,
+EXD_ZONE,
+EXD_REGION,
+EXD_CIRCLE,
+EXD_SERV_TAX_RGSTN,
+EXD_TAX_CATG_CD,
+STX_TAX_CATG_CD,
+STX_APPL_FLG,
+STX_CST_RGSTN,
+EXS_TAX_TXN_TYPE)
+VALUES 
+($Setid,	         
+$Cust_id,             
+!$address_seq_num,
+#actseq,
+'Y',
+' ',
+1,
+1,
+1,
+1,
+1,
+1,
+1,
+1,
+1,
+$sExsTaxRateCd,
+' ',
+'N',
+' ',
+'DOM')
+end-sql
+
+end-procedure INSERTAR-INFO-IPOCONSUMO2
+
+!Fin 011
+
+!*********************************************************************
+!     Rutinas Standar Colombiana de Comercio
+!*********************************************************************
+#include 'ck_mensa.sqc'  ! Insercion en la tabla de mensajes.
+
+
+!*********************************************************************
+!     Rutinas Standar de SQR 
+!*********************************************************************
+#include 'curdttim.sqc'  ! Get-Current-DateTime procedure
+#include 'datetime.sqc'  ! Routines for date and time formatting
+#include 'datemath.sqc'  ! Routines for date and time formatting
+#include 'timemath.sqc'  ! Routines for date and time formatting
+#include 'number.sqc'    ! Routines for format numbers
+#include 'fsgetshr.sqc'  ! Get ShareTable Subroutine
+#include 'prcsapi.sqc'   ! Update Process Request API
+#include 'prcsdef.sqc'   ! Update Process Request variable declare
+#include 'reset.sqc'     ! Reset printer procedure
+#include 'askeffdt.sqc'  ! Ask Effective Date
+!*********************************************************************
+!     Rutinas programas de SQR 
+!*********************************************************************
