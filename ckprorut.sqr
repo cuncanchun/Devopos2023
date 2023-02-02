@@ -1,0 +1,245 @@
+!****************************************************************************
+! Report Name: CKPRORUT.sqr
+! Actualizacion de diferentes Campos, segun Datos del archivo leido 	 
+! Elaborado  : Ismael Serrano.
+!****************************************************************************
+! Tables Updated:  
+!CK_CS_OM_12772_CAGC CAGC 002 22/07/2016 Proyecto para implementar cambios dentro de las rutas en el calendario.
+!****************************************************************************
+#Include 'setenv.sqc'   	!Set environment
+#Include 'setup01.sqc'  	!Printer and page-size initialization
+
+begin-report
+  do Init-DateTime
+  do Init-Number
+  do Init-Report
+  do Process-Main
+  do Terminate
+end-report
+
+begin-heading 6
+  !#Include 'stdhdgint01.sqc'
+end-heading
+!***************************************************************************
+begin-procedure Init-Report
+  move 'Cambiar Datos' to $ReportTitle
+  display $ReportTitle
+
+  do Define-Prcs-Vars
+  do Get-Run-Control-Parms
+
+  if $prcs_process_instance = ''
+  else
+    do Select-Parameters
+  end-if
+end-procedure
+!************************************************************************
+begin-procedure Select-Parameters
+begin-select on-error=sql-error
+run_cntl_in.oprid
+run_cntl_in.language_cd
+run_cntl_in.file_name
+run_cntl_in.business_unit
+run_cntl_in.wip_loc_flg
+
+    let $oprid		= &run_cntl_in.oprid
+    let $lenguaje 	= &run_cntl_in.language_cd
+    let $file_name      = rtrim(&run_cntl_in.file_name,' ')
+    !DISPLAY $file_name 
+   
+from ps_run_cntl_in run_cntl_in
+where run_cntl_in.oprid       = $prcs_oprid
+  and run_cntl_in.run_cntl_id = $prcs_run_cntl_id
+end-select
+end-procedure Select-Parameters
+!*************************************************************************
+begin-procedure Process-Main
+  do Open-archivo
+  do procesar-archivo
+  close 1
+end-procedure Process-Main
+!*************************************************************************
+begin-procedure Open-archivo
+!INICIA MODIFICACION 19/04/2007 RA  
+   !let $directorio = 'c:\plano\' || $file_name
+begin-SELECT On-Error=SQL-Error
+   
+A1.URL
+         
+       	let $nomfile_rut = &A1.URL
+         
+FROM PSURLDEFNLANG A1, PSOPRDEFN B
+WHERE A1.URL_ID = 'CK_AR_INF_READ'
+AND A1.LANGUAGE_CD = B.LANGUAGE_CD
+AND B.OPRID       = $prcs_oprid
+end-select
+SHOW '$nomfile_rut'  $nomfile_rut    
+IF ISBLANK($nomfile_rut)
+begin-SELECT On-Error=SQL-Error
+C1.URL
+         
+       	let $nomfile_rut = &C1.URL
+         
+FROM PSURLDEFN C1
+WHERE C1.URL_ID = 'CK_AR_INF_READ'
+end-select
+SHOW '$nomfile_rut'  $nomfile_rut    
+END-IF
+   let $directorio = $nomfile_rut || $file_name
+!FIN MODIFICACION 19/04/2007 RA
+   display $directorio
+   let $file = $directorio 
+       open $file as 1 for-reading record= 25:VARY status=#open-status
+      if #open-satus = -1
+      stop quiet
+   end-if
+
+   
+   
+end-procedure Open-archivo
+!*****************************************************************************
+begin-procedure procesar-archivo
+     
+  while #open-status <> -1
+     read 1 into 
+                 
+         $Zona:6
+         $fecha:10
+         $Ruta:6
+         $Nroclien:3
+        	
+        if ISNULL ($Zona)
+       
+        ELSE
+
+            Show ' Zona        ' $Zona
+            Show ' Fecha       ' $fecha
+            Show ' Ruta        ' $Ruta
+            Show ' Nro_Clien   ' $Nroclien
+            Show '             '
+            let #ruta = ltrim($Ruta,' ')
+            !let $ruta = rtrim($Ruta,' ')
+            do format-number(#ruta,$ruta,'999999')
+            !let $ruta1 = #Ruta
+         Do Existe_Zona
+         if #Existe_Reg = 0  
+           Do  Actualiza_Datos
+         end-if  
+        END-IF
+     if #end-file
+        break
+      end-if
+          
+  end-while
+end-procedure procesar-archivo
+
+!*****************************************************************
+Begin-procedure Actualiza_Datos
+
+let #dtu_yr = to_number(substr($fecha, 7, 4))
+     let #dtu_mo = to_number(substr($fecha, 4, 2))
+     let #dtu_da = to_number(substr($fecha, 1, 2)) 
+     
+     do dtu-format-date(#dtu_yr, #dtu_mo, #dtu_da, $dtu_fecha)
+     do Convert-From-DTU-Date($dtu_fecha, $fecha)
+     let $fecha = upper($fecha)
+     Show ' Año  '  #dtu_yr
+     Show ' Mes  '  #dtu_mo 
+     !Show 'Fecha Format   '   $fecha
+     
+begin-sql ON-ERROR=SQL-ERROR
+
+     INSERT INTO  PS_CK_RUTA_SCR_DTL
+     VALUES (
+     'DISTR',	         
+     $Zona,             
+     #dtu_yr,!'2007',
+     #dtu_mo,!2, 
+     $fecha,  
+     SUBSTR(TO_CHAR(TO_NUMBER($ruta,'999999')),1,6),   
+     SYSDATE,  
+     $Nroclien)     
+ 
+ end-sql
+ end-procedure Actualiza_Datos
+ 
+Begin-procedure Existe_Zona
+show ' entro Existe Ruta Programada'
+
+Let $fecha_aux = $fecha
+let #dtu_yr = to_number(substr($fecha_aux, 7, 4))
+let #dtu_mo = to_number(substr($fecha_aux, 4, 2))
+let #dtu_da = to_number(substr($fecha_aux, 1, 2)) 
+     
+do dtu-format-date(#dtu_yr, #dtu_mo, #dtu_da, $dtu_fecha)
+do Convert-From-DTU-Date($dtu_fecha, $fecha_aux)
+
+let #Existe_Reg = 0
+begin-SELECT On-Error=SQL-Error
+PRORUT.SUPPORT_TEAM_CD
+ 
+   LET #Existe_Reg = 1
+   let $Nombre_Zona = &PRORUT.SUPPORT_TEAM_CD
+   show '#Existe_Reg'  #Existe_Reg
+   !INICIO CAGC 002	  
+   !show 'Ruta ya existe'
+   !FIN CAGC 002
+FROM PS_CK_RUTA_SCR_DTL PRORUT
+WHERE PRORUT.SETID = 'DISTR'
+AND PRORUT.SUPPORT_TEAM_CD = $Zona
+AND PRORUT.FISCAL_YEAR = #dtu_yr
+AND PRORUT.ACCOUNTING_PERIOD = #dtu_mo
+AND PRORUT.FROM_DATE = TO_DATE($fecha,'DD/MM/YYYY')
+!INICIO CAGC 002
+AND ROUTE_CD=$Ruta
+!INICIO FIN 002
+end-select
+show ' Salio Existe Ruta Programada'
+End-procedure Existe_Zona
+ 
+!****************************************************************************
+!***  Ademas de llenar la Tabla PS_CK_RUTA_SCR_DTL tambien se debe llenar la Tabla PS_CK_RUTAS_SCORE 
+!***  la cual se puede hacer con esta Instruccion por Oracle.
+!***  se puede montar en un Scrip para cuando se carguen Zonas = Comodin
+!****************************************************************************
+!INSERT INTO PS_CK_RUTAS_SCORE
+!SELECT DISTINCT A.SETID, A.SUPPORT_TEAM_CD, A.FISCAL_YEAR, A.ACCOUNTING_PERIOD,'SISMAEL',SYSDATE
+!  FROM PS_CK_RUTA_SCR_DTL A
+!  WHERE A.EFFDT =
+!        (SELECT MAX(A_ED.EFFDT) FROM PS_CK_RUTA_SCR_DTL A_ED
+!        WHERE A.SETID = A_ED.SETID
+!          AND A.SUPPORT_TEAM_CD = A_ED.SUPPORT_TEAM_CD
+!          AND A.FISCAL_YEAR = A_ED.FISCAL_YEAR
+!          AND A.ACCOUNTING_PERIOD = A_ED.ACCOUNTING_PERIOD
+!          AND A.FROM_DATE = A_ED.FROM_DATE
+!          AND A.SUPPORT_TEAM_CD <> 'CAB001' 
+!**           AND A.SUPPORT_TEAM_CD IN ('COB302','COB303','COB304','COB305')
+!         AND A_ED.EFFDT <= SYSDATE)
+!         
+ !****************************************************************************         
+ begin-procedure Terminate
+   if #prcs_process_instance > 0
+      do Update-prcs-run-status
+   end-if   
+    if #ErrorCount > 0 
+       do rollback-transaction
+       display 'Hizo Rollback Terminate'
+     end-if
+  end-procedure
+ 
+ !*********************************************************************
+ !     Rutinas Standar de SQR 
+ !*********************************************************************
+ #include 'curdttim.sqc'  ! Get-Current-DateTime procedure
+ #include 'datetime.sqc'  ! Routines for date and time formatting
+ #include 'datemath.sqc'  ! Routines for date and time formatting
+ #include 'timemath.sqc'  ! Routines for date and time formatting
+ #include 'number.sqc'    ! Routines for format numbers
+ #include 'fsgetshr.sqc'  ! Get ShareTable Subroutine
+ #include 'prcsapi.sqc'   ! Update Process Request API
+ #include 'prcsdef.sqc'   ! Update Process Request variable declare
+ #include 'reset.sqc'     ! Reset printer procedure
+ #include 'askeffdt.sqc'  ! Ask Effective Date
+ !*********************************************************************
+ !     Rutinas programas de SQR 
+ !*********************************************************************
