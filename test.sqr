@@ -1,0 +1,3858 @@
+!-----------------------------------------------------------------------
+! <Reporte|Proceso>: AC_DISTR.SQR - <Distribuidor por medio de pago>
+! Versiones: V<001> <08/07/99>-<JZ>
+!            V<002> <27/09/00>-<JZ>
+!            V<003> <19/02/03>-<JZ> Ajustes para misceláneos
+!            V<004> <21-dic-2005> Edgar Murillo - Ajuste entradas contables sin departamento
+!            V<005> <02-Nov-2006> Andres Marentes - ajustes migracion a la version 8.9
+!-----------------------------------------------------------------------
+! Desc Programa:
+!
+!-----------------------------------------------------------------------
+! Parámetros: El parámetro de entrada es la Unidad de Negocios
+!
+!-----------------------------------------------------------------------
+! Tablas referenciadas:
+!
+!*************************************************************************************************!
+! Modificaciones																			      !
+!-------------------------------------------------------------------------------------------------!
+! Proyecto	         Ref	 Fecha		Desarrollador	Descripcion					  	          	  !
+!-------------------------------------------------------------------------------------------------!
+! CK_CS_AR_YSA_7095	 006     24MAR11	YSA				Ajuste para incluir a la Comercializadora		  !
+!														Porvenir (AVAL)		  !
+! CS7276	 		 007     15ABR11	JCC				Ajuste Depatarmento Origen del Item		  !
+! CS7276	 		 008     28ABR11	JCC				Ajuste Obligaciones Ignoradas			  !
+! CS7402	 		 009     24MAY11	JCC				Ajuste Obligaciones Especiales			  !
+! CS7533	 		 010     24JUN11	JCC				Ajuste PAY_MISC_DST				  !
+! CS7969	 		 011     08OCT11	CER				Ajuste cambio cobros vendedor medio de pago Alkosto!
+! CS9230                         012     17AGO12        FMJ                             Afinamiento proceso AC_DISTR                      !
+! CS8031                         014     MARZO13        RAA                             Ajuste medio de pago Banco Compensatorio          !
+! CS10564                        015     06MAY14        FMJ                             Terceros                                          !
+! CS10770                        016     30MAY14        FMJ                             Traslado dudosos                                                 !
+! CS11023                        017     12SEP14        FMJ                             IFRS                                              !
+! CS11271                        018     20DIC14        FMJ                             IFRS                                              !
+! ALK_FINC_JGF_GAP_AR_003        019     28JUL15        LFM                             Actualizar DEPTID de los registros  NC-ANTIC      !
+! XXX_XXXX_XXX_XX_XX_XX          020     29ABR16        ASP                             Se cambia sentencia en ciclos por bloques         !
+!!*************************************************************************************************!
+
+
+! Realiza los include necesarios
+#include 'setenv.sqc'      ! Incializa el entorno
+
+begin-program
+
+    do Init-DateTime
+    do Init-Number
+    do Inicializar-Reporte
+    do Proceso-Principal
+    do Terminar-Proceso
+
+end-program
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Inicializar-Reporte                                       !
+! Descr:     Solicita parametros para la ejecucion del reporte.        !
+!----------------------------------------------------------------------!
+begin-procedure Inicializar-Reporte
+
+!begin-sql On-error=SQL-Error
+!ALTER SESSION SET TIMED_STATISTICS =  TRUE
+!End-SQL
+!
+!begin-sql On-error=SQL-Error
+!ALTER SESSION SET SQL_TRACE =  TRUE
+!End-SQL
+!
+!begin-sql On-error=SQL-Error
+!ALTER SESSION SET tracefile_identifier = ac_distr
+!End-SQL
+!
+!begin-select On-error=SQL-Error
+!'AC_DISTR' &REPORTECK
+!FROM PS_INSTALLATION
+!End-Select
+    
+    do Define-Prcs-Vars
+    do Get-Run-Control-Parms
+    !Identifica de donde debe leer los parametros
+    if $prcs_process_instance = ''
+        !Captura la informacion desde SQRW
+        input $Business_Unit 'Por favor ingrese la BU ' MAXLEN=30 TYPE=char
+        let $Business_Unit = rtrim($Business_Unit,' ')
+	let $prcs_oprid = 'VP1'
+    else
+        !Captura la informacion desde PeopleSoft
+        do Seleccionar-Parametros
+    end-if
+
+!<Inicio 016>
+  Let $Business_unit_tra = $Business_Unit
+!<Fin 016>
+
+end-procedure
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Seleccionar-Parametros                                    !
+! Descr:     Captura los parametros desde PeopleSoft.                  !
+!----------------------------------------------------------------------!
+begin-procedure Seleccionar-Parametros
+    !Captura los parametros desde el Run Control
+BEGIN-SELECT
+AR.GROUP_BU
+
+   let $Business_Unit = rtrim(&AR.GROUP_BU,' ')
+   !Carga los parametros de entrada
+
+FROM PS_POSTING_REQUEST AR
+WHERE AR.OPRID       = $prcs_oprid
+  AND AR.RUN_CNTL_ID = $prcs_run_cntl_id
+END-SELECT
+end-procedure
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Proceso-Principal                                         !
+! Descr:                                                               !
+!----------------------------------------------------------------------!
+begin-procedure Proceso-Principal
+    Do cambio-plantilla-139996 !Edgar Murillo 17-jul-2006
+
+    Do Creacion-Arreglo
+    Do Llenado-Arreglo
+    Do Buscar-Informacion
+
+    !Llamado función misceláneos
+    Do Recorre-Misc             !V<003>
+    Do select-deptid-null       !V<004>
+    Do Borrar_PS_WS_CNTLTMP
+
+    do buscar-prcs-instance     !<#006>
+
+!<Inicio 016>    
+    do recorre_trans_dudosos
+!<Fin 016>
+
+end-procedure Proceso-Principal
+
+Begin-Procedure Borrar_PS_WS_CNTLTMP
+
+!Begin-SQL On-Error=SQL-Error
+!Inicio 012
+!DELETE /*+ rule */ FROM PS_WS_CNTLTMP
+!DELETE FROM PS_WS_CNTLTMP
+!Fin 012
+!where exists ( select 'X'
+!                from ps_group_control a
+!              where a.group_bu = PS_WS_CNTLTMP.group_bu
+!                and a.group_id = PS_WS_CNTLTMP.group_id
+!                and a.post_status = 'C')
+!End-SQl
+
+End-Procedure
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: cambio-plantilla-139996                                   !
+! Descr: se cambia la plantilla para la cuenta 139996 que utiliza      !
+!        open item en las transacciones de GL                          !
+!----------------------------------------------------------------------!
+begin-procedure cambio-plantilla-139996
+!display 'cambio-plantilla-139996'
+begin-select ON-ERROR = SQL-error
+B.PRCSINSTANCE   &instance-arupdate
+
+  let #instance-arupdate = &instance-arupdate
+
+FROM PSPRCSRQST A, PSPRCSRQST B
+WHERE A.PRCSINSTANCE = #prcs_process_instance
+  AND A.JOBINSTANCE = B.JOBINSTANCE
+  AND B.PRCSNAME    = 'ARUPDATE'
+end-select
+
+!display 'instancia ac_distr: ' noline
+!display #prcs_process_instance
+!display 'instancia arupdate: ' noline
+!display #instance-arupdate
+
+begin-select ON-ERROR = SQL-error
+A.SETID    &setid
+
+   if &setid = 'ALBOY'
+      let $deptid = '485'
+   else
+      let $deptid = '104'
+   end-if
+
+FROM PS_CK_DEPT_BU_TBL A
+WHERE A.BUSINESS_UNIT = $Business_Unit
+end-select
+
+begin-sql ON-ERROR = SQL-error
+UPDATE PS_ITEM_DST A SET A.APPL_JRNL_ID = 'AR_DETALLE',A.JRNL_LN_REF = A.CUST_ID, A.DEPTID = $deptid
+WHERE A.PROCESS_INSTANCE  = #instance-arupdate
+  AND A.ACCOUNT           = '139996'
+  AND A.GL_DISTRIB_STATUS = 'N'
+end-sql
+begin-sql ON-ERROR = SQL-error
+COMMIT
+end-sql
+end-procedure
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Creacion-Arreglo                                          !
+! Descr: Crea un arreglo con items de la ws                            !
+!----------------------------------------------------------------------!
+Begin-procedure Creacion-Arreglo
+Create-array name = Items
+             size = 4000000
+			 field = cust_id:char
+			 field = item:char
+			 field = item_line:number
+			 field = item_seq_num:number
+			 field = dst_seq_num:number
+			 field = ledger_group:char
+			 field = ledger:char
+			 field = monetary_amount:number
+			 field = rate_div:number
+End-procedure Creacion-Arreglo
+
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Llenado-Arreglo                                           !
+! Descr: Llena el arreglo con datos de la tabla ps_ws_item             !
+!        Se cambia el ciclo que busca el entry_type                    !
+!----------------------------------------------------------------------!
+Begin-procedure Llenado-Arreglo
+   let #contador = 0
+   let $bu       = ' '
+
+Begin-select
+/*+ index (ITEMX PSEITEM_DST) */
+ITEMX.CUST_ID
+ITEMX.ITEM
+ITEMX.ITEM_LINE
+ITEMX.ITEM_SEQ_NUM
+ITEMX.DST_SEQ_NUM
+ITEMX.LEDGER_GROUP
+ITEMX.LEDGER
+ITEMX.MONETARY_AMOUNT
+ITEMX.RATE_DIV
+
+       	let $cust_id         = &ITEMX.CUST_ID
+	let $item            = &ITEMX.ITEM
+	let #item_line       = &ITEMX.ITEM_LINE
+	let #item_seq_num    = &ITEMX.ITEM_SEQ_NUM
+	let #dst_seq_num     = &ITEMX.DST_SEQ_NUM
+	let $ledger_group    = &ITEMX.LEDGER_GROUP
+	let $ledger          = &ITEMX.LEDGER
+	let #monetary_amount = &ITEMX.MONETARY_AMOUNT
+	let #rate_div        = &ITEMX.RATE_DIV
+	let $Entry_Type = ' '
+
+           PUT $cust_id $item #item_line #item_seq_num #dst_seq_num $ledger_group $ledger #monetary_amount #rate_div
+               INTO Items(#contador)
+               cust_id item item_line item_seq_num dst_seq_num ledger_group ledger monetary_amount rate_div
+           let #contador = #contador +  1
+
+FROM PS_ITEM_DST ITEMX LEFT OUTER JOIN PS_LC_ITEMDIST_TBL TAB2 ON (TAB2.BUSINESS_UNIT = ITEMX.BUSINESS_UNIT
+           AND TAB2.CUST_ID = ITEMX.CUST_ID
+           AND TAB2.ITEM = ITEMX.ITEM
+           AND TAB2.ITEM_LINE = ITEMX.ITEM_LINE
+           AND TAB2.ITEM_SEQ_NUM = ITEMX.ITEM_SEQ_NUM
+           AND TAB2.DST_SEQ_NUM = ITEMX.DST_SEQ_NUM
+           AND TAB2.LEDGER_GROUP = ITEMX.LEDGER_GROUP
+           AND TAB2.LEDGER = ITEMX.LEDGER)
+WHERE ITEMX.BUSINESS_UNIT = $Business_Unit
+  AND ITEMX.GL_DISTRIB_STATUS = 'N'
+  AND ITEMX.SYSTEM_DEFINED <> 'A'
+  AND ITEMX.DST_SEQ_NUM = 1
+  AND TAB2.BUSINESS_UNIT IS NULL
+  !AND 0=(SELECT COUNT(*)
+  !       FROM PS_LC_ITEMDIST_TBL TAB2
+  !       WHERE TAB2.BUSINESS_UNIT = ITEMX.BUSINESS_UNIT
+  !         AND TAB2.CUST_ID = ITEMX.CUST_ID
+  !         AND TAB2.ITEM = ITEMX.ITEM
+  !         AND TAB2.ITEM_LINE = ITEMX.ITEM_LINE
+  !         AND TAB2.ITEM_SEQ_NUM = ITEMX.ITEM_SEQ_NUM
+  !         AND TAB2.DST_SEQ_NUM = ITEMX.DST_SEQ_NUM
+  !         AND TAB2.LEDGER_GROUP = ITEMX.LEDGER_GROUP
+  !         AND TAB2.LEDGER = ITEMX.LEDGER)
+End-select
+
+Begin-select
+/*+ use_nl(item ia) leading(ITEM IA) index(ITEM PSEITEM_DST) index(IA PS_ITEM_ACTIVITY) */
+!YSN /*+ leading(ITEM IA) index(ITEM PSEITEM_DST) index(IA PS_ITEM_ACTIVITY) */
+ITEM.CUST_ID
+ITEM.ITEM
+ITEM.ITEM_LINE
+ITEM.ITEM_SEQ_NUM
+ITEM.DST_SEQ_NUM
+ITEM.LEDGER_GROUP
+ITEM.LEDGER
+ITEM.MONETARY_AMOUNT
+ITEM.RATE_DIV
+
+       	let $cust_id         = &ITEM.CUST_ID
+	let $item            = &ITEM.ITEM
+	let #item_line       = &ITEM.ITEM_LINE
+	let #item_seq_num    = &ITEM.ITEM_SEQ_NUM
+	let #dst_seq_num     = &ITEM.DST_SEQ_NUM
+	let $ledger_group    = &ITEM.LEDGER_GROUP
+	let $ledger          = &ITEM.LEDGER
+	let #monetary_amount = &ITEM.MONETARY_AMOUNT
+	let #rate_div        = &ITEM.RATE_DIV
+	let $Entry_Type = ' '
+
+         PUT $cust_id $item #item_line #item_seq_num #dst_seq_num $ledger_group $ledger #monetary_amount #rate_div
+               INTO Items(#contador)
+               cust_id item item_line item_seq_num dst_seq_num ledger_group ledger monetary_amount rate_div
+           let #contador = #contador +  1
+
+FROM PS_ITEM_DST ITEM LEFT OUTER JOIN PS_LC_ITEMDIST_TBL TAB2 ON (TAB2.BUSINESS_UNIT = ITEM.BUSINESS_UNIT
+           AND TAB2.CUST_ID = ITEM.CUST_ID
+           AND TAB2.ITEM = ITEM.ITEM
+           AND TAB2.ITEM_LINE = ITEM.ITEM_LINE
+           AND TAB2.ITEM_SEQ_NUM = ITEM.ITEM_SEQ_NUM
+           AND TAB2.DST_SEQ_NUM = ITEM.DST_SEQ_NUM
+           AND TAB2.LEDGER_GROUP = ITEM.LEDGER_GROUP
+           AND TAB2.LEDGER = ITEM.LEDGER), SYSADM.Ps_Item_Activity IA
+WHERE ITEM.BUSINESS_UNIT = $Business_Unit
+  AND ITEM.GL_DISTRIB_STATUS = 'N'
+  AND ITEM.SYSTEM_DEFINED <> 'A'
+  AND ITEM.DST_SEQ_NUM = 2
+  AND ITEM.BUSINESS_UNIT = IA.Business_Unit
+  and ITEM.CUST_ID = IA.Cust_Id
+  and ITEM.ITEM = IA.Item 
+  and ITEM.ITEM_LINE = IA.Item_Line 
+  and ITEM.ITEM_SEQ_NUM = IA.Item_Seq_Num 
+  AND IA.Entry_Type <> 'DESC'  
+  AND IA.DEPOSIT_BU <> ' '
+  AND TAB2.BUSINESS_UNIT IS NULL
+  !AND 0=(SELECT COUNT(*)
+  !       FROM PS_LC_ITEMDIST_TBL TAB2
+  !       WHERE TAB2.BUSINESS_UNIT = ITEM.BUSINESS_UNIT
+  !         AND TAB2.CUST_ID = ITEM.CUST_ID
+  !         AND TAB2.ITEM = ITEM.ITEM
+  !         AND TAB2.ITEM_LINE = ITEM.ITEM_LINE
+  !         AND TAB2.ITEM_SEQ_NUM = ITEM.ITEM_SEQ_NUM
+  !         AND TAB2.DST_SEQ_NUM = ITEM.DST_SEQ_NUM
+  !         AND TAB2.LEDGER_GROUP = ITEM.LEDGER_GROUP
+  !         AND TAB2.LEDGER = ITEM.LEDGER)
+End-select
+
+	let #num_items = #contador
+	Display 'Items en el arreglo:'
+	Display #num_items
+End-procedure Llenado-Arreglo
+
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Llenado-Arreglo_copia                                           !
+! Descr: Llena el arreglo con datos de la tabla ps_ws_item             !
+!----------------------------------------------------------------------!
+Begin-procedure Llenado-Arreglo-copia
+   let #contador = 0
+   let $bu       = ' '
+Begin-select
+/*+ leading(ITEMZ) index(ITEMZ PSEITEM_DST) */
+ITEMZ.CUST_ID
+ITEMZ.ITEM
+ITEMZ.ITEM_LINE
+ITEMZ.ITEM_SEQ_NUM
+ITEMZ.DST_SEQ_NUM
+ITEMZ.LEDGER_GROUP
+ITEMZ.LEDGER
+ITEMZ.MONETARY_AMOUNT
+ITEMZ.RATE_DIV
+
+       	let $cust_id         = &ITEM.CUST_ID
+	let $item            = &ITEM.ITEM
+	let #item_line       = &ITEM.ITEM_LINE
+	let #item_seq_num    = &ITEM.ITEM_SEQ_NUM
+	let #dst_seq_num     = &ITEM.DST_SEQ_NUM
+	let $ledger_group    = &ITEM.LEDGER_GROUP
+	let $ledger          = &ITEM.LEDGER
+	let #monetary_amount = &ITEM.MONETARY_AMOUNT
+	let #rate_div        = &ITEM.RATE_DIV
+	let $Entry_Type = ' '
+
+        !display ' tabla item_dst '
+       	!display  $cust_id
+	!display  $item
+	!display  #item_line
+	!display  #item_seq_num
+	!display  #dst_seq_num
+	!display  $ledger_group
+	!display  $ledger
+	!display  #monetary_amount
+	!display  #rate_div
+
+
+	If #dst_seq_num = 2
+	   !display ' #dst_seq_num '
+	   Show 'Entry Type: ' $Entry_Type
+	   Do Buscar-Entry-Type
+	End-If
+        If $Entry_Type <> 'DESC'
+           PUT $cust_id $item #item_line #item_seq_num #dst_seq_num $ledger_group $ledger #monetary_amount #rate_div
+               INTO Items(#contador)
+               cust_id item item_line item_seq_num dst_seq_num ledger_group ledger monetary_amount rate_div
+           let #contador = #contador +  1
+        End-If
+
+FROM PS_ITEM_DST ITEMZ LEFT OUTER JOIN PS_LC_ITEMDIST_TBL TAB2 ON (TAB2.BUSINESS_UNIT = ITEMZ.BUSINESS_UNIT
+           AND TAB2.CUST_ID = ITEMZ.CUST_ID
+           AND TAB2.ITEM = ITEMZ.ITEM
+           AND TAB2.ITEM_LINE = ITEMZ.ITEM_LINE
+           AND TAB2.ITEM_SEQ_NUM = ITEMZ.ITEM_SEQ_NUM
+           AND TAB2.DST_SEQ_NUM = ITEMZ.DST_SEQ_NUM
+           AND TAB2.LEDGER_GROUP = ITEMZ.LEDGER_GROUP
+           AND TAB2.LEDGER = ITEMZ.LEDGER)
+WHERE ITEMZ.BUSINESS_UNIT = $Business_Unit
+  AND ITEMZ.GL_DISTRIB_STATUS = 'N'
+  AND ITEMZ.SYSTEM_DEFINED <> 'A'
+  AND (ITEMZ.DST_SEQ_NUM = 1 OR ITEMZ.DST_SEQ_NUM = 2)
+  AND TAB2.BUSINESS_UNIT IS NULL
+End-select
+	let #num_items = #contador
+	Display 'Items en el arreglo:'
+	Display #num_items
+End-procedure Llenado-Arreglo-copia
+
+
+Begin-procedure Buscar-Entry-Type
+
+!<Inicio #006>
+   let $Entry_Reason = ' '
+   let $Entry_Use_Id = ' '
+   let $Bus_Unit_Orig = ' '
+   let $Orig_Transaccion = ' '
+!<Fin #006>
+
+Begin-Select
+ItemActivity.Entry_Type
+!<Inicio #006>
+ItemActivity.Entry_Reason 	
+ItemActivity.ENTRY_USE_ID 	
+ItemActivity.USER7 			
+ItemActivity.USER8 			
+!<Fin #006>
+
+   Let $Entry_Type = &ItemActivity.Entry_Type
+!<Inicio #006>
+   let $Entry_Reason = &ItemActivity.Entry_Reason 	
+   let $Entry_Use_Id = &ItemActivity.ENTRY_USE_ID 	
+   let $Bus_Unit_Orig = &ItemActivity.USER7 		
+   let $Orig_Transaccion = &ItemActivity.USER8 		
+!<Fin #006>
+
+From Ps_Item_Activity ItemActivity
+Where ItemActivity.Business_Unit = $Business_Unit
+  and ItemActivity.Cust_Id       = $cust_id
+  and ItemActivity.Item          = $item
+  and ItemActivity.Item_Line     = #item_line
+  and ItemActivity.Item_Seq_Num  = #item_seq_num
+End-Select
+End-Procedure Buscar-Entry-Type
+
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Buscar-Informacion                                        !
+! Descr: Buscar la información de medio de pago                        !
+!----------------------------------------------------------------------!
+Begin-procedure Buscar-Informacion
+Begin-Select
+!/*+ index(PAY PS_PAYMENT) */
+DEC.DECIMAL_POSITIONS
+
+   let #decimales = &DEC.DECIMAL_POSITIONS
+
+FROM PS_CURRENCY_CD_TBL DEC
+WHERE DEC.EFFDT =(SELECT MAX(A_ED.EFFDT)
+      FROM PS_CURRENCY_CD_TBL A_ED
+	 WHERE DEC.CURRENCY_CD = A_ED.CURRENCY_CD
+	   AND A_ED.EFFDT     <= SYSDATE)
+      AND DEC.EFF_STATUS = 'A'
+End-Select
+
+    let #contador = 0
+	WHILE #contador < #num_items
+	    !Display 'contador:'
+		!Display #contador
+		GET $cust_id FROM Items(#contador) cust_id
+	        GET $item FROM Items(#contador) item
+		GET #item_line FROM Items(#contador) item_line
+		GET #item_seq_num FROM Items(#contador) item_seq_num
+		GET #dst_seq_num FROM Items(#contador) dst_seq_num
+		GET $ledger_group FROM Items(#contador) ledger_group
+		GET $ledger FROM Items(#contador) ledger
+		GET #monetary_amount FROM Items(#contador) monetary_amount
+          GET #rate_div FROM Items(#contador) rate_div
+          Display 'va a buscar info de'
+		Display #monetary_amount
+		Display $item
+		!Traer la info de pending_item
+
+        !inicializar variables
+		let $deposit_bu = ' '
+		let $deposit_id = ' '
+		let #payment_seq_num = 0
+		let $lc_tipopago = ' '
+		let $lc_mediopago = ' '
+		let $bu_bono = ' '          !cambio CK_CAMBIOSAR_JZ
+		!display 'contador'
+		!display #contador
+
+Begin-Select
+G.DEPOSIT_BU
+G.DEPOSIT_ID
+G.PAYMENT_SEQ_NUM
+G.GROUP_BU
+G.GROUP_ID
+
+
+   let $deposit_bu = &G.DEPOSIT_BU
+   let $deposit_id = &G.DEPOSIT_ID
+   let #payment_seq_num = &G.PAYMENT_SEQ_NUM
+   let $groupBu = &G.GROUP_BU
+   let $groupId = &G.GROUP_ID
+
+   !display 'deposit_bu'
+   !display $deposit_bu
+   !display $deposit_id
+   !display #payment_seq_num
+   !display $groupBu
+   !display $groupId
+
+FROM PS_ITEM_ACTIVITY G
+WHERE G.BUSINESS_UNIT = $Business_Unit
+  AND G.CUST_ID       = $cust_id
+  AND G.ITEM          = $item
+  AND G.ITEM_LINE     = #item_line
+  AND G.ITEM_SEQ_NUM  = #item_seq_num
+End-Select
+
+        !Traer la info de payment
+Begin-Select
+/*+ index(PAY PS_PAYMENT) */
+PAY.LC_TIPOPAGO
+PAY.LC_MEDIOPAGO
+PAY.LC_BANCO                                 !cambio CK_CAMBIOSAR_JZ
+
+        let $lc_tipopago = &PAY.LC_TIPOPAGO
+        let $lc_mediopago = &PAY.LC_MEDIOPAGO
+        let $bu_bono = &PAY.LC_BANCO         !cambio CK_CAMBIOSAR_JZ
+
+FROM PS_PAYMENT PAY
+WHERE PAY.DEPOSIT_BU = $deposit_bu AND
+      PAY.DEPOSIT_ID = $deposit_id AND
+      PAY.PAYMENT_SEQ_NUM = #payment_seq_num
+!<Inicio #010> JCC      
+  AND PAY.DATA_SOURCE <> 'CJA'
+!<Fin #010> JCC      
+End-Select
+
+      !Revisar si la info no es vacía y que el item no este en la tab de distrib
+      if $lc_tipopago = ' '
+         let $lc_tipopago = 'NO'
+      End-if
+      if $lc_mediopago = ' '
+         let $lc_mediopago = 'NO'
+      End-if
+      let $bu = ' '
+!Begin-Select
+!TAB.BUSINESS_UNIT
+!TAB.MONETARY_AMOUNT
+!      let $bu = rtrim(&TAB.BUSINESS_UNIT, ' ')
+!FROM PS_LC_ITEMDIST_TBL TAB
+!WHERE TAB.BUSINESS_UNIT = $Business_Unit AND
+!      TAB.CUST_ID = $cust_id AND
+!	  TAB.ITEM = $item AND
+!	  TAB.ITEM_LINE = #item_line AND
+!	  TAB.ITEM_SEQ_NUM = #item_seq_num AND
+!	  TAB.DST_SEQ_NUM = #dst_seq_num AND
+!	  TAB.LEDGER_GROUP = $ledger_group AND
+!	  TAB.LEDGER = $ledger
+!End-Select
+      !Display 'tipopago, mediopago, bu, monetary amount, un_bono'
+      !Display $lc_tipopago
+      !Display $lc_mediopago
+      !Display $bu
+      !Display $bu_bono                 !cambio CK_CAMBIOSAR_JZ
+      if $lc_tipopago <> 'NO' and $lc_mediopago <> 'NO' and $bu = ' '
+         Display 'va a insertar'
+	 Do Insertar-Tabla
+      End-if
+      let #contador = #contador + 1
+   END-WHILE
+
+End-procedure Buscar-Informacion
+
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Insertar-Tabla                                            !
+! Descr: Inserta en la tabla los datos del item distribuido            !
+!----------------------------------------------------------------------!
+Begin-procedure Insertar-Tabla
+
+    DISPLAY 'Datos a insertar'
+    DISPLAY  $Business_Unit
+    DISPLAY  $cust_id
+    DISPLAY  $item
+    DISPLAY  #item_line
+    DISPLAY  #item_seq_num
+    DISPLAY  #dst_seq_num
+    DISPLAY  $ledger_group
+    DISPLAY  $ledger
+    DISPLAY  #monetary_amount
+
+Begin-sql
+INSERT INTO PS_LC_ITEMDIST_TBL
+    (BUSINESS_UNIT,
+     CUST_ID,
+     ITEM,
+     ITEM_LINE,
+     ITEM_SEQ_NUM,
+     DST_SEQ_NUM,
+     LEDGER_GROUP,
+     LEDGER,
+     MONETARY_AMOUNT)
+!inicio 012
+!VALUES
+!    ($Business_Unit,
+!     $cust_id,
+!     $item,
+!     #item_line,
+!     #item_seq_num,
+!     #dst_seq_num,
+!     $ledger_group,
+!     $ledger,
+!     #monetary_amount)
+SELECT $Business_Unit,
+       $cust_id,
+       $item,
+       #item_line,
+       #item_seq_num,
+       #dst_seq_num,
+       $ledger_group,
+       $ledger,
+       #monetary_amount
+FROM   PS_LC_ITEMDIST_TBL B1
+WHERE NOT EXISTS (SELECT 1
+                  FROM PS_LC_ITEMDIST_TBL  
+                  WHERE  BUSINESS_UNIT = $Business_Unit
+                  AND    CUST_ID = $cust_id
+                  AND    ITEM = $item
+                  AND    ITEM_LINE = #item_line
+                  AND    ITEM_SEQ_NUM = #item_seq_num
+                  AND    DST_SEQ_NUM = #dst_seq_num
+                  AND    LEDGER_GROUP = $ledger_group
+                  AND    LEDGER = $ledger)
+AND ROWNUM = 1
+!fin 012
+End-sql
+     Do Informacion-Cuentas
+
+End-procedure Insertar-Tabla
+
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Informacion-Cuentas                                       !
+! Descr: Busca información de las cuentas de banco y departamentos     !
+!----------------------------------------------------------------------!
+Begin-procedure Informacion-Cuentas
+! Trae información de los atributos del medio de pago
+!inicialización de variables
+   let $bank_setid        = ' '
+   let $lc_banco          = ' '
+   let $lc_cuenta_banco   = ' '
+   let #lc_comision       = 0
+   let #lc_retencion      = 0
+   let $bank_setid2       = ' '
+   let $lc_cod_dist_comis = ' '
+   let $lc_cod_dist_reten = ' '
+   let $account           = ' '
+   let $deptid            = ' '
+   let $product           = ' '       ! V<002>
+   let $project_id        = ' '       ! V<002>
+   let $affiliate         = ' '       ! V<002>
+   let #monto = 0
+   let $ck_reem_plantilla = ' '
+   let $plantilla 	  = ' '
+
+
+   ! inicio cambio CK_CAMBIOSAR_JZ
+
+   let $unegocio = $Business_Unit
+   if $bu_bono = '' or $bu_bono = ' '
+      let $bu_bono = ' '
+   else
+      let $unegocio = $bu_bono
+   End-if
+
+   ! fin cambio CK_CAMBIOSAR_JZ
+
+Begin-Select
+SET1.SETID
+
+    let $setid1 = &SET1.SETID
+
+FROM PS_SET_CNTRL_REC SET1
+WHERE SET1.SETCNTRLVALUE = $unegocio AND     !cambio CK_CAMBIOSAR_JZ
+      SET1.RECNAME       = 'LC_ATR_MED_PAGO'
+End-Select
+
+Begin-Select
+SET2.SETID
+
+    let $setid2 = &SET2.SETID
+
+FROM PS_SET_CNTRL_REC SET2
+WHERE SET2.SETCNTRLVALUE = $unegocio AND     !cambio CK_CAMBIOSAR_JZ
+      SET2.RECNAME       = 'DST_CODE_AR_VW'
+End-Select
+
+         Display ' $setid1 '
+         Display $setid1
+         Display ' $setid2 '
+         Display $setid2
+
+Begin-Select On-Error=SQL-Error                !V<003>
+SET3.SETID                                     !V<003>
+    let $setid3 = &SET3.SETID                  !V<003>
+FROM PS_SET_CNTRL_REC SET3                     !V<003>
+WHERE SET3.SETCNTRLVALUE = $Business_Unit AND  !V<003>
+      SET3.RECNAME = 'BANK_ACCT_CHRT'          !V<003>
+End-Select  											  !V<003>
+
+
+		 Show '**********************'
+		 Show '$setid1: ' $setid1
+		 Show '$lc_tipopago: ' $lc_tipopago
+		 Show '$lc_mediopago: ' $lc_mediopago
+		 
+Begin-select
+MEDIO.BANK_SETID
+MEDIO.LC_BANCO
+MEDIO.LC_CUENTA_BANCO
+MEDIO.LC_COMISION
+MEDIO.LC_RETENCION
+MEDIO.BANK_SETID2
+MEDIO.LC_COD_DIST_COMIS
+MEDIO.LC_COD_DIST_RETEN
+MEDIO.CK_REEM_PLANTILLA
+MEDIO.APPL_JRNL_ID
+
+    let $bank_setid        = &MEDIO.BANK_SETID
+    let $lc_banco          = &MEDIO.LC_BANCO
+    let $lc_cuenta_banco   = &MEDIO.LC_CUENTA_BANCO
+    let #lc_comision       = &MEDIO.LC_COMISION
+    let #lc_retencion      = &MEDIO.LC_RETENCION
+    let $bank_setid2       = &MEDIO.BANK_SETID2
+    let $lc_cod_dist_comis = &MEDIO.LC_COD_DIST_COMIS
+    let $lc_cod_dist_reten = &MEDIO.LC_COD_DIST_RETEN
+    let $ck_reem_plantilla = &MEDIO.CK_REEM_PLANTILLA
+    let $plantilla 	   = &MEDIO.APPL_JRNL_ID
+
+FROM PS_LC_ATR_MED_PAGO MEDIO
+WHERE MEDIO.SETID        = $setid1
+  AND MEDIO.LC_TIPOPAGO  = $lc_tipopago
+  AND MEDIO.LC_MEDIOPAGO = $lc_mediopago
+  AND MEDIO.EFF_STATUS   = 'A'
+End-Select
+         ! Trae el número de cuenta del banco y el departamento
+
+		 Show '**********************'
+		 Show '$setid3: ' $setid3
+		 Show '$lc_banco: ' $lc_banco
+		 Show '$lc_cuenta_banco: ' $lc_cuenta_banco
+Begin-Select
+BANK.ACCOUNT
+BANK.DEPTID
+BANK.PRODUCT            ! V<002>
+BANK.PROJECT_ID         ! V<002>
+BANK.AFFILIATE          ! V<002>
+!Inicio 018
+BANK.ALTACCT
+!Fin 018
+
+         let $account    = &BANK.ACCOUNT
+!Inicio 018
+	 let $altacct    = &BANK.ALTACCT
+!Fin 018
+	 let $deptid     = &BANK.DEPTID
+	 let $product    = &BANK.PRODUCT           ! V<002>
+	 let $project_id = &BANK.PROJECT_ID        ! V<002>
+	 let $affiliate  = &BANK.AFFILIATE         ! V<002>
+
+FROM PS_BANK_ACCT_CHRT BANK
+WHERE BANK.SETID              = $setid3        !V<003> BANK.SETID = $setid1
+  AND BANK.BANK_CD            = $lc_banco
+  AND BANK.BANK_ACCT_KEY      = $lc_cuenta_banco
+  AND BANK.BANK_ACCT_LED_TYPE = 'A'
+End-Select
+         !display 'Información a actualizar'
+         !display $lc_banco
+	 !display $lc_cuenta_banco
+	 !display $account
+	 !display $deptid
+	 !display $product         ! V<002>
+	 !display $project_id      ! V<002>
+	 !display $affiliate       ! V<002>
+
+	 !display ' $Misc '
+	 !display $Misc
+
+         If $Misc = 'Y'                  ! V<003>
+            Do Actualizar-Pay-Misc       ! V<003>
+         Else  								  ! V<003>
+            Do Actualizar-Item
+         End-If                          ! V<003>
+
+         !Do Actualizar-Item             ! V<003>
+
+         !Busca la cuenta para la comisión y llama la función que inserta el item
+         If #lc_comision > 0
+	     let $account = ' '
+	     let $deptid = ' '
+	     let $product = ' '          ! V<002>
+	     let $project_id = ' '       ! V<002>
+	     let $affiliate = ' '        ! V<002>
+
+
+Begin-Select
+COM.ACCOUNT
+COM.DEPTID
+COM.PRODUCT
+COM.PROJECT_ID
+COM.AFFILIATE
+
+    let $account = &COM.ACCOUNT
+    let $deptid = &COM.DEPTID
+    let $product = &COM.PRODUCT              ! V<002>
+    let $project_id = &COM.PROJECT_ID        ! V<002>
+    let $affiliate = &COM.AFFILIATE          ! V<002>
+    !Display 'comision'
+    !Display #lc_comision
+    !Display $lc_cod_dist_comis
+    !Display $account
+    !Display $deptid
+    !display $product         ! V<002>
+    !display $project_id      ! V<002>
+    !display $affiliate       ! V<002>
+
+FROM PS_DST_CODE_TBL COM
+WHERE COM.SETID      = $setid2 AND    !aqui estaba  $bank_setid2
+      COM.DST_ID     = $lc_cod_dist_comis
+  AND COM.EFF_STATUS = 'A'
+End-Select
+
+	    let #porcentaje = #lc_comision
+   	    let #posicion = 3
+
+            If $Misc = 'Y'                   ! V<003>
+
+Begin-Select On-Error=SQL-Error              ! V<003>
+MAX(DST_SEQ_NUM) &max1                       ! V<003>
+               let #posicion = &max1 + 1     ! V<003>
+FROM PS_PAY_MISC_DST                         ! V<003>
+WHERE DEPOSIT_BU = $deposit_bu               ! V<003>
+  AND DEPOSIT_ID = $deposit_id               ! V<003>
+  AND PAYMENT_SEQ_NUM = #payment_seq_num     ! V<003>
+End-Select                                   ! V<003>
+
+	       Do Insertar-Pay-Misc          ! V<003>
+	    Else                             ! V<003>
+	       Do Insertar-Item
+	    End-If                           ! V<003>
+
+        End-if
+
+	!Busca la cuenta para la retención y llama la función que inserta el item
+
+	If #lc_retencion > 0
+
+	    let $account = ' '
+	    let $deptid = ' '
+	    let $product = ' '          ! V<002>
+	    let $project_id = ' '       ! V<002>
+	    let $affiliate = ' '        ! V<002>
+
+Begin-Select
+RET.ACCOUNT
+RET.DEPTID
+RET.PRODUCT
+RET.PROJECT_ID
+RET.AFFILIATE
+   let $account = &RET.ACCOUNT
+   let $deptid = &RET.DEPTID
+   let $product = &RET.PRODUCT              ! V<002>
+   let $project_id = &RET.PROJECT_ID        ! V<002>
+   let $affiliate = &RET.AFFILIATE          ! V<002>
+
+   !Display 'retencion'
+   !Display #lc_retencion
+   !Display $lc_cod_dist_reten
+   !Display $account
+   !Display $deptid
+   !display $product         ! V<002>
+   !display $project_id      ! V<002>
+   !display $affiliate       ! V<002>
+
+FROM PS_DST_CODE_TBL RET
+WHERE RET.SETID = $setid2 AND              !aqui estaba  $bank_setid2
+      RET.DST_ID = $lc_cod_dist_reten AND
+      RET.EFF_STATUS = 'A'
+End-Select
+
+	   let #porcentaje = #lc_retencion
+	   let #posicion = 4
+
+           If $Misc = 'Y'                   ! V<003>
+
+Begin-Select On-Error=SQL-Error              ! V<003>
+MAX(DST_SEQ_NUM) &max2                       ! V<003>
+               let #posicion = &max2 + 1     ! V<003>
+FROM PS_PAY_MISC_DST                         ! V<003>
+WHERE DEPOSIT_BU = $deposit_bu AND           ! V<003>
+      DEPOSIT_ID = $deposit_id AND           ! V<003>
+      PAYMENT_SEQ_NUM = #payment_seq_num     ! V<003>
+End-Select                                   ! V<003>
+
+              Do Insertar-Pay-Misc          ! V<003>
+	   Else                             ! V<003>
+
+	      Do Insertar-Item              ! V<003>
+	   End-If                           ! V<003>
+
+	End-if
+
+End-procedure Informacion-Cuentas
+
+
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Actualizar-Item                                           !
+! Descr: Actualiza la tabla item_dst con el monto a la cuenta del banco!
+!----------------------------------------------------------------------!
+Begin-procedure Actualizar-Item
+
+	let $ck_acc_open_item = ' '
+        !let #monto = #monetary_amount * ((100 - #lc_comision - #lc_retencion)/100)
+	let #monto_comision  = (#monetary_amount * (#lc_comision/100))
+	let #monto_retencion = (#monetary_amount * (#lc_retencion/100))
+	let #monto_comision  = round(#monto_comision, #decimales)
+	let #monto_retencion = round(#monto_retencion, #decimales)
+	let #monto = #monetary_amount - #monto_comision - #monto_retencion
+	!let #monto = #monetary_amount - (( #monetary_amount * (#lc_comision/100)) + (#monetary_amount * (#lc_retencion/100)))
+	Display #monto
+	if $deptid = ''
+	   let $deptid = ' '
+	End-if
+	if $account = ''
+	   let $account = ' '
+	End-if
+	if $product = ''           ! V<002>
+	   let $product = ' '      ! V<002>
+	End-if                     ! V<002>
+	if $project_id = ''        ! V<002>
+	   let $project_id = ' '   ! V<002>
+	End-if                     ! V<002>
+	if $affiliate = ''         ! V<002>
+	   let $affiliate = ' '    ! V<002>
+	End-if                     ! V<002>
+	!display ' #monto  '
+	!display #monto
+	!display ' #rate_div '
+	!display #rate_div
+
+	SHOW '$Business_Unit' $Business_Unit
+	SHOW '$cust_id' $cust_id
+	SHOW '$item' $item
+	SHOW '#dst_seq_num' #dst_seq_num
+	SHOW '$account' $account
+
+Begin-sql
+UPDATE PS_ITEM_DST
+SET ACCOUNT         = $account,         !    DEPTID          = $deptid,
+!Inicio 018
+    ALTACCT         = $altacct,
+!Fin 018
+    PRODUCT         = $product,         ! V<002>
+    PROJECT_ID      = $project_id,      ! V<002>
+    AFFILIATE       = $affiliate,       ! V<002>
+    MONETARY_AMOUNT = #monto,
+    FOREIGN_AMOUNT  = (#monto / #rate_div)
+WHERE BUSINESS_UNIT = $Business_Unit
+  AND CUST_ID       = $cust_id
+  AND ITEM          = $item
+  AND ITEM_LINE     = #item_line
+  AND ITEM_SEQ_NUM  = #item_seq_num
+  AND DST_SEQ_NUM   = #dst_seq_num
+  !AND  LEDGER_GROUP = $ledger_group AND  LEDGER = $ledger
+End-sql
+
+begin-sql
+UPDATE PS_PENDING_DST
+SET ACCOUNT         = $account,         !    DEPTID          = $deptid,
+!Inicio 018
+    ALTACCT         = $altacct,
+!Fin 018
+    PRODUCT         = $product,         ! V<002>
+    PROJECT_ID      = $project_id,      ! V<002>
+    AFFILIATE       = $affiliate       ! V<002>
+WHERE GROUP_BU      = $groupBu
+  AND GROUP_ID      = $groupId
+  AND BUSINESS_UNIT = $Business_Unit
+  AND CUST_ID       = $cust_id
+  AND ITEM          = $item
+  AND ITEM_LINE     = #item_line
+  AND DST_SEQ_NUM   = #dst_seq_num
+End-SQl
+
+If $ck_reem_plantilla = 'Y'
+
+BEGIN-SQL ON-ERROR=SQL-ERROR
+UPDATE PS_ITEM_DST
+   SET APPL_JRNL_ID = $plantilla
+WHERE BUSINESS_UNIT = $Business_Unit
+  AND CUST_ID       = $cust_id
+  AND ITEM          = $item
+  AND ITEM_LINE     = #item_line
+  AND ITEM_SEQ_NUM  = #item_seq_num
+END-SQL
+
+End-If
+
+!CK2008 - 23/04/2008 - RA
+BEGIN-SELECT
+PARAM_ACC.OPEN_ITEM
+
+	LET $ck_acc_open_item = &PARAM_ACC.OPEN_ITEM
+
+FROM PS_GL_ACCOUNT_TBL PARAM_ACC
+WHERE PARAM_ACC.SETID = (SELECT CNTRL.SETID
+FROM PS_SET_CNTRL_REC CNTRL
+WHERE CNTRL.SETCNTRLVALUE = $Business_Unit
+AND CNTRL.RECNAME = 'GL_ACCOUNT_TBL')
+AND PARAM_ACC.EFFDT = (SELECT MAX(PARAM_ACC_E.EFFDT)
+FROM PS_GL_ACCOUNT_TBL PARAM_ACC_E
+WHERE PARAM_ACC.SETID = PARAM_ACC_E.SETID
+AND PARAM_ACC.ACCOUNT = PARAM_ACC_E.ACCOUNT)
+AND PARAM_ACC.ACCOUNT = $account
+
+END-SELECT
+
+If $ck_acc_open_item = 'Y'
+
+BEGIN-SQL ON-ERROR=SQL-ERROR
+UPDATE PS_ITEM_DST
+   SET OPEN_ITEM_KEY = $cust_id
+WHERE BUSINESS_UNIT = $Business_Unit
+  AND CUST_ID       = $cust_id
+  AND ITEM          = $item
+  AND ITEM_LINE     = #item_line
+  AND ITEM_SEQ_NUM  = #item_seq_num
+END-SQL
+
+BEGIN-SQL ON-ERROR=SQL-ERROR
+UPDATE PS_PENDING_DST
+SET OPEN_ITEM_KEY   = $cust_id
+WHERE GROUP_BU      = $groupBu
+  AND GROUP_ID      = $groupId
+  AND BUSINESS_UNIT = $Business_Unit
+  AND CUST_ID       = $cust_id
+  AND ITEM          = $item
+  AND ITEM_LINE     = #item_line
+  AND DST_SEQ_NUM   = #dst_seq_num
+End-SQl
+
+End-If
+
+!CK2008 - 23/04/2008 - RA
+
+End-procedure Actualizar-Item
+
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Insertar-Item                                             !
+! Descr: Inserta un item en item_dst por el monto del porcentaje a la  !
+!        cuenta de banco respectiva                                    !
+!----------------------------------------------------------------------!
+Begin-procedure Insertar-Item
+
+       let #monto = #monetary_amount * (#porcentaje/100)
+	   let #monto = round(#monto, #decimales)
+Begin-Select
+DST.PRIMARY_LEDGER                    &DST.PRIMARY_LEDGER
+DST.BUSINESS_UNIT_GL                  &DST.BUSINESS_UNIT_GL
+DST.STATISTICS_CODE                   &DST.STATISTICS_CODE
+DST.STATISTIC_AMOUNT
+DST.JRNL_LN_REF                       &DST.JRNL_LN_REF
+DST.LINE_DESCR                        &DST.LINE_DESCR
+DST.JOURNAL_ID                        &DST.JOURNAL_ID
+DST.JOURNAL_DATE                      &DST.JOURNAL_DATE
+DST.GL_DISTRIB_STATUS                 &DST.GL_DISTRIB_STATUS
+DST.PROCESS_INSTANCE
+DST.APPL_JRNL_ID                      &DST.APPL_JRNL_ID
+DST.ACCOUNTING_DT                     &DST.ACCOUNTING_DT
+DST.FOREIGN_CURRENCY                  &DST.FOREIGN_CURRENCY
+DST.RT_TYPE                           &DST.RT_TYPE
+DST.RATE_MULT
+DST.CURRENCY_CD                       &DST.CURRENCY_CD
+DST.SYSTEM_DEFINED                    &DST.SYSTEM_DEFINED
+DST.BUSINESS_UNIT_PC                  &DST.BUSINESS_UNIT_PC
+DST.ACTIVITY_ID                       &DST.ACTIVITY_ID
+DST.ANALYSIS_TYPE                     &DST.ANALYSIS_TYPE
+DST.RESOURCE_TYPE                     &DST.RESOURCE_TYPE
+DST.RESOURCE_CATEGORY                 &DST.RESOURCE_CATEGORY
+DST.RESOURCE_SUB_CAT                  &DST.RESOURCE_SUB_CAT
+DST.FISCAL_YEAR
+DST.ACCOUNTING_PERIOD
+DST.DOC_TYPE                          &DST.DOC_TYPE
+DST.DOC_SEQ_NBR                       &DST.DOC_SEQ_NBR
+DST.DOC_SEQ_DATE                      &DST.DOC_SEQ_DATE
+DST.DOC_SEQ_STATUS                    &DST.DOC_SEQ_STATUS
+DST.MOVEMENT_FLAG                     &DST.MOVEMENT_FLAG
+DST.USER1                             &DST.USER1
+DST.USER2                             &DST.USER2
+DST.USER3                             &DST.USER3
+DST.USER4                             &DST.USER4
+DST.USER5                             &DST.USER5
+DST.JOURNAL_LINE
+
+					 let $primary_ledger = &DST.PRIMARY_LEDGER
+					 let $business_unit_gl = &DST.BUSINESS_UNIT_GL
+		                         let $statistics_code = &DST.STATISTICS_CODE
+					 let $jrnl_ln_ref = &DST.JRNL_LN_REF
+					 let $line_descr = &DST.LINE_DESCR
+	                                 let $journal_id = &DST.JOURNAL_ID
+					 let $gl_distrib_status = &DST.GL_DISTRIB_STATUS
+					 let $appl_jrnl_id = &DST.APPL_JRNL_ID
+					 let $foreign_currency = &DST.FOREIGN_CURRENCY
+					 let $rt_type = &DST.RT_TYPE
+
+					 let $currency_cd = &DST.CURRENCY_CD
+					 let $system_defined = &DST.SYSTEM_DEFINED
+					 let $business_unit_pc = &DST.BUSINESS_UNIT_PC
+					 let $activity_id = &DST.ACTIVITY_ID
+					 let $analysis_type = &DST.ANALYSIS_TYPE
+					 let $resource_type = &DST.RESOURCE_TYPE
+					 let $resource_category = &DST.RESOURCE_CATEGORY
+	                                 let $resource_sub_cat = &DST.RESOURCE_SUB_CAT
+
+					 let $doc_type = &DST.DOC_TYPE
+	                                 let $doc_seq_nbr = &DST.DOC_SEQ_NBR
+
+					 let $journal_date = datetostr(&DST.JOURNAL_DATE,'DD-MM-YYYY')
+					 let $accounting_dt = datetostr(&DST.ACCOUNTING_DT,'DD-MM-YYYY')
+					 let $doc_seq_date = datetostr(&DST.DOC_SEQ_DATE,'DD-MM-YYYY')
+
+					 let $doc_seq_status = &DST.DOC_SEQ_STATUS
+					 let $movement_flag = &DST.MOVEMENT_FLAG
+					 let $user1 = &DST.USER1
+					 let $user2 = &DST.USER2
+					 let $user3 = &DST.USER3
+					 let $user4 = &DST.USER4
+	                                 let $user5 = &DST.USER5
+
+					 let #statistic_amount = &DST.STATISTIC_AMOUNT
+					 let #process_instance = &DST.PROCESS_INSTANCE
+					 let #rate_mult = &DST.RATE_MULT
+					 let #fiscal_year = &DST.FISCAL_YEAR
+					 let #accounting_period = &DST.ACCOUNTING_PERIOD
+					 let #journal_line = &DST.JOURNAL_LINE
+
+FROM PS_ITEM_DST DST
+WHERE BUSINESS_UNIT = $Business_Unit AND
+      CUST_ID = $cust_id AND
+	  ITEM = $item AND
+	  ITEM_LINE = #item_line AND
+	  ITEM_SEQ_NUM = #item_seq_num AND
+	  DST_SEQ_NUM = #dst_seq_num AND
+	  LEDGER_GROUP = $ledger_group AND
+	  LEDGER = $ledger
+End-Select
+
+       DISPLAY 'ITEM DST'
+	   DISPLAY $Business_Unit
+	   DISPLAY $cust_id
+	   DISPLAY $item
+	   DISPLAY #item_line
+	   DISPLAY #item_seq_num
+	   DISPLAY #posicion
+	   DISPLAY $ledger_group
+	   DISPLAY $ledger
+	   DISPLAY #monto
+Begin-sql
+INSERT INTO PS_ITEM_DST
+      (BUSINESS_UNIT,
+	   CUST_ID,
+	   ITEM,
+	   ITEM_LINE,
+	   ITEM_SEQ_NUM,
+	   DST_SEQ_NUM,
+           LEDGER_GROUP,
+	   LEDGER,
+	   PRIMARY_LEDGER,
+	   BUSINESS_UNIT_GL,
+	   ACCOUNT,
+	   DEPTID,
+	   PRODUCT,
+	   PROJECT_ID,
+	   AFFILIATE,
+	   STATISTICS_CODE,
+	   MONETARY_AMOUNT,
+	   STATISTIC_AMOUNT,
+	   JRNL_LN_REF,
+	   LINE_DESCR,
+	   JOURNAL_ID,
+	   JOURNAL_DATE,
+	   GL_DISTRIB_STATUS,
+	   PROCESS_INSTANCE,
+	   APPL_JRNL_ID,
+	   ACCOUNTING_DT,
+	   FOREIGN_CURRENCY,
+	   FOREIGN_AMOUNT,
+	   RT_TYPE,
+	   RATE_MULT,
+	   RATE_DIV,
+	   CURRENCY_CD,
+	   SYSTEM_DEFINED,
+	   BUSINESS_UNIT_PC,
+	   ACTIVITY_ID,
+	   PC_DISTRIB_STATUS,
+	   ANALYSIS_TYPE,
+	   RESOURCE_TYPE,
+	   RESOURCE_CATEGORY,
+	   RESOURCE_SUB_CAT,
+	   FISCAL_YEAR,
+	   ACCOUNTING_PERIOD,
+	   DOC_TYPE,
+	   DOC_SEQ_NBR,
+	   DOC_SEQ_DATE,
+	   DOC_SEQ_STATUS,
+	   MOVEMENT_FLAG,
+	   USER1,
+	   USER2,
+	   USER3,
+	   USER4,
+	   USER5,
+	   JOURNAL_LINE)
+VALUES
+      ($Business_Unit,
+	   $cust_id,
+	   $item,
+	   #item_line,
+	   #item_seq_num,
+	   #posicion,
+	   $ledger_group,
+	   $ledger,
+	   $primary_ledger,
+	   $business_unit_gl,
+	   $account,
+	   $deptid,
+	   $product,
+	   $project_id,
+	   $affiliate,
+	   $statistics_code,
+	   #monto,
+	   #statistic_amount,
+	   $jrnl_ln_ref,
+	   $line_descr,
+	   $journal_id,
+	   To_Date($journal_date,'DD-MM-YYYY'),
+	   $gl_distrib_status,
+	   #process_instance,
+	   $appl_jrnl_id,
+	   To_Date($accounting_dt,'DD-MM-YYYY'),
+	   $foreign_currency,
+	   (#monto / #rate_div),
+	   $rt_type,
+	   #rate_mult,
+	   #rate_div,
+	   $currency_cd,
+	   $system_defined,
+	   $business_unit_pc,
+	   $activity_id,
+	   $analysis_type,
+	   $resource_type,
+	   $resource_category,
+	   $resource_sub_cat,
+	   #fiscal_year,
+	   #accounting_period,
+	   $doc_type,
+	   $doc_seq_nbr,
+	   To_Date($doc_seq_date,'DD-MM-YYYY'),
+	   $doc_seq_status,
+	   $movement_flag,
+	   $user1,
+	   $user2,
+	   $user3,
+	   $user4,
+	   $user5,
+	   #journal_line)
+End-sql
+
+
+End-procedure Insertar-Item
+
+!** <V003> Inicio adición código para la distribución de misceláneos
+
+!***********************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Actualizar-Pay-Misc                                       !
+! Descr: Actualiza la tabla pay_misc_dst con el monto a la cuenta del  !
+!        banco                                                         !
+!----------------------------------------------------------------------!
+Begin-procedure Actualizar-Pay-Misc
+
+Begin-Select On-Error=SQL-Error
+DEC1.DECIMAL_POSITIONS   &DEC1.DECIMAL_POSITIONS
+       let #decimales = &DEC1.DECIMAL_POSITIONS
+FROM PS_CURRENCY_CD_TBL DEC1
+WHERE DEC1.EFFDT =(SELECT MAX(A_ED1.EFFDT)
+     FROM PS_CURRENCY_CD_TBL A_ED1
+	 WHERE DEC1.CURRENCY_CD = A_ED1.CURRENCY_CD
+	 AND A_ED1.CURRENCY_CD = $currency_cd
+	  AND A_ED1.EFFDT <= SYSDATE)
+      AND DEC1.EFF_STATUS = 'A'
+End-Select
+
+   let #monto_comision = (#monetary_amount * (#lc_comision/100))
+   let #monto_retencion = (#monetary_amount * (#lc_retencion/100))
+   let #monto_comision = round(#monto_comision, #decimales)
+   let #monto_retencion = round(#monto_retencion, #decimales)
+   let #monto = #monetary_amount - #monto_comision - #monto_retencion
+
+    if $deptid = ''
+	   let $deptid = ' '
+	End-if
+	if $account = ''
+	   let $account = ' '
+	End-if
+	if $product = ''
+	   let $product = ' '
+	End-if
+	if $project_id = ''
+	   let $project_id = ' '
+	End-if
+	if $affiliate = ''
+	   let $affiliate = ' '
+	End-if
+
+    !DISPLAY 'Actualizando PAY MISC DST'
+    !DISPLAY $deposit_bu
+    !DISPLAY  $deposit_id
+    !DISPLAY  #payment_seq_num
+    !DISPLAY #dst_seq_num
+    !display ' #monto '
+    !display #monto
+    !display ' #rate_div '
+    !display #rate_div
+
+
+Begin-sql On-Error=SQL-Error
+UPDATE PS_PAY_MISC_DST
+SET ACCOUNT = $account,            !    DEPTID = $deptid,
+    PRODUCT = $product,            ! V<002>
+    PROJECT_ID = $project_id,      ! V<002>
+    AFFILIATE = $affiliate,        ! V<002>
+    MONETARY_AMOUNT = #monto,
+    FOREIGN_AMOUNT = (#monto / #rate_div)
+WHERE DEPOSIT_BU = $deposit_bu
+  AND DEPOSIT_ID = $deposit_id
+  AND PAYMENT_SEQ_NUM = #payment_seq_num
+  AND DST_SEQ_NUM = #dst_seq_num
+End-sql
+
+End-procedure Actualizar-Pay-Misc
+
+
+!***********************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Insertar-Pay-Misc                                         !
+! Descr: Inserta un item en Pay_Misc_dst por el monto del porcentaje a !
+!        la cuenta de banco respectiva                                 !
+!----------------------------------------------------------------------!
+Begin-procedure Insertar-Pay-Misc
+
+Begin-Select On-Error=SQL-Error
+DEC2.DECIMAL_POSITIONS   &DEC2.DECIMAL_POSITIONS
+       let #decimales = &DEC2.DECIMAL_POSITIONS
+FROM PS_CURRENCY_CD_TBL DEC2
+WHERE DEC2.EFFDT =(SELECT MAX(A_ED2.EFFDT)
+     		     FROM PS_CURRENCY_CD_TBL A_ED2
+		    WHERE DEC2.CURRENCY_CD = A_ED2.CURRENCY_CD
+		      AND A_ED2.CURRENCY_CD = $currency_cd
+		      AND A_ED2.EFFDT <= SYSDATE)
+  AND DEC2.EFF_STATUS = 'A'
+End-Select
+
+    let #monto = #monetary_amount * (#porcentaje/100)
+    let #monto = round(#monto, #decimales)
+
+Begin-Select On-Error=SQL-Error
+MISC.BUSINESS_UNIT                    &MISC.BUSINESS_UNIT
+MISC.FOREIGN_CURRENCY                 &MISC.FOREIGN_CURRENCY
+MISC.BUSINESS_UNIT_GL                 &MISC.BUSINESS_UNIT_GL
+MISC.STATISTICS_CODE                  &MISC.STATISTICS_CODE
+MISC.STATISTIC_AMOUNT
+MISC.CF_EDIT_STATUS                   &MISC.CF_EDIT_STATUS
+MISC.JRNL_LN_REF                      &MISC.JRNL_LN_REF
+MISC.LINE_DESCR                       &MISC.LINE_DESCR
+MISC.JOURNAL_ID                       &MISC.JOURNAL_ID
+MISC.JOURNAL_DATE                     &MISC.JOURNAL_DATE
+MISC.GL_DISTRIB_STATUS                &MISC.GL_DISTRIB_STATUS
+MISC.PROCESS_INSTANCE
+MISC.APPL_JRNL_ID                     &MISC.APPL_JRNL_ID
+MISC.ACCOUNTING_DT                    &MISC.ACCOUNTING_DT
+MISC.RT_TYPE                          &MISC.RT_TYPE
+MISC.RATE_MULT
+MISC.RATE_DIV
+MISC.CURRENCY_CD                      &MISC.CURRENCY_CD
+MISC.SYSTEM_DEFINED                   &MISC.SYSTEM_DEFINED
+MISC.FISCAL_YEAR
+MISC.ACCOUNTING_PERIOD
+MISC.LEDGER_GROUP                     &MISC.LEDGER_GROUP
+MISC.LEDGER                           &MISC.LEDGER
+MISC.JOURNAL_LINE
+MISC.DOC_TYPE                         &MISC.DOC_TYPE
+MISC.DOC_SEQ_NBR                      &MISC.DOC_SEQ_NBR
+MISC.DOC_SEQ_DATE                     &MISC.DOC_SEQ_DATE
+MISC.DOC_SEQ_STATUS                   &MISC.DOC_SEQ_STATUS
+
+	let $business_unit                    	= &MISC.BUSINESS_UNIT
+	let $foreign_currency                 	= &MISC.FOREIGN_CURRENCY
+	let $business_unit_gl                 	= &MISC.BUSINESS_UNIT_GL
+	let $statistics_code                  	= &MISC.STATISTICS_CODE
+	let #statistic_amount            	    = &MISC.STATISTIC_AMOUNT
+	let $cf_edit_status                   	= &MISC.CF_EDIT_STATUS
+	let $jrnl_ln_ref                      	= &MISC.JRNL_LN_REF
+	let $line_descr                       	= &MISC.LINE_DESCR
+	let $journal_id                       	= &MISC.JOURNAL_ID
+	let $journal_date                     	= datetostr(&MISC.JOURNAL_DATE, DATE)
+	let $gl_distrib_status                	= &MISC.GL_DISTRIB_STATUS
+	let #process_instance           	    = &MISC.PROCESS_INSTANCE
+	let $appl_jrnl_id                     	= &MISC.APPL_JRNL_ID
+	let $accounting_dt                    	= datetostr(&MISC.ACCOUNTING_DT, DATE)
+	let $rt_type                          	= &MISC.RT_TYPE
+	let #rate_mult                        	= &MISC.RATE_MULT
+	let #rate_div                         	= &MISC.RATE_DIV
+	let $currency_cd                      	= &MISC.CURRENCY_CD
+	let $system_defined                   	= &MISC.SYSTEM_DEFINED
+	let #fiscal_year                      	= &MISC.FISCAL_YEAR
+	let #accounting_period                	= &MISC.ACCOUNTING_PERIOD
+	let $ledger_group                     	= &MISC.LEDGER_GROUP
+	let $ledger                           	= &MISC.LEDGER
+	let #journal_line                     	= &MISC.JOURNAL_LINE
+	let $doc_type                         	= &MISC.DOC_TYPE
+	let $doc_seq_nbr                      	= &MISC.DOC_SEQ_NBR
+	let $doc_seq_date                     	= datetostr(&MISC.DOC_SEQ_DATE, DATE)
+	let $doc_seq_status                    	= &MISC.DOC_SEQ_STATUS
+
+FROM PS_PAY_MISC_DST MISC
+WHERE DEPOSIT_BU = $deposit_bu
+  AND DEPOSIT_ID = $deposit_id
+  AND PAYMENT_SEQ_NUM = #payment_seq_num
+  AND DST_SEQ_NUM = #dst_seq_num
+End-Select
+
+      DISPLAY 'Insertando PAY MISC DST'
+      DISPLAY $deposit_bu
+      DISPLAY  $deposit_id
+      DISPLAY  #payment_seq_num
+      DISPLAY #posicion
+
+Begin-sql On-Error=SQL-Error
+INSERT INTO PS_PAY_MISC_DST
+ (DEPOSIT_BU
+, DEPOSIT_ID
+, PAYMENT_SEQ_NUM
+, DST_SEQ_NUM
+, BUSINESS_UNIT
+, FOREIGN_CURRENCY
+, BUSINESS_UNIT_GL
+, ACCOUNT
+, DEPTID
+, PRODUCT
+, PROJECT_ID
+, AFFILIATE
+, STATISTICS_CODE
+, MONETARY_AMOUNT
+, STATISTIC_AMOUNT
+, CF_EDIT_STATUS
+, JRNL_LN_REF
+, LINE_DESCR
+, JOURNAL_ID
+, JOURNAL_DATE
+, GL_DISTRIB_STATUS
+, PROCESS_INSTANCE
+, APPL_JRNL_ID
+, ACCOUNTING_DT
+, FOREIGN_AMOUNT
+, RT_TYPE
+, RATE_MULT
+, RATE_DIV
+, CURRENCY_CD
+, SYSTEM_DEFINED
+, FISCAL_YEAR
+, ACCOUNTING_PERIOD
+, LEDGER_GROUP
+, LEDGER
+, JOURNAL_LINE
+, DOC_TYPE
+, DOC_SEQ_NBR
+, DOC_SEQ_DATE
+, DOC_SEQ_STATUS)
+VALUES
+( $deposit_bu
+, $deposit_id
+, #payment_seq_num
+, #posicion
+, $business_unit
+, $foreign_currency
+, $business_unit_gl
+, $account
+, $deptid
+, $product
+, $project_id
+, $affiliate
+, $statistics_code
+, #monto
+, #statistic_amount
+, $cf_edit_status
+, $jrnl_ln_ref
+, $line_descr
+, $journal_id
+, To_Date($journal_date,'DD-MM-YYYY')
+, $gl_distrib_status
+, #process_instance
+, $appl_jrnl_id
+, To_Date($accounting_dt,'DD-MM-YYYY')
+, (#monto / #rate_div)
+, $rt_type
+, #rate_mult
+, #rate_div
+, $currency_cd
+, $system_defined
+, #fiscal_year
+, #accounting_period
+, $ledger_group
+, $ledger
+, #journal_line
+, $doc_type
+, $doc_seq_nbr
+, To_Date($doc_seq_date,'DD-MM-YYYY')
+, $doc_seq_status)
+End-sql
+
+    let #dst_seq_insertar = #posicion
+    Do Insertar-Tabla-Misc
+
+End-procedure Insertar-Pay-Misc
+
+
+!***********************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Recorre-Misc                                              !
+! Descr: Recorre la tabla PAY_MISC_DST, y verifica si requiere         !
+!        actualizar datos                                              !
+!----------------------------------------------------------------------!
+Begin-procedure Recorre-Misc
+
+Begin-select On-Error=SQL-Error
+MISC2.DEPOSIT_BU
+MISC2.DEPOSIT_ID
+MISC2.PAYMENT_SEQ_NUM
+MISC2.DST_SEQ_NUM
+MISC2.MONETARY_AMOUNT   &MISC2.MONETARY_AMOUNT
+MISC2.RATE_MULT         &MISC2.RATE_MULT1
+MISC2.RATE_DIV          &MISC2.RATE_DIV1
+MISC2.CURRENCY_CD       &MISC2.CURRENCY_CD1
+
+    let $deposit_bu      = &MISC2.DEPOSIT_BU
+    let $deposit_id      = &MISC2.DEPOSIT_ID
+    let #payment_seq_num = &MISC2.PAYMENT_SEQ_NUM
+    let #dst_seq_num     = &MISC2.DST_SEQ_NUM
+    let #monetary_amount = &MISC2.MONETARY_AMOUNT
+    let #rate_mult       = &MISC2.RATE_MULT1
+    let #rate_div        = &MISC2.RATE_DIV1
+    let $currency_cd     = &MISC2.CURRENCY_CD1
+
+    Display '$deposit_bu en misc: ' $deposit_bu
+    Display '$deposit_id en misc: ' $deposit_id
+    Display 'payment_seq_num en misc: '
+    Display #payment_seq_num
+    Display 'dst_seq_num en misc: '
+    Display #dst_seq_num
+
+    Do Obtener-Tipo-Medio-Pago-Misc
+    let $Misc = 'Y'
+    !display ' $Misc '
+    !display $Misc
+
+    Do Informacion-Cuentas
+    let #dst_seq_insertar = #dst_seq_num
+    Do Insertar-Tabla-Misc
+
+FROM PS_PAY_MISC_DST MISC2 LEFT OUTER JOIN PS_LC_MISCDST_TBL TAB2 ON (TAB2.DEPOSIT_BU = MISC2.DEPOSIT_BU
+            AND TAB2.DEPOSIT_ID = MISC2.DEPOSIT_ID
+            AND TAB2.PAYMENT_SEQ_NUM = MISC2.PAYMENT_SEQ_NUM
+            AND TAB2.DST_SEQ_NUM = MISC2.DST_SEQ_NUM)
+WHERE MISC2.BUSINESS_UNIT = $Business_Unit
+  AND MISC2.GL_DISTRIB_STATUS = 'N'
+  AND MISC2.SYSTEM_DEFINED = 'C'
+  AND MISC2.MONETARY_AMOUNT > 0
+  !<Inicio #010>
+  AND NOT EXISTS (SELECT 'X' FROM SYSADM.PS_PAYMENT PMNT 
+  				  WHERE PMNT.DEPOSIT_BU = MISC2.DEPOSIT_BU 
+  				    AND PMNT.DEPOSIT_ID = MISC2.DEPOSIT_ID 
+  				    AND PMNT.PAYMENT_SEQ_NUM = MISC2.PAYMENT_SEQ_NUM
+  				    AND PMNT.DATA_SOURCE = 'CJA')
+  !<Fin #010>
+  AND TAB2.DEPOSIT_BU IS NULL
+  !AND 0=(SELECT COUNT(*)
+  !         FROM PS_LC_MISCDST_TBL TAB2
+  !        WHERE TAB2.DEPOSIT_BU = MISC2.DEPOSIT_BU
+  !          AND TAB2.DEPOSIT_ID = MISC2.DEPOSIT_ID
+  !          AND TAB2.PAYMENT_SEQ_NUM = MISC2.PAYMENT_SEQ_NUM
+  !          AND TAB2.DST_SEQ_NUM = MISC2.DST_SEQ_NUM)
+End-select
+
+End-procedure Recorre-Misc
+
+!***********************************************************************
+!----------------------------------------------------------------------!
+! Procedure: select-deptid-null                                        !
+! Descr: Se actualiza el campo DEPTID de las entradas contables        !
+!        ignoradas tomando como base el valor de BI cuando este campo  !
+!        queda en blanco. Solución temporal para evitar errores de     !
+!        contabilización en tanto se determinan las causas             !
+!----------------------------------------------------------------------!
+Begin-procedure select-deptid-null
+!display 'select-deptid-null'
+Begin-SQL On-Error=SQL-Error
+UPDATE PS_ITEM_DST DST SET DST.DEPTID = (SELECT  /*+ leading(a b) index(A PS_ITEM) index(b PS0BI_HDR)*/ E.DEPTID
+                                           FROM PS_ITEM A,PS_BI_HDR B, PS_BI_HDR_AR E
+					  WHERE A.BUSINESS_UNIT_BI = B.BUSINESS_UNIT
+				            AND B.INVOICE = A.ITEM
+				            AND E.BUSINESS_UNIT = B.BUSINESS_UNIT
+				            AND E.INVOICE = B.INVOICE
+				            AND E.SEQ_NUM = 1
+					    AND B.BILL_TO_CUST_ID = A.CUST_ID
+					    AND A.BUSINESS_UNIT = DST.BUSINESS_UNIT
+					    AND A.CUST_ID = DST.CUST_ID
+					    AND A.ITEM = DST.ITEM
+					    AND A.ITEM_LINE = DST.ITEM_LINE)
+WHERE DST.ROWID IN (SELECT /*+ leading(a b) index(A PSDITEM_DST) index(B PS_ITEM) */  A.ROWID  
+                      FROM PS_ITEM_DST A, PS_ITEM B, PS_BI_HDR C, PS_BI_HDR_AR E
+ 		     WHERE A.BUSINESS_UNIT  = $Business_Unit
+    		       AND A.ACCOUNTING_DT >= (SELECT A.BEGIN_DT
+    		       				 FROM PS_CAL_DETP_TBL A
+    		       				WHERE A.SETID = 'COLCO'
+    		       				  AND A.CALENDAR_ID = 'FS'
+    		       				  AND SYSDATE BETWEEN A.BEGIN_DT AND A.END_DT)
+   AND A.GL_DISTRIB_STATUS = 'I'
+   AND A.DEPTID            = ' '
+   AND A.BUSINESS_UNIT = B.BUSINESS_UNIT
+   AND A.CUST_ID = B.CUST_ID
+   AND A.ITEM = B.ITEM
+   AND A.ITEM_LINE = B.ITEM_LINE
+   AND B.BUSINESS_UNIT_BI = C.BUSINESS_UNIT
+   AND C.INVOICE = B.ITEM
+   AND C.BILL_TO_CUST_ID = B.CUST_ID
+   AND E.BUSINESS_UNIT = C.BUSINESS_UNIT
+   AND E.INVOICE = C.INVOICE
+   AND E.SEQ_NUM = 1 )
+end-SQL
+
+end-procedure
+
+!***********************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Insertar-Tabla-Misc                                       !
+! Descr: Inserta en la tabla los datos del item miscelaneos distribuido!
+!----------------------------------------------------------------------!
+Begin-procedure Insertar-Tabla-Misc
+
+    DISPLAY 'Insertar-Tabla-Misc'
+    DISPLAY $deposit_bu
+    DISPLAY $deposit_id
+    DISPLAY #payment_seq_num
+    DISPLAY #dst_seq_insertar
+
+Begin-sql On-Error=SQL-Error
+
+INSERT INTO PS_LC_MISCDST_TBL
+(DEPOSIT_BU,
+DEPOSIT_ID,
+PAYMENT_SEQ_NUM,
+DST_SEQ_NUM)
+VALUES
+($deposit_bu,
+$deposit_id,
+#payment_seq_num,
+#dst_seq_insertar)
+End-sql
+
+End-procedure Insertar-Tabla-Misc
+
+
+!***********************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Obtener-Tipo-Medio-Pago-Misc                              !
+! Descr: Obtiene el tipo y medio de pago del Payment Miscelaneo        !
+!----------------------------------------------------------------------!
+Begin-procedure Obtener-Tipo-Medio-Pago-Misc
+
+Begin-Select On-Error=SQL-Error
+PMT.LC_TIPOPAGO
+PMT.LC_MEDIOPAGO
+
+    let $lc_tipopago = &PMT.LC_TIPOPAGO
+    let $lc_mediopago = &PMT.LC_MEDIOPAGO
+
+FROM PS_PAYMENT PMT
+WHERE PMT.DEPOSIT_BU = $deposit_bu AND
+      PMT.DEPOSIT_ID = $deposit_id AND
+      PMT.PAYMENT_SEQ_NUM = #payment_seq_num
+End-Select
+
+End-procedure Obtener-Tipo-Medio-Pago-Misc
+
+!** <V003> Fin adición código para la distribución de misceláneos
+
+!** <Inicio #006> Inicio adición código para Avalista
+
+!***********************************************************************
+!----------------------------------------------------------------------!
+! Procedure: buscar-prcs-instance                                      !
+! Descr: busca el process_instance con el cual se creo la contabiliza  !
+!	 ción, para revisar si es una un avalista y traer la parametri !
+!	 zación para crear la doble o triple contabilizaciòn según sea !
+!	 el caso						       !
+!----------------------------------------------------------------------!
+
+begin-procedure buscar-prcs-instance
+
+show ' buscar-prcs-instance '
+
+let #prcs_instance_contabilizacion = 0
+
+
+begin-SELECT on-error=sql-error
+DST.PRCSINSTANCE
+
+	let #prcs_instance_contabilizacion = &DST.PRCSINSTANCE
+
+        DO get-hora
+        display 'buscar Insertar-Item-Aval'
+	do buscar-Insertar-Item-Aval
+        DO get-hora
+	
+        !<Inicio #009>
+	do buscar-Item-Dst-Especiales
+	!<Fin #009>
+	
+    !<Inicio #019>
+        DO get-hora
+        display 'buscar nc-antic'
+	do buscar-Nc-Antic
+        DO get-hora
+
+	!<Fin #019>
+	!<Inicio #011>
+	do Buscar_Item_Depositos
+	!<Fin #011>
+
+FROM SYSADM.PSPRCSRQST JOB,
+SYSADM.PSPRCSRQST JOB_DST,
+SYSADM.PSPRCSRQST DST
+WHERE JOB.PRCSINSTANCE = #prcs_process_instance
+AND JOB.MAINJOBINSTANCE = JOB_DST.MAINJOBINSTANCE
+AND JOB.JOBINSTANCE = JOB_DST.JOBINSTANCE
+AND JOB_DST.PRCSNAME = 'AR_POST'
+AND JOB_DST.MAINJOBINSTANCE = DST.MAINJOBINSTANCE
+AND JOB_DST.PRCSINSTANCE=DST.JOBINSTANCE
+AND  JOB_DST.PRCSNAME = DST.PRCSJOBNAME
+
+end-select
+end-procedure
+
+
+!***********************************************************************
+!----------------------------------------------------------------------!
+! Procedure: revisar-departamento-transitoria                          !
+! Descr: Revisar el Departamento con el que viene la Transacción       !
+! Modificación #007													   !
+!----------------------------------------------------------------------!
+begin-procedure revisar-departamento-transitoria
+show ' revisar-departamento-transitoria ' $Bus_Unit_Orig ' ' $depid_orig
+
+let $un_depto7 = ' ' 
+
+If Not isblank($Bus_Unit_Orig) And $RevisarDepto = 'Y'
+	
+	Do buscarUnCartera
+	Let $un_depto7 = $Bus_Unit_Orig_AR
+	Do buscar-depto-unidadnegocio
+	
+	If $depto_un <> $depid_orig
+		
+		Do Update-departamento-transitoria-aval
+		
+	End-If
+	
+End-If
+
+end-procedure revisar-departamento-transitoria
+
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: buscarUnCartera                           !
+! Descr:                                                               !
+!----------------------------------------------------------------------!
+
+begin-procedure buscarUnCartera
+
+Let $Bus_Unit_Orig_AR = ' '
+
+begin-SELECT  on-error=sql-error
+BU_BI.BUSINESS_UNIT_AR 		&UnidadARDeptid
+	
+	let $Bus_Unit_Orig_AR = &UnidadARDeptid
+
+FROM PS_BUS_UNIT_TBL_BI BU_BI
+WHERE BU_BI.BUSINESS_UNIT = $Bus_Unit_Orig
+end-select
+
+Show ' buscarUnCartera ' $Bus_Unit_Orig ' - ' $Bus_Unit_Orig_AR
+end-procedure buscarUnCartera
+
+
+
+!***********************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Update-departamento-transitoria-aval                      !
+! Descr: Actualiza el Departamento con el que viene la Transacción     !
+! Modificación #007													   !
+!----------------------------------------------------------------------!
+begin-procedure Update-departamento-transitoria-aval
+show ' Update-departamento-transitoria-aval ' $Bus_Unit_Orig ' - ' $depto_un
+!show '     ' #prcs_instance_contabilizacion ' ' $Business_Unit ' ' $cust_id ' ' $item ' ' #item_line ' ' #item_seq_num ' ' #dst_seq_num_aval ' ' $account_orig
+
+begin-sql ON-ERROR = SQL-error
+UPDATE PS_ITEM_DST A 
+  SET A.DEPTID = $depto_un
+WHERE A.PROCESS_INSTANCE  = #prcs_instance_contabilizacion
+  AND A.BUSINESS_UNIT = $Business_Unit
+  AND A.CUST_ID = $cust_id
+  AND A.ITEM = $item
+  AND A.ITEM_LINE = #item_line
+  AND A.ITEM_SEQ_NUM = #item_seq_num
+  AND A.DST_SEQ_NUM = #dst_seq_num_aval
+  AND A.ACCOUNT = $account_orig
+  AND A.GL_DISTRIB_STATUS = 'N'
+end-sql
+
+end-procedure Update-departamento-transitoria-aval
+
+
+
+!***********************************************************************
+!----------------------------------------------------------------------!
+! Procedure: buscar-parametrizacion-aval                               !
+! Descr: Obtiene la parametrización de las cuentas, los tipos, los     !
+!        motivos de las unidades de negocios avalistas		       !
+!----------------------------------------------------------------------!
+
+begin-procedure buscar-parametrizacion-aval
+
+let $ck_entry_reason_aval = ' '
+let $ck_cuedeb_aval = ' '
+let $ck_cuecre_aval = ' '
+let $ck_depdeb = ' '
+let $ck_depcre = ' '
+let $ck_flag_terc_aval = ' '
+let $flag_depto_db = ' '
+let $flag_deptp_cr = ' '
+let $depto_un_db = ' '
+let $depto_un_cr = ' '
+
+!<Inicio #008>
+!let #dst_seq_num_aval_fin = #dst_seq_num_aval
+!<Fin #008>
+
+begin-select on-error=sql-error
+PCAVAL.ENTRY_TYPE
+PCAVAL.ENTRY_REASON
+PCAVAL.CK_CUEDEB
+PCAVAL.CK_CUECRE
+PCAVAL.CK_DEPDEB
+PCAVAL.CK_DEPCRE
+PCAVAL.CK_FLAG_TERC
+PCAVAL.FLAG1
+PCAVAL.FLAG2
+PCAVAL.SEQ_NUM
+
+	let $ck_entry_reason_aval 	= &PCAVAL.ENTRY_REASON
+	let $ck_cuedeb_aval 		= &PCAVAL.CK_CUEDEB
+	let $ck_cuecre_aval 		= &PCAVAL.CK_CUECRE
+	let $ck_depdeb 				= &PCAVAL.CK_DEPDEB
+	let $ck_depcre 				= &PCAVAL.CK_DEPCRE
+	let $ck_flag_terc_aval 		= &PCAVAL.CK_FLAG_TERC
+	let $flag_depto_db 			= &PCAVAL.FLAG1
+	let $flag_deptp_cr 			= &PCAVAL.FLAG2
+	let $seq_num_par_aval 		= &PCAVAL.SEQ_NUM
+
+	let $deptid_aval = ' '
+	
+	!show ' #dst_seq_num_aval = #dst_seq_num_ini ' #dst_seq_num_aval ' ' #dst_seq_num_ini
+	!If #dst_seq_num_aval = #dst_seq_num_ini
+	
+	evaluate $debit_credit_aval
+		when = 'CR'
+			if $flag_deptp_cr = 'Y'
+				do buscar-unidadnegocio-depto-item
+				let $deptid_aval = $depto_un
+			else
+				if not isblank($ck_depcre) 
+					let $deptid_aval  = $ck_depcre
+				end-if
+			end-if
+
+			let $account_aval = $ck_cuecre_aval
+			break
+
+		when = 'DR'
+			if $flag_depto_db = 'Y'
+				do buscar-unidadnegocio-depto-item
+				let $deptid_aval = $depto_un
+			Else
+				if not isblank($ck_depdeb)
+					let $deptid_aval  = $ck_depdeb
+				end-if
+			end-if
+
+			let $account_aval = $ck_cuedeb_aval
+			break
+
+	end-evaluate
+
+	if $ck_flag_terc_aval = 'Y'
+		let  $cust_id_aval = $tercero_aval
+	end-if
+	do Insertar-Item-Aval
+
+	!End-If
+
+FROM PS_CK_PAR_CPOR_TBL PCAVAL
+WHERE PCAVAL.SETID = $Business_Unit
+  AND PCAVAL.ENTRY_TYPE = $Entry_Type
+  AND ((RTRIM(PCAVAL.ENTRY_REASON) IS NULL 
+        AND NOT EXISTS (SELECT PAR2.ENTRY_REASON
+                        FROM SYSADM.PS_CK_PAR_CPOR_TBL PAR2 
+                        WHERE PAR2.SETID = PCAVAL.SETID  
+                          AND PAR2.ENTRY_TYPE = PCAVAL.ENTRY_TYPE
+                          AND PAR2.ENTRY_REASON = $Entry_Reason
+                          AND RTRIM(PAR2.ENTRY_REASON) IS NOT NULL) ) 
+    OR RTRIM(PCAVAL.ENTRY_REASON) = $Entry_Reason) 
+
+end-select
+		
+end-procedure buscar-parametrizacion-aval
+
+
+
+!***********************************************************************
+!----------------------------------------------------------------------!
+! Procedure: cambiar-debito-credito                       		       !
+! Descr: 															   !
+! Modificaciones: #008												   !
+!----------------------------------------------------------------------!
+begin-procedure cambiar-debito-credito
+
+let #MultiplierSign = -1
+let #dst_seq_num_aval_fin = #dst_seq_num_aval + 100
+
+evaluate $debit_credit_aval
+	when = 'CR'
+		let $debit_credit_aval = 'DR'
+		break
+	when = 'DR'
+		let $debit_credit_aval = 'CR'
+		break
+end-evaluate
+end-procedure cambiar-debito-credito
+
+
+
+!***********************************************************************
+!----------------------------------------------------------------------!
+! Procedure: buscar-parametrizacion-cuenta                             !
+! Descr: Busca la naturaleza de las cuentas para determinar cual cuenta!
+!        avalista se toma					       !
+!----------------------------------------------------------------------!
+
+begin-procedure buscar-parametrizacion-cuenta
+
+Let $Existe = 'N'
+Let $RevisarDepto = 'N'
+!Let #dst_seq_num_ini = 0
+!<Inicio #008>
+let #MultiplierSign = 1
+!<Fin #008>
+
+BEGIN-SELECT on-error=sql-error
+D.DEBIT_CREDIT, 
+D.DST_SEQ_NUM, 
+E.ENTRY_USE_ID, 
+D.DST_LINE_MULTIPLR
+	
+	Let $Existe = 'Y'
+	Let $RevisarDepto = 'Y'
+	!Let #dst_seq_num_ini = &D.DST_SEQ_NUM
+	Let $debit_credit_aval = &D.DEBIT_CREDIT
+
+FROM PS_ITEM_ENTRY_TBL E, 
+	 PS_ITEM_LINES_TBL D
+WHERE E.SETID = $Business_Unit
+  AND E.ENTRY_TYPE = $Entry_Type
+  AND E.EFFDT =
+   (
+      SELECT MAX( EFFDT )
+      FROM PS_ITEM_ENTRY_TBL Z
+      WHERE Z.SETID       = E.SETID
+         AND Z.ENTRY_TYPE = E.ENTRY_TYPE
+         AND Z.EFF_STATUS = 'A'
+         AND Z.EFFDT     <= SYSDATE
+   )
+  AND D.SETID = E.SETID
+  AND d.entry_type = E.ENTRY_TYPE
+  AND D.EFFDT = E.EFFDT
+  AND D.ENTRY_REASON = $Entry_Reason
+  AND E.ENTRY_USE_ID = $Entry_Use_Id
+  AND D.ACCOUNT = $account_orig  
+END-SELECT 
+
+IF $Existe = 'N'
+
+!Let $dstUse = ' '
+!
+!BEGIN-SELECT on-error=sql-error
+!DST_CD.ACCOUNT,
+!DST_CD.DST_USE
+!
+!	Let $dstUse = &DST_CD.DST_USE
+!
+!FROM PS_ITEM ITEM,
+!   PS_DST_CODE_TBL DST_CD,
+!   PS_SET_CNTRL_REC SCR
+!WHERE ITEM.BUSINESS_UNIT = $Business_Unit
+!   AND ITEM.CUST_ID      = $cust_id
+!   AND ITEM.ITEM         = $item
+!   AND SCR.SETCNTRLVALUE = ITEM.BUSINESS_UNIT
+!   AND SCR.RECNAME       = 'DST_CODE_TBL'
+!   AND DST_CD.SETID      = SCR.SETID
+!   AND DST_CD.DST_ID     = ITEM.DST_ID_AR
+!   AND DST_CD.EFFDT 	 = (SELECT MAX(A_ED.EFFDT) FROM PS_DST_CODE_TBL A_ED
+!							WHERE DST_CD.SETID  = A_ED.SETID
+!							  AND DST_CD.DST_ID = A_ED.DST_ID
+!							  AND A_ED.EFFDT   <= SYSDATE)   
+!   AND DST.ACCOUNT = $account_orig
+!END-SELECT 
+
+!begin-select on-error=sql-error
+!EU.DST_SEQ_NUM,
+!EU.DEBIT_CREDIT,
+!EU.DST_LINE_MULTIPLR
+!
+!	Let $Existe = 'Y'
+!	Let #dst_seq_num_ini = &EU.DST_SEQ_NUM
+!	Let $debit_credit_aval = &EU.DEBIT_CREDIT
+!   
+!FROM SYSADM.PS_ENTRY_USE_L_TBL EU
+!WHERE EU.ENTRY_USE_ID = $Entry_Use_Id
+!  AND (EU.DST_USE = $dstUse OR $dstUse = ' ')
+!end-select
+
+BEGIN-SELECT on-error=sql-error
+/*+ leading(ITEM) index(ITEM PS_ITEM)  */ 
+EUS.DEBIT_CREDIT 
+
+	Let $Existe = 'Y'
+	Let $debit_credit_aval = &EUS.DEBIT_CREDIT
+
+FROM SYSADM.PS_ITEM ITEM,
+   SYSADM.PS_BUS_UNIT_TBL_AR BU_AR,
+   SYSADM.PS_DST_CODE_TBL DST_CD1,
+   SYSADM.PS_SET_CNTRL_REC SCR,
+   SYSADM.PS_ENTRY_USE_L_TBL EUS
+WHERE ITEM.BUSINESS_UNIT = $Business_Unit
+   AND ITEM.CUST_ID      = $cust_id
+   AND ITEM.ITEM         = $item
+   AND BU_AR.BUSINESS_UNIT = ITEM.BUSINESS_UNIT
+   AND SCR.SETCNTRLVALUE = BU_AR.BUSINESS_UNIT
+   AND SCR.RECNAME       = 'DST_CODE_TBL'
+   AND DST_CD1.SETID      = SCR.SETID
+   AND (DST_CD1.DST_ID = BU_AR.DST_ID_TRANSLATE
+     OR DST_CD1.DST_ID = BU_AR.DST_ID_REFUND
+     OR DST_CD1.DST_ID = BU_AR.DST_ID_DB
+     OR DST_CD1.DST_ID = BU_AR.DST_ID_MAINT_CTL
+     OR DST_CD1.DST_ID = BU_AR.DST_ID_TRAN_CTL
+     OR DST_CD1.DST_ID = BU_AR.DST_ID_AR
+     OR DST_CD1.DST_ID = ITEM.DST_ID_AR)
+   AND DST_CD1.EFFDT =
+        (SELECT MAX(A_ED.EFFDT) FROM SYSADM.PS_DST_CODE_TBL A_ED
+        WHERE DST_CD1.SETID = A_ED.SETID
+          AND DST_CD1.DST_ID = A_ED.DST_ID
+          AND DST_CD1.EFF_STATUS = 'A'
+          AND A_ED.EFFDT <= SYSDATE)
+   AND EUS.DST_USE = DST_CD1.DST_USE
+   AND EUS.ENTRY_USE_ID = $Entry_Use_Id
+   AND DST_CD1.ACCOUNT = $account_orig 
+END-SELECT 
+
+	IF $Existe = 'N'
+
+BEGIN-SELECT on-error=sql-error
+EUS_CSH.DEBIT_CREDIT
+
+	Let $Existe = 'Y'
+	Let $debit_credit_aval = &EUS_CSH.DEBIT_CREDIT
+
+FROM SYSADM.PS_ITEM_ACTIVITY IT,
+   SYSADM.PS_ENTRY_USE_L_TBL EUS_CSH,
+   SYSADM.PS_SET_CNTRL_REC SCR,
+   SYSADM.PS_BANK_ACCT_CHRT BNK
+WHERE IT.BUSINESS_UNIT = $Business_Unit
+   AND IT.CUST_ID      = $cust_id
+   AND IT.ITEM         = $item
+   AND IT.ITEM_SEQ_NUM = #item_line
+   AND EUS_CSH.DST_USE = 'CSH'
+   AND EUS_CSH.ENTRY_USE_ID = $Entry_Use_Id
+   AND SCR.SETCNTRLVALUE = IT.BUSINESS_UNIT
+   AND SCR.RECNAME = 'BANK_ACCT_CHRT'
+   AND BNK.SETID = SCR.SETID
+   AND BNK.BANK_ACCT_LED_TYPE = 'A'   
+   AND BNK.BANK_CD = IT.BANK_CD
+   AND BNK.BANK_ACCT_KEY = IT.BANK_ACCT_KEY
+   AND BNK.ACCOUNT = $account_orig
+END-SELECT
+
+	END-IF
+
+END-IF
+
+
+!If #dst_seq_num_ini <> #dst_seq_num_aval
+!
+!	let #dst_seq_num_ini = #dst_seq_num_ini + 100
+!	
+!	evaluate $debit_credit_aval
+!		when = 'CR'
+!			let $debit_credit_aval = 'DR'
+!			break
+!		when = 'DR'
+!			let $debit_credit_aval = 'CR'
+!			break
+!	end-evaluate
+!	
+!end-if
+
+!let #dst_seq_num_aval_fin = #dst_seq_num_ini
+
+!SHOW 'Parametrización Cuenta ' #dst_seq_num_ini ' ' #dst_seq_num_aval ' - ' $debit_credit_aval
+SHOW 'Parametrización Cuenta   $Existe' $Existe '  $RevisarDepto' $RevisarDepto '  $debit_credit_aval' $debit_credit_aval
+
+end-procedure buscar-parametrizacion-cuenta
+
+
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: buscar-Insertar-Item-Aval                                 !
+! Descr: busca las entradas contables para proceder a duplicar la      !
+!        informaciòn contable según parametrización		       !
+!----------------------------------------------------------------------!
+Begin-procedure buscar-Insertar-Item-Aval
+show 'buscar-Insertar-Item-Aval'
+
+let $business_unit_aval     = ' '
+let $cust_id_aval           = ' '
+let $item_aval              = ' '
+let #item_line_aval         = 0
+let #item_seq_num_aval      = 0
+let #dst_seq_num_aval       = 0
+let $tercero_aval = ' '
+let $Business_Unit = ' '
+let $cust_id = ' '
+let $item = ' '
+let #item_line = 0
+let #item_seq_num = 0
+!<Inicio #008>
+let $Distribution_Status = ' '
+!<Fin #008>
+
+
+Begin-Select on-error=sql-error
+DST1.BUSINESS_UNIT     	           &DST1.BUSINESS_UNIT
+DST1.CUST_ID           		       &DST1.CUST_ID
+DST1.ITEM              		       &DST1.ITEM
+DST1.ITEM_LINE         		       &DST1.ITEM_LINE
+DST1.ITEM_SEQ_NUM      		       &DST1.ITEM_SEQ_NUM
+DST1.DST_SEQ_NUM       		       &DST1.DST_SEQ_NUM
+DST1.ACCOUNT       		       	   &DST1.ACCOUNT
+DST1.DEPTID       		       	   &DST1.DEPTID
+PAR_AVAL_PRO.CUST_ID		       &PAR_AVAL_PRO.CUST_ID	
+!<Inicio #008>
+DST1.GL_DISTRIB_STATUS			   &DST1.GL_DISTRIB_STATUS
+!<Fin #008>
+	
+	show ' buscar-Insertar-Item-Aval ' &DST1.ITEM
+	let $business_unit_aval     = &DST1.BUSINESS_UNIT
+	let $cust_id_aval           = &DST1.CUST_ID
+	let $item_aval              = &DST1.ITEM
+	let #item_line_aval         = &DST1.ITEM_LINE
+	let #item_seq_num_aval      = &DST1.ITEM_SEQ_NUM
+	let #dst_seq_num_aval       = &DST1.DST_SEQ_NUM
+	let $account_orig			= &DST1.ACCOUNT
+	let $depid_orig				= &DST1.DEPTID
+	let $tercero_aval           = &PAR_AVAL_PRO.CUST_ID
+	!<Inicio #008>
+	let $Distribution_Status	= &DST1.GL_DISTRIB_STATUS
+	!<Fin #008>
+	
+	let $Business_Unit = $business_unit_aval
+	let $cust_id = $cust_id_aval
+	let $item = $item_aval
+	let #item_line = #item_line_aval
+	let #item_seq_num = #item_seq_num_aval
+	
+	!<Inicio #008>
+	let #dst_seq_num_aval_fin = #dst_seq_num_aval
+	!<Fin #008>
+
+	do Buscar-Entry-Type
+	do buscar-parametrizacion-cuenta
+	
+	!<Inicio #008>
+	!If $Existe = 'Y'
+	If $Existe = 'Y' And $Distribution_Status = 'N'
+	!<Fin #008>
+		!<Inicio #007>
+		do revisar-departamento-transitoria
+		!<Fin #007>	
+		!<Inicio #008> Se comentarea ya que no se va a realizar la doble y triple contabilización
+		!do buscar-parametrizacion-aval
+		!<Fin #008>
+	End-If
+	
+	!<Inicio #008> Se comentarea ya que no se va a realizar la doble y triple contabilización
+	!If $Existe = 'Y' And $Distribution_Status = 'I'
+	!	let $Distribution_Status = 'N'
+	!	do buscar-parametrizacion-aval
+	!	do cambiar-debito-credito
+	!	do buscar-parametrizacion-aval
+	!End-If
+	!<Fin #008>
+
+FROM PS_ITEM_DST   DST1,
+	 PS_CK_PAR_AVAL_TBL   PAR_AVAL_PRO
+WHERE DST1.BUSINESS_UNIT     = PAR_AVAL_PRO.BUSINESS_UNIT
+  AND DST1.PROCESS_INSTANCE  = #prcs_instance_contabilizacion
+!<Inicio #008>
+!  AND DST1.GL_DISTRIB_STATUS = 'N'
+  AND DST1.GL_DISTRIB_STATUS IN ('N','I')
+!<Fin #008>
+  AND PAR_AVAL_PRO.FLAG      = 'Y'
+ORDER BY DST1.BUSINESS_UNIT,DST1.CUST_ID,DST1.ITEM
+End-Select
+
+
+
+end-procedure buscar-Insertar-Item-Aval
+
+
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: buscar-Item-Dst-Especiales	                               !
+! Descr: Realiza el cambio de departamento contable dependiendo del    !
+!        Tipo de Entrada y Motivo									   !
+! Modificacion: #009												   !
+!----------------------------------------------------------------------!
+Begin-procedure buscar-Item-Dst-Especiales
+show 'buscar-Item-Dst-Especiales'
+
+let $business_unit_aval     = ' '
+let $cust_id_aval           = ' '
+let $item_aval              = ' '
+let #item_line_aval         = 0
+let #item_seq_num_aval      = 0
+let #dst_seq_num_aval       = 0
+let $tercero_aval = ' '
+let $Business_Unit = ' '
+let $cust_id = ' '
+let $item = ' '
+let #item_line = 0
+let #item_seq_num = 0
+let $Distribution_Status = ' '
+
+Begin-Select on-error=sql-error
+DST2.BUSINESS_UNIT     	           &DST2.BUSINESS_UNIT
+DST2.CUST_ID           		       &DST2.CUST_ID
+DST2.ITEM              		       &DST2.ITEM
+DST2.ITEM_LINE         		       &DST2.ITEM_LINE
+DST2.ITEM_SEQ_NUM      		       &DST2.ITEM_SEQ_NUM
+DST2.DST_SEQ_NUM       		       &DST2.DST_SEQ_NUM
+DST2.ACCOUNT       		       	   &DST2.ACCOUNT
+DST2.DEPTID       		       	   &DST2.DEPTID
+IA2.ENTRY_TYPE	
+IA2.ENTRY_REASON
+IA2.ENTRY_USE_ID
+IA2.USER7
+IA2.USER8
+	
+	show ' buscar-Insertar-Item-Aval ' &DST2.ITEM
+	let $business_unit_aval     = &DST2.BUSINESS_UNIT
+	let $cust_id_aval           = &DST2.CUST_ID
+	let $item_aval              = &DST2.ITEM
+	let #item_line_aval         = &DST2.ITEM_LINE
+	let #item_seq_num_aval      = &DST2.ITEM_SEQ_NUM
+	let #dst_seq_num_aval       = &DST2.DST_SEQ_NUM
+	let $account_orig			= &DST2.ACCOUNT
+	let $depid_orig				= &DST2.DEPTID
+	
+    Let $Entry_Type 			= &IA2.Entry_Type
+    let $Entry_Reason 			= &IA2.Entry_Reason 	
+    let $Entry_Use_Id 			= &IA2.ENTRY_USE_ID 	
+    let $Bus_Unit_Orig 			= &IA2.USER7 		
+    let $Orig_Transaccion 		= &IA2.USER8 		
+	
+	let $Business_Unit = $business_unit_aval
+	let $cust_id = $cust_id_aval
+	let $item = $item_aval
+	let #item_line = #item_line_aval
+	let #item_seq_num = #item_seq_num_aval
+	
+	let #dst_seq_num_aval_fin = #dst_seq_num_aval
+	
+	do buscar-parametrizacion-cuenta
+	
+	If $Existe = 'Y'
+		do revisar-departamento-transitoria
+	End-If
+	
+FROM PS_ITEM_ACTIVITY IA2, PS_ITEM_DST DST2
+WHERE IA2.BUSINESS_UNIT = DST2.BUSINESS_UNIT
+  AND IA2.CUST_ID = DST2.CUST_ID
+  AND IA2.ITEM = DST2.ITEM
+  AND IA2.ITEM_LINE = DST2.ITEM_LINE
+  AND IA2.ITEM_SEQ_NUM = DST2.ITEM_SEQ_NUM
+  AND IA2.ENTRY_TYPE IN ('FC','NC')
+  AND IA2.ENTRY_REASON = 'INTER'
+  AND DST2.PROCESS_INSTANCE  = #prcs_instance_contabilizacion
+  AND DST2.GL_DISTRIB_STATUS IN ('N')
+ORDER BY DST2.BUSINESS_UNIT, DST2.CUST_ID, DST2.ITEM
+End-Select
+
+end-procedure buscar-Item-Dst-Especiales
+
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Insertar-Item-Aval                                        !
+! Descr: Inserta un item en item_dst por el monto del porcentaje a la  !
+!        cuenta de banco respectiva                                    !
+!----------------------------------------------------------------------!
+Begin-procedure Insertar-Item-Aval
+show ' Insertar-Item-Aval ' #dst_seq_num_aval_fin
+
+let #dst_seq_num_aval_fin = #dst_seq_num_aval_fin + 1
+
+Begin-sql on-error=sql-error
+INSERT INTO PS_ITEM_DST (
+BUSINESS_UNIT,
+CUST_ID,
+ITEM,
+ITEM_LINE,
+ITEM_SEQ_NUM,
+LEDGER_GROUP,
+LEDGER,
+DST_SEQ_NUM,
+PRIMARY_LEDGER,
+BUSINESS_UNIT_GL,
+ACCOUNT,
+ALTACCT,
+DEPTID,
+OPERATING_UNIT,
+PRODUCT,
+FUND_CODE,
+CLASS_FLD,
+PROGRAM_CODE,
+BUDGET_REF,
+AFFILIATE,
+AFFILIATE_INTRA1,
+AFFILIATE_INTRA2,
+CHARTFIELD1,
+CHARTFIELD2,
+CHARTFIELD3,
+PROJECT_ID,
+STATISTICS_CODE,
+MONETARY_AMOUNT,
+STATISTIC_AMOUNT,
+JRNL_LN_REF,
+LINE_DESCR,
+JOURNAL_ID,
+JOURNAL_DATE,
+GL_DISTRIB_STATUS,
+PROCESS_INSTANCE,
+APPL_JRNL_ID,
+ACCOUNTING_DT,
+FOREIGN_CURRENCY,
+FOREIGN_AMOUNT,
+RT_TYPE,
+RATE_MULT,
+RATE_DIV,
+CURRENCY_CD,
+SYSTEM_DEFINED,
+FISCAL_YEAR,
+ACCOUNTING_PERIOD,
+DOC_TYPE,
+DOC_SEQ_NBR,
+DOC_SEQ_DATE,
+DOC_SEQ_STATUS,
+MOVEMENT_FLAG,
+USER1,
+USER2,
+USER3,
+USER4,
+USER5,
+JOURNAL_LINE,
+GL_ACCTG_DT,
+VAT_APPLICABILITY,
+VAT_TXN_TYPE_CD,
+TAX_CD_VAT,
+VAT_DST_ACCT_TYPE,
+ENTRY_EVENT,
+DEBIT_CREDIT,
+IN_PROCESS_FLG,
+EE_PROC_STATUS,
+OPEN_ITEM_KEY,
+BUSINESS_UNIT_PC,
+ACTIVITY_ID,
+RESOURCE_TYPE,
+RESOURCE_CATEGORY,
+RESOURCE_SUB_CAT,
+ANALYSIS_TYPE
+)
+SELECT 
+BUSINESS_UNIT,
+$cust_id_aval,
+ITEM,
+ITEM_LINE,
+ITEM_SEQ_NUM,
+LEDGER_GROUP,
+LEDGER,
+#dst_seq_num_aval_fin,
+PRIMARY_LEDGER,
+BUSINESS_UNIT_GL,
+$account_aval,
+ALTACCT,
+$deptid_aval,
+OPERATING_UNIT,
+PRODUCT,
+FUND_CODE,
+CLASS_FLD,
+PROGRAM_CODE,
+BUDGET_REF,
+AFFILIATE,
+AFFILIATE_INTRA1,
+AFFILIATE_INTRA2,
+CHARTFIELD1,
+CHARTFIELD2,
+CHARTFIELD3,
+PROJECT_ID,
+STATISTICS_CODE,
+!<Inicio #008>
+!MONETARY_AMOUNT,
+(MONETARY_AMOUNT * #MultiplierSign),
+!<Inicio #008>
+STATISTIC_AMOUNT,
+JRNL_LN_REF,
+LINE_DESCR,
+JOURNAL_ID,
+JOURNAL_DATE,
+!<Inicio #008>
+!GL_DISTRIB_STATUS,
+$Distribution_Status,
+!<Fin #008>
+PROCESS_INSTANCE,
+APPL_JRNL_ID,
+ACCOUNTING_DT,
+FOREIGN_CURRENCY,
+!<Inicio #008>
+!FOREIGN_AMOUNT,
+(FOREIGN_AMOUNT * #MultiplierSign),
+!<Fin #008>
+RT_TYPE,
+RATE_MULT,
+RATE_DIV,
+CURRENCY_CD,
+SYSTEM_DEFINED,
+FISCAL_YEAR,
+ACCOUNTING_PERIOD,
+DOC_TYPE,
+DOC_SEQ_NBR,
+DOC_SEQ_DATE,
+DOC_SEQ_STATUS,
+MOVEMENT_FLAG,
+USER1,
+USER2,
+USER3,
+USER4,
+USER5,
+JOURNAL_LINE,
+GL_ACCTG_DT,
+VAT_APPLICABILITY,
+VAT_TXN_TYPE_CD,
+TAX_CD_VAT,
+VAT_DST_ACCT_TYPE,
+ENTRY_EVENT,
+DEBIT_CREDIT,
+IN_PROCESS_FLG,
+EE_PROC_STATUS,
+OPEN_ITEM_KEY,
+BUSINESS_UNIT_PC,
+ACTIVITY_ID,
+RESOURCE_TYPE,
+RESOURCE_CATEGORY,
+RESOURCE_SUB_CAT,
+ANALYSIS_TYPE
+FROM PS_ITEM_DST
+WHERE BUSINESS_UNIT = $Business_Unit
+  AND CUST_ID 		= $cust_id
+  AND ITEM 			= $item
+  AND ITEM_LINE 	= #item_line
+  AND ITEM_SEQ_NUM 	= #item_seq_num
+  AND DST_SEQ_NUM 	= #dst_seq_num_aval
+End-sql
+
+End-procedure Insertar-Item-Aval
+
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: buscar-unidadnegocio-depto-item                           !
+! Descr:                                                               !
+!----------------------------------------------------------------------!
+
+begin-procedure buscar-unidadnegocio-depto-item
+
+let $un_depto7 = ' ' 
+
+begin-SELECT  on-error=sql-error
+item_user.user7 
+	
+	let $un_depto7 = &item_user.user7
+	
+	do buscar-depto-unidadnegocio
+
+FROM ps_item item_user
+WHERE item_user.BUSINESS_UNIT = $business_unit_aval
+AND item_user.CUST_ID = $cust_id
+AND item_user.item= $item 
+AND item_user.item_line = #item_line
+
+end-select
+
+end-procedure buscar-unidadnegocio-depto-item
+
+
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: buscar-depto-unidadnegocio                                !
+! Descr:                                                               !
+!----------------------------------------------------------------------!
+
+begin-procedure buscar-depto-unidadnegocio
+
+let $depto_un= ' '
+
+begin-SELECT  on-error=sql-error 
+dept_bu.DEPTID 
+
+	let $depto_un = &dept_bu.DEPTID
+
+FROM PS_CK_DEPT_BU_TBL dept_bu
+WHERE dept_bu.BUSINESS_UNIT = $un_depto7
+  AND dept_bu.STATUS = 'A'
+end-select
+
+!SHOW ' buscar-depto-unidadnegocio '  $un_depto7 ' ' $depto_un
+
+end-procedure buscar-depto-unidadnegocio
+
+!** <Fin #006> Fin adición código para Avalista
+
+
+!<Inicio 011>
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Buscar_Item_Depositos                                     !
+! Descr:                                                               !
+!----------------------------------------------------------------------!
+begin-procedure Buscar_Item_Depositos
+
+show 'Buscar_Item_Depositos'
+
+let $business_unit     = ' '
+let $cust_id           = ' '
+let $item              = ' '
+let #item_line         = 0
+let #item_seq_num      = 0
+let #dst_seq_num       = 0
+
+let $account	       = ' '
+let $deptid	       = ' '
+let $cod_distrib       = ' '
+
+
+Begin-Select on-error=sql-error
+DST3.BUSINESS_UNIT,
+DST3.CUST_ID,
+DST3.ITEM,
+DST3.ITEM_LINE,
+DST3.ITEM_SEQ_NUM,
+DST3.DST_SEQ_NUM,
+DST3.ACCOUNT,
+DST3.DEPTID,
+IA3.DEPOSIT_BU,
+IA3.DEPOSIT_ID,
+IA3.PAYMENT_SEQ_NUM,
+I3.DST_ID_AR
+
+	let $business_unit     = &DST3.BUSINESS_UNIT
+	let $cust_id           = &DST3.CUST_ID
+	let $item              = &DST3.ITEM
+	let #item_line         = &DST3.ITEM_LINE
+	let #item_seq_num      = &DST3.ITEM_SEQ_NUM
+	let #dst_seq_num       = &DST3.DST_SEQ_NUM
+	
+	let $account	       = &DST3.ACCOUNT
+	let $deptid	       = &DST3.DEPTID
+	let $cod_distrib       = &I3.DST_ID_AR
+
+	let $deposit_bu	       = &IA3.DEPOSIT_BU
+	let $deposit_id        = &IA3.DEPOSIT_ID
+	let #payment_seq_num   = &IA3.PAYMENT_SEQ_NUM
+
+	do buscarTipoMedioPago
+	do Validar_Nit_Vendedor
+	
+	if $isParam = 'Y'
+		do actualizarNit_ITEM-DST
+	end-if
+
+FROM PS_ITEM_ACTIVITY IA3, PS_ITEM_DST DST3, PS_ITEM I3
+WHERE IA3.BUSINESS_UNIT = DST3.BUSINESS_UNIT
+  AND IA3.CUST_ID = DST3.CUST_ID
+  AND IA3.ITEM = DST3.ITEM
+  AND IA3.ITEM_LINE = DST3.ITEM_LINE
+  AND IA3.ITEM_SEQ_NUM = DST3.ITEM_SEQ_NUM
+  AND IA3.BUSINESS_UNIT = I3.BUSINESS_UNIT
+  AND IA3.CUST_ID = I3.CUST_ID
+  AND IA3.ITEM = I3.ITEM
+  AND IA3.ITEM_LINE = I3.ITEM_LINE
+  AND IA3.POSTED_PI  = #prcs_instance_contabilizacion
+  AND DST3.GL_DISTRIB_STATUS IN ('N')
+  AND RTRIM(IA3.DEPOSIT_ID) IS NOT NULL
+ORDER BY DST3.BUSINESS_UNIT, DST3.CUST_ID, DST3.ITEM
+End-Select
+
+
+end-procedure Buscar_Item_Depositos
+
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: buscarTipoMedioPago                                     !
+! Descr:                                                               !
+!----------------------------------------------------------------------!
+begin-procedure buscarTipoMedioPago
+
+!show 'buscarTipoMedioPago'
+
+let $lc_tipopago = ' '
+let $lc_mediopago = ' '
+let $vendedor_deposito = ' '
+
+Begin-Select
+/*+ leading(PAY_SRCH) index(PAY_SRCH PS_PAYMENT) */
+PAY_SRCH.LC_TIPOPAGO,
+PAY_SRCH.LC_MEDIOPAGO,
+DEP_SRCH.ASSN_OPRID
+
+        let $lc_tipopago = &PAY_SRCH.LC_TIPOPAGO
+        let $lc_mediopago = &PAY_SRCH.LC_MEDIOPAGO
+	let $vendedor_deposito = &DEP_SRCH.ASSN_OPRID
+
+FROM PS_PAYMENT PAY_SRCH, PS_DEPOSIT_CONTROL DEP_SRCH
+WHERE DEP_SRCH.DEPOSIT_BU = PAY_SRCH.DEPOSIT_BU
+  AND DEP_SRCH.DEPOSIT_ID = PAY_SRCH.DEPOSIT_ID
+  AND PAY_SRCH.DEPOSIT_BU = $deposit_bu 
+  AND PAY_SRCH.DEPOSIT_ID = $deposit_id 
+  AND PAY_SRCH.PAYMENT_SEQ_NUM = #payment_seq_num  
+  AND PAY_SRCH.DATA_SOURCE <> 'CJA'
+End-Select      
+
+end-procedure Buscar_Item_Depositos
+
+!----------------------------------------------------------------------!
+! Procedure: actualizarNit_ITEM-DST                                     !
+! Descr:                                                               !
+!----------------------------------------------------------------------!
+begin-procedure actualizarNit_ITEM-DST
+
+show 'actualizarNit_ITEM-DST'
+SHOW '$Nit_Vendedor '  $Nit_Vendedor ' $Business_Unit ' $Business_Unit ' $cust_id ' $cust_id ' $item '$item ' #item_line '#item_line '  #item_seq_num ' #item_seq_num ' #dst_seq_num ' #dst_seq_num
+Begin-Sql
+UPDATE PS_ITEM_DST
+SET CUST_ID = $Nit_Vendedor
+WHERE BUSINESS_UNIT = $Business_Unit
+  AND CUST_ID       = $cust_id
+  AND ITEM          = $item
+  AND ITEM_LINE     = #item_line
+  AND ITEM_SEQ_NUM  = #item_seq_num
+  AND DST_SEQ_NUM   = #dst_seq_num
+End-Sql
+
+end-procedure actualizarNit_ITEM-DST
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Validar_Nit_Vendedor                                         !
+! Descr:                                                               !
+!----------------------------------------------------------------------!
+begin-procedure Validar_Nit_Vendedor
+
+let $isParam = 'N'
+Let $Nit_Vendedor = $cust_id
+
+!BEGIN-SELECT
+!A.CK_FLAG_USA_VEND &Flag_Vend
+!A.CUST_ID          &Nit_Vend
+!
+!	let $isParam = 'Y'
+!	Let $Flag_Vend	= &Flag_Vend 
+!	
+!	If &Flag_Vend = 'Y'
+!		Do Buscar_Vendedor
+!	Else
+!		let $Nit_Vendedor = &Nit_Vend
+!	End-If
+!	
+!FROM PS_CK_NIT_MED_PAGO A, 
+!     PS_DST_CODE_TBL DST_CODE,
+!     PS_SET_CNTRL_REC SCR_MP,
+!     PS_SET_CNTRL_REC SCR_DST
+!WHERE SCR_MP.SETCNTRLVALUE = $deposit_bu !$business_unit
+!  AND SCR_MP.RECNAME = 'LC_ATR_MED_PAGO'
+!  AND SCR_DST.SETCNTRLVALUE = $business_unit
+!  AND SCR_DST.RECNAME = 'DST_CODE_TBL'
+!  AND A.SETID = SCR_MP.SETID
+!  AND A.EFFDT = (SELECT MAX(A.EFFDT)
+!		 FROM PS_CK_NIT_MED_PAGO B
+!		 WHERE A.SETID = B.SETID
+!		   AND A.LC_TIPOPAGO = B.LC_TIPOPAGO
+!		   AND A.LC_MEDIOPAGO = B.LC_MEDIOPAGO
+!		   AND A.EFFDT <= SYSDATE)
+!  AND A.LC_TIPOPAGO  = $lc_tipopago
+!  AND A.LC_MEDIOPAGO = $lc_mediopago
+!  AND DST_CODE.SETID = SCR_DST.SETID
+!  AND DST_CODE.DST_ID = A.DST_ID
+!  AND DST_CODE.ACCOUNT = $account
+!END-SELECT 
+
+
+BEGIN-SELECT   
+A.CK_FLAG_USA_VEND &Flag_Vend
+A.CUST_ID          &Nit_Vend
+
+	let $isParam = 'Y'
+	Let $Flag_Vend	= &Flag_Vend 
+	
+	!<Inicia 014>
+	!If &Flag_Vend = 'Y'
+	!	Do Buscar_Vendedor
+	!Else
+	!	let $Nit_Vendedor = &Nit_Vend
+	!End-If
+
+	show 'Encuentra Param para '$deposit_bu
+	If &Flag_Vend = 'Y'
+
+!Inicio 015
+                If $lc_tipopago = 'TERC'
+
+                   Do Buscar_Nit
+
+                Else
+!Fin 015
+		   !Si es una legalizacion busca el id del transportador, si no lo encuentra hace referencia a un cobro y 
+		   !debe buscar el Vendedor
+		   Do Buscar_Transportador
+		
+!Inicio 015	
+                End-If
+!Fin 015
+		if $Nit_Vendedor = ' '
+		 	Do Buscar_Etiqueta_pagina
+		 	if $Etiqueta = 'AUTO'
+		 		Do Buscar_Vendedor_CobroAutoTesoreria
+		 	else
+				Do Buscar_Vendedor
+			end-if
+			end-if	
+	Else
+		let $Nit_Vendedor = &Nit_Vend
+	End-If
+	
+!<Fin 014>
+
+FROM SYSADM.PS_CK_NIT_MED_PAGO A,
+	  SYSADM.PS_SET_CNTRL_REC SCR_MP,
+	  SYSADM.PS_LC_ATR_MED_PAGO MP, 
+     SYSADM.PS_SET_CNTRL_REC SCR,
+     SYSADM.PS_BANK_ACCT_CHRT BNK
+WHERE SCR.SETCNTRLVALUE = $deposit_bu
+   AND SCR.RECNAME = 'BANK_ACCT_CHRT'
+   AND BNK.SETID = SCR.SETID
+   AND BNK.BANK_ACCT_LED_TYPE = 'A'   
+   AND BNK.BANK_CD = MP.BANK_CD
+   AND BNK.BANK_ACCT_KEY = MP.BANK_ACCT_KEY
+   AND BNK.ACCOUNT = $account
+   AND SCR_MP.SETCNTRLVALUE = $deposit_bu
+   AND SCR_MP.RECNAME = 'LC_ATR_MED_PAGO'
+   AND A.SETID = SCR_MP.SETID
+   AND A.EFFDT = ( SELECT MAX(A.EFFDT)
+                   FROM PS_CK_NIT_MED_PAGO B
+                   WHERE A.SETID = B.SETID
+                     AND A.LC_TIPOPAGO = B.LC_TIPOPAGO
+                     AND A.LC_MEDIOPAGO = B.LC_MEDIOPAGO
+                     AND A.EFFDT <= SYSDATE)
+   AND A.LC_TIPOPAGO  = $lc_tipopago
+   AND A.LC_MEDIOPAGO = $lc_mediopago
+   AND MP.SETID = A.SETID
+   AND MP.LC_TIPOPAGO = A.LC_TIPOPAGO
+   AND MP.LC_MEDIOPAGO = A.LC_MEDIOPAGO
+   AND MP.EFFDT = (SELECT MAX(MP_ED.EFFDT) 
+                   FROM PS_LC_ATR_MED_PAGO MP_ED
+                   WHERE MP.SETID = MP_ED.SETID
+                     AND MP.LC_TIPOPAGO = MP_ED.LC_TIPOPAGO
+                     AND MP.LC_MEDIOPAGO = MP_ED.LC_MEDIOPAGO
+                     AND MP_ED.EFFDT <= SYSDATE)
+END-SELECT
+
+end-procedure Validar_Nit_Vendedor
+
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Buscar_Vendedor                                         !
+! Descr:                                                               !
+!----------------------------------------------------------------------!
+begin-procedure Buscar_Vendedor
+
+
+Let $Nit_Vendedor = ' '
+
+BEGIN-SELECT
+B.EMPLID  	&emplid
+
+	Let $Nit_Vendedor = &emplid
+	
+FROM PS_MEMBER_PERSON B
+WHERE B.SETID = (SELECT C.SETID FROM PS_SET_CNTRL_REC C WHERE C.SETCNTRLVALUE = $business_unit  AND C.RECNAME = 'MEMBER_PERSON' ) 
+  AND B.SUPPORT_TEAM_MBR = $vendedor_deposito
+END-SELECT 
+
+end-procedure Buscar_Vendedor
+!<Fin 011>
+
+!Inicio 015
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Buscar_Nit                                                !
+! Descr: Si el tipo pago es tercero busca el nit asociado al mediopago !
+!----------------------------------------------------------------------!
+begin-procedure Buscar_Nit
+
+show 'Entro a Buscar_Nit'
+
+
+Let $Nit_Vendedor = ' '
+
+BEGIN-SELECT
+A_11.LC_TERCERO  	&emplid4
+
+	Let $Nit_Vendedor = &emplid4
+	
+FROM PS_LC_MEDPAGO_TBL A_11
+WHERE A_11.SETID = $deposit_bu
+  AND A_11.LC_TIPOPAGO  = $lc_tipopago
+  AND A_11.LC_MEDIOPAGO = $lc_mediopago
+END-SELECT 
+
+show 'Salio Buscar_Transportador=' $Nit_Vendedor
+
+end-procedure Buscar_Nit
+!Fin 015
+
+!<Inicia 014>
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Buscar_Transportador                                      !
+! Descr: Cuando es una legalizacion bco compen y Dineros No Rep, debe  !
+!        traer el nit del transportador y no del vendedor              !
+!----------------------------------------------------------------------!
+begin-procedure Buscar_Transportador
+
+show 'Entro a Buscar_Transportador'
+
+
+Let $Nit_Vendedor = ' '
+
+BEGIN-SELECT
+A_1.CK_CUST_ID2  	&emplid2
+
+	Let $Nit_Vendedor = &emplid2
+	
+FROM PS_CK_TRANSP_NOREP A_1, PS_CK_PAY_AUT_CHQ B_1
+WHERE A_1.DEPOSIT_BU = B_1.BUSINESS_UNIT
+AND A_1.SHIP_ID = B_1.SHIP_ID
+AND A_1.USER1 = B_1.USER1
+AND A_1.LC_NUM_CHEQUE = B_1.LC_NUM_CHEQUE
+AND A_1.CK_PAGINA_DIG = 'LEGA'
+AND B_1.LC_TIPOPAGO = 'IMPT'
+AND B_1.CK_MEDIOPAGO_LEG = '$$ NO REP'
+AND B_1.DEPOSIT_BU = $deposit_bu
+AND B_1.DEPOSIT_ID = $deposit_id
+END-SELECT 
+
+show 'Salio Buscar_Transportador=' $Nit_Vendedor
+
+end-procedure Buscar_Transportador
+
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Buscar_Etiqueta_pagina                                    !
+! Descr:         Devuelve AUTO: Cobros Automaticos x tesoreria         !
+!			  LEGA: Legalizacion                           !
+!                         ESTA: Deposito Estandar                      !
+!----------------------------------------------------------------------!
+begin-procedure Buscar_Etiqueta_pagina
+
+show 'Entro a Buscar_Etiqueta_pagina'
+
+
+Let $Etiqueta = ' '
+
+BEGIN-SELECT
+A_2.CK_PAGINA_DIG  &etiqueta_orig
+
+	Let $Etiqueta = &etiqueta_orig
+ 
+FROM PS_CK_TRANSP_NOREP A_2
+WHERE  A_2.DEPOSIT_BU = $deposit_bu
+AND A_2.DEPOSIT_ID = $deposit_id
+AND A_2.PAYMENT_SEQ_NUM =  #payment_seq_num
+END-SELECT 
+
+show 'Salio Buscar_Etiqueta_pagina=' $Etiqueta
+
+end-procedure Buscar_Etiqueta_pagina
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Buscar_Vendedor_CobroAutoTesoreria                                          !
+! Descr:         Devuelve Cedula vendedor Cobros Automaticos x Teso    !
+!----------------------------------------------------------------------!
+begin-procedure Buscar_Vendedor_CobroAutoTesoreria
+
+show 'Entro a Buscar_Vendedor_CobroAutoTesoreria'
+
+
+Let $Nit_Vendedor = ' '
+
+BEGIN-SELECT
+A_3.CK_CUST_ID2 &Vendedor_cobros
+
+	Let $Nit_Vendedor = &Vendedor_cobros
+
+
+FROM PS_CK_PAY_AUT_LINE A_3
+WHERE  A_3.DEPOSIT_BU = $deposit_bu
+AND A_3.DEPOSIT_ID = $deposit_id 
+AND A_3.PAYMENT_SEQ_NUM = #payment_seq_num
+END-SELECT 
+
+show 'Salio Buscar_Vendedor_CobroAutoTesoreria=' &Vendedor_cobros
+
+end-procedure Buscar_Vendedor_CobroAutoTesoreria
+
+!<Fin 014>
+
+
+!<Inicio 016>
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Recorre_trans_dudosos                                     !
+! Descr:     Busca transferencias dudosas                              !
+!----------------------------------------------------------------------!
+begin-procedure recorre_trans_dudosos
+
+show 'entro recorre_trans_dudosos'
+
+show $Business_unit_tra
+
+BEGIN-SELECT
+
+TDU.BUSINESS_UNIT                             &TDU.BUSINESS_UNIT
+SETD.SETID                                    &SETD.SETID
+PTD.ACCOUNT                                   &PTD.ACCOUNT
+PTD.ACCOUNT_E                                 &PTD.ACCOUNT_E
+PTD.ACCOUNT_D                                 &PTD.ACCOUNT_D
+PTD.NIT                                       &PTD.NIT
+TDU.CUST_ID                                   &TDU.CUST_ID
+TDU.ITEM                                      &TDU.ITEM
+!<Inicio 017>
+PTD.CK_ALTACCT_CR                             &PTD.CK_ALTACCT_CR
+PTD.CK_ALTACCT_DB                             &PTD.CK_ALTACCT_DB
+!<Fin 017>
+To_char(TDU.DATE_ADDED, 'dd/mm/yyyy')         &Fecha_ins
+
+    Let $Cust_trans   = &TDU.CUST_ID
+    Let $Item_trans   = &TDU.ITEM
+    Let $Setid_trans  = &SETD.SETID
+    Let $Accounto_tr  = &PTD.ACCOUNT_E
+    Let $Accountc_tr  = &PTD.ACCOUNT
+    Let $Accountd_tr  = &PTD.ACCOUNT_D
+    Let $Nit_tr       = &PTD.NIT
+!<Inicio 017>
+    Let $Altacct_c    = &PTD.CK_ALTACCT_CR
+    Let $Altacct_d    = &PTD.CK_ALTACCT_DB
+!<Fin 017>
+    Let $Fecha_ins    = &Fecha_ins
+
+    Do procesa_dudosos
+
+FROM PS_CK_TRATM_TBL TDU, PS_SET_CNTRL_REC SETD, PS_CK_PARAM_MO_TBL PTD
+WHERE  TDU.BUSINESS_UNIT   = $Business_Unit_tra
+AND    TDU.PROCESS_PLN_FLG = 'N'
+AND    SETD.SETCNTRLVALUE  = TDU.BUSINESS_UNIT
+AND    SETD.RECNAME        = 'CUSTOMER'
+AND    PTD.SETID           = SETD.SETID
+AND    PTD.ACTIVE_FLG      = 'Y'
+
+END-SELECT 
+
+end-procedure recorre_trans_dudosos
+
+
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Procesa_dudosos                                           !
+! Descr: Insert cuentas alternas para items generados por              !
+!        traslados dudosos                                             !
+!----------------------------------------------------------------------!
+Begin-procedure procesa_dudosos
+
+Show 'entro procesa_dudosos'
+
+show $Cust_trans
+show $Item_trans
+show $Accounto_tr
+show $Fecha_ins
+
+Begin-Select on-error=sql-error
+PID1.BUSINESS_UNIT,
+PID1.ITEM,
+PID1.ITEM_LINE,
+PID1.ITEM_SEQ_NUM,
+PID1.LEDGER_GROUP,
+PID1.LEDGER,
+PID1.DST_SEQ_NUM,
+PID1.PRIMARY_LEDGER,
+PID1.BUSINESS_UNIT_GL,
+PID1.ACCOUNT,
+PID1.ALTACCT,
+PID1.DEPTID,
+PID1.OPERATING_UNIT,
+PID1.PRODUCT,
+PID1.FUND_CODE,
+PID1.CLASS_FLD,
+PID1.PROGRAM_CODE,
+PID1.BUDGET_REF,
+PID1.AFFILIATE,
+PID1.AFFILIATE_INTRA1,
+PID1.AFFILIATE_INTRA2,
+PID1.CHARTFIELD1,
+PID1.CHARTFIELD2,
+PID1.CHARTFIELD3,
+PID1.PROJECT_ID,
+PID1.STATISTICS_CODE,
+PID1.MONETARY_AMOUNT,
+PID1.STATISTIC_AMOUNT,
+PID1.JRNL_LN_REF,
+PID1.LINE_DESCR,
+PID1.JOURNAL_ID,
+PID1.JOURNAL_DATE,
+PID1.GL_DISTRIB_STATUS,
+PID1.PROCESS_INSTANCE,
+PID1.APPL_JRNL_ID,
+PID1.ACCOUNTING_DT,
+PID1.FOREIGN_CURRENCY,
+PID1.FOREIGN_AMOUNT,
+PID1.RT_TYPE,
+PID1.RATE_MULT,
+PID1.RATE_DIV,
+PID1.CURRENCY_CD,
+PID1.SYSTEM_DEFINED,
+PID1.FISCAL_YEAR,
+PID1.ACCOUNTING_PERIOD,
+PID1.DOC_TYPE,
+PID1.DOC_SEQ_NBR,
+PID1.DOC_SEQ_DATE,
+PID1.DOC_SEQ_STATUS,
+PID1.MOVEMENT_FLAG,
+PID1.USER1,
+PID1.USER2,
+PID1.USER3,
+PID1.USER4,
+PID1.USER5,
+PID1.JOURNAL_LINE,
+PID1.GL_ACCTG_DT,
+PID1.VAT_APPLICABILITY,
+PID1.VAT_TXN_TYPE_CD,
+PID1.TAX_CD_VAT,
+PID1.VAT_DST_ACCT_TYPE,
+PID1.ENTRY_EVENT,
+PID1.DEBIT_CREDIT,
+PID1.IN_PROCESS_FLG,
+PID1.EE_PROC_STATUS,
+PID1.OPEN_ITEM_KEY,
+PID1.BUSINESS_UNIT_PC,
+PID1.ACTIVITY_ID,
+PID1.RESOURCE_TYPE,
+PID1.RESOURCE_CATEGORY,
+PID1.RESOURCE_SUB_CAT,
+PID1.ANALYSIS_TYPE
+
+	Let $dud_business_unit = 	&PID1.BUSINESS_UNIT
+	Let $dud_item = 		&PID1.ITEM
+	Let $dud_item_line = 		&PID1.ITEM_LINE
+	Let $dud_item_seq_num = 	&PID1.ITEM_SEQ_NUM
+	Let $dud_ledger_group = 	&PID1.LEDGER_GROUP
+	Let $dud_ledger = 		&PID1.LEDGER
+        Let $dud_dst_seq_num =          &PID1.DST_SEQ_NUM
+	Let $dud_primary_ledger = 	&PID1.PRIMARY_LEDGER
+	Let $dud_business_unit_gl = 	&PID1.BUSINESS_UNIT_GL
+        Let $dud_account =              &PID1.ACCOUNT
+	Let $dud_altacct = 		&PID1.ALTACCT
+        Let $dud_deptid =               &PID1.DEPTID
+	Let $dud_operating_unit = 	&PID1.OPERATING_UNIT
+        Let $dud_product =              &PID1.PRODUCT
+	Let $dud_fund_code = 		&PID1.FUND_CODE
+	Let $dud_class_fld = 		&PID1.CLASS_FLD
+	Let $dud_program_code = 	&PID1.PROGRAM_CODE
+	Let $dud_budget_ref = 		&PID1.BUDGET_REF
+	Let $dud_affiliate = 		&PID1.AFFILIATE
+	Let $dud_affiliate_intra1 = 	&PID1.AFFILIATE_INTRA1
+	Let $dud_affiliate_intra2 = 	&PID1.AFFILIATE_INTRA2
+	Let $dud_chartfield1 = 		&PID1.CHARTFIELD1
+	Let $dud_chartfield2 = 		&PID1.CHARTFIELD2
+	Let $dud_chartfield3 = 		&PID1.CHARTFIELD3
+	Let $dud_project_id = 		&PID1.PROJECT_ID
+	Let $dud_statistics_code = 	&PID1.STATISTICS_CODE
+	Let $dud_monetary_amount = 	&PID1.MONETARY_AMOUNT
+	Let $dud_statistic_amount = 	&PID1.STATISTIC_AMOUNT
+	Let $dud_jrnl_ln_ref = 		&PID1.JRNL_LN_REF
+	Let $dud_line_descr = 		&PID1.LINE_DESCR
+	Let $dud_journal_id = 		&PID1.JOURNAL_ID
+	Let $dud_journal_date = 	&PID1.JOURNAL_DATE
+        Let $dud_gl_distrib_status =    &PID1.GL_DISTRIB_STATUS
+	Let $dud_process_instance = 	&PID1.PROCESS_INSTANCE
+	Let $dud_appl_jrnl_id = 	&PID1.APPL_JRNL_ID
+	Let $dud_accounting_dt = 	&PID1.ACCOUNTING_DT
+	Let $dud_foreign_currency = 	&PID1.FOREIGN_CURRENCY
+	Let $dud_foreign_amount = 	&PID1.FOREIGN_AMOUNT
+	Let $dud_rt_type = 		&PID1.RT_TYPE
+	Let $dud_rate_mult = 		&PID1.RATE_MULT
+	Let $dud_rate_div = 		&PID1.RATE_DIV
+	Let $dud_currency_cd = 		&PID1.CURRENCY_CD
+	Let $dud_system_defined = 	&PID1.SYSTEM_DEFINED
+	Let $dud_fiscal_year = 		&PID1.FISCAL_YEAR
+	Let $dud_accounting_period = 	&PID1.ACCOUNTING_PERIOD
+	Let $dud_doc_type = 		&PID1.DOC_TYPE
+	Let $dud_doc_seq_nbr = 		&PID1.DOC_SEQ_NBR
+	Let $dud_doc_seq_date = 	&PID1.DOC_SEQ_DATE
+	Let $dud_doc_seq_status = 	&PID1.DOC_SEQ_STATUS
+	Let $dud_movement_flag = 	&PID1.MOVEMENT_FLAG
+	Let $dud_user1 = 		&PID1.USER1
+	Let $dud_user2 = 		&PID1.USER2
+	Let $dud_user3 = 		&PID1.USER3
+	Let $dud_user4 = 		&PID1.USER4
+	Let $dud_user5 = 		&PID1.USER5
+	Let $dud_journal_line = 	&PID1.JOURNAL_LINE
+	Let $dud_gl_acctg_dt = 		&PID1.GL_ACCTG_DT
+	Let $dud_vat_applicability = 	&PID1.VAT_APPLICABILITY
+	Let $dud_vat_txn_type_cd = 	&PID1.VAT_TXN_TYPE_CD
+	Let $dud_tax_cd_vat = 		&PID1.TAX_CD_VAT
+	Let $dud_vat_dst_acct_type = 	&PID1.VAT_DST_ACCT_TYPE
+	Let $dud_entry_event = 		&PID1.ENTRY_EVENT
+	Let $dud_debit_credit = 	&PID1.DEBIT_CREDIT
+	Let $dud_in_process_flg = 	&PID1.IN_PROCESS_FLG
+	Let $dud_ee_proc_status = 	&PID1.EE_PROC_STATUS
+	Let $dud_open_item_key = 	&PID1.OPEN_ITEM_KEY
+	Let $dud_business_unit_pc = 	&PID1.BUSINESS_UNIT_PC
+	Let $dud_activity_id = 		&PID1.ACTIVITY_ID
+	Let $dud_resource_type = 	&PID1.RESOURCE_TYPE
+	Let $dud_resource_category = 	&PID1.RESOURCE_CATEGORY
+	Let $dud_resource_sub_cat = 	&PID1.RESOURCE_SUB_CAT
+	Let $dud_analysis_type =	&PID1.ANALYSIS_TYPE
+	
+	Let $Inse_dst = 'N'
+
+        do Insertar-Item-Tra
+        
+        do Actualiza-Item-Tra
+						       
+FROM PS_ITEM_DST PID1
+WHERE PID1.BUSINESS_UNIT = $Business_Unit_tra
+  AND PID1.CUST_ID 	 = $Cust_trans
+  AND PID1.ITEM 	 = $Item_trans
+  AND PID1.ITEM_SEQ_NUM  = (SELECT MAX(PID2.ITEM_SEQ_NUM)
+                              FROM PS_ITEM_DST PID2
+                             WHERE PID2.BUSINESS_UNIT = PID1.BUSINESS_UNIT
+                               AND PID2.CUST_ID       = PID1.CUST_ID
+                               AND PID2.ITEM          = PID1.ITEM
+                               AND PID2.ACCOUNT       = $Accounto_tr)
+  AND PID1.ACCOUNT       = $Accounto_tr
+  AND PID1.ACCOUNTING_DT >= to_date($Fecha_ins, 'dd/mm/yyyy') - 1
+  AND NOT EXISTS (SELECT 1
+                  FROM PS_ITEM_DST PID4
+                             WHERE PID4.BUSINESS_UNIT = PID1.BUSINESS_UNIT
+                               AND PID4.CUST_ID       = PID1.CUST_ID
+                               AND PID4.ITEM          = PID1.ITEM
+                               AND PID4.ITEM_SEQ_NUM  = PID1.ITEM_SEQ_NUM
+                               AND PID4.ACCOUNT       = $Accountc_tr
+                               AND PID4.ACCOUNTING_DT >= to_date($Fecha_ins, 'dd/mm/yyyy') - 3)
+
+End-Select
+
+
+End-procedure procesa_dudosos
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Insertar-Item-Tra                                         !
+! Descr: Inserta un item en item_dst con la cuenta parametrizada       !
+!----------------------------------------------------------------------!
+Begin-procedure Insertar-Item-Tra
+
+Begin-sql on-error=sql-error
+INSERT INTO PS_ITEM_DST (
+BUSINESS_UNIT,
+CUST_ID,
+ITEM,
+ITEM_LINE,
+ITEM_SEQ_NUM,
+LEDGER_GROUP,
+LEDGER,
+DST_SEQ_NUM,
+PRIMARY_LEDGER,
+BUSINESS_UNIT_GL,
+ACCOUNT,
+ALTACCT,
+DEPTID,
+OPERATING_UNIT,
+PRODUCT,
+FUND_CODE,
+CLASS_FLD,
+PROGRAM_CODE,
+BUDGET_REF,
+AFFILIATE,
+AFFILIATE_INTRA1,
+AFFILIATE_INTRA2,
+CHARTFIELD1,
+CHARTFIELD2,
+CHARTFIELD3,
+PROJECT_ID,
+STATISTICS_CODE,
+MONETARY_AMOUNT,
+STATISTIC_AMOUNT,
+JRNL_LN_REF,
+LINE_DESCR,
+JOURNAL_ID,
+JOURNAL_DATE,
+GL_DISTRIB_STATUS,
+PROCESS_INSTANCE,
+APPL_JRNL_ID,
+ACCOUNTING_DT,
+FOREIGN_CURRENCY,
+FOREIGN_AMOUNT,
+RT_TYPE,
+RATE_MULT,
+RATE_DIV,
+CURRENCY_CD,
+SYSTEM_DEFINED,
+FISCAL_YEAR,
+ACCOUNTING_PERIOD,
+DOC_TYPE,
+DOC_SEQ_NBR,
+DOC_SEQ_DATE,
+DOC_SEQ_STATUS,
+MOVEMENT_FLAG,
+USER1,
+USER2,
+USER3,
+USER4,
+USER5,
+JOURNAL_LINE,
+GL_ACCTG_DT,
+VAT_APPLICABILITY,
+VAT_TXN_TYPE_CD,
+TAX_CD_VAT,
+VAT_DST_ACCT_TYPE,
+ENTRY_EVENT,
+DEBIT_CREDIT,
+IN_PROCESS_FLG,
+EE_PROC_STATUS,
+OPEN_ITEM_KEY,
+BUSINESS_UNIT_PC,
+ACTIVITY_ID,
+RESOURCE_TYPE,
+RESOURCE_CATEGORY,
+RESOURCE_SUB_CAT,
+ANALYSIS_TYPE
+)
+VALUES
+(&PID1.business_unit,
+$Nit_tr,
+&PID1.item,
+&PID1.item_line,
+&PID1.item_seq_num,
+&PID1.ledger_group,
+&PID1.ledger,
+&PID1.dst_seq_num,
+&PID1.primary_ledger,
+&PID1.business_unit_gl,
+$Accountc_tr,
+!<Inicio 017>
+!&PID1.altacct,
+$Altacct_c,
+!<Fin 017>
+&PID1.deptid,
+&PID1.operating_unit,
+&PID1.product,
+&PID1.fund_code,
+&PID1.class_fld,
+&PID1.program_code,
+&PID1.budget_ref,
+&PID1.affiliate,
+&PID1.affiliate_intra1,
+&PID1.affiliate_intra2,
+&PID1.chartfield1,
+&PID1.chartfield2,
+&PID1.chartfield3,
+&PID1.project_id,
+&PID1.statistics_code,
+&PID1.monetary_amount * -1,
+&PID1.statistic_amount,
+&PID1.jrnl_ln_ref,
+&PID1.line_descr,
+&PID1.journal_id,
+&PID1.journal_date,
+&PID1.gl_distrib_status,
+&PID1.process_instance,
+&PID1.appl_jrnl_id,
+&PID1.accounting_dt,
+&PID1.foreign_currency,
+&PID1.foreign_amount * -1,
+&PID1.rt_type,
+&PID1.rate_mult,
+&PID1.rate_div,
+&PID1.currency_cd,
+&PID1.system_defined,
+&PID1.fiscal_year,
+&PID1.accounting_period,
+&PID1.doc_type,
+&PID1.doc_seq_nbr,
+&PID1.doc_seq_date,
+&PID1.doc_seq_status,
+&PID1.movement_flag,
+&PID1.user1,
+&PID1.user2,
+&PID1.user3,
+&PID1.user4,
+&PID1.user5,
+&PID1.journal_line,
+&PID1.gl_acctg_dt,
+&PID1.vat_applicability,
+&PID1.vat_txn_type_cd,
+&PID1.tax_cd_vat,
+&PID1.vat_dst_acct_type,
+&PID1.entry_event,
+&PID1.debit_credit,
+&PID1.in_process_flg,
+&PID1.ee_proc_status,
+&PID1.open_item_key,
+&PID1.business_unit_pc,
+&PID1.activity_id,
+&PID1.resource_type,
+&PID1.resource_category,
+&PID1.resource_sub_cat,
+&PID1.analysis_type
+)
+End-Sql
+
+
+Begin-Select on-error=sql-error
+PDU1.DST_SEQ_NUM
+
+   Let  $dst_seq_num = &PDU1.DST_SEQ_NUM
+
+FROM PS_ITEM_DST PDU1
+WHERE PDU1.BUSINESS_UNIT = $Business_Unit_tra
+  AND PDU1.CUST_ID 	 = $Cust_trans
+  AND PDU1.ITEM 	 = $Item_trans
+  AND PDU1.ITEM_LINE     = $dud_item_line
+  AND PDU1.ITEM_SEQ_NUM  = $dud_item_seq_num
+  AND PDU1.LEDGER_GROUP  = $dud_ledger_group 
+  AND PDU1.LEDGER        = $dud_ledger
+  AND PDU1.ACCOUNT       <> $Accounto_tr
+  AND PDU1.ACCOUNTING_DT >= to_date($Fecha_ins, 'dd/mm/yyyy') - 1
+
+End-Select
+
+if not IsBlank($dst_seq_num)
+
+Begin-sql on-error=sql-error
+INSERT INTO PS_ITEM_DST (
+BUSINESS_UNIT,
+CUST_ID,
+ITEM,
+ITEM_LINE,
+ITEM_SEQ_NUM,
+LEDGER_GROUP,
+LEDGER,
+DST_SEQ_NUM,
+PRIMARY_LEDGER,
+BUSINESS_UNIT_GL,
+ACCOUNT,
+ALTACCT,
+DEPTID,
+OPERATING_UNIT,
+PRODUCT,
+FUND_CODE,
+CLASS_FLD,
+PROGRAM_CODE,
+BUDGET_REF,
+AFFILIATE,
+AFFILIATE_INTRA1,
+AFFILIATE_INTRA2,
+CHARTFIELD1,
+CHARTFIELD2,
+CHARTFIELD3,
+PROJECT_ID,
+STATISTICS_CODE,
+MONETARY_AMOUNT,
+STATISTIC_AMOUNT,
+JRNL_LN_REF,
+LINE_DESCR,
+JOURNAL_ID,
+JOURNAL_DATE,
+GL_DISTRIB_STATUS,
+PROCESS_INSTANCE,
+APPL_JRNL_ID,
+ACCOUNTING_DT,
+FOREIGN_CURRENCY,
+FOREIGN_AMOUNT,
+RT_TYPE,
+RATE_MULT,
+RATE_DIV,
+CURRENCY_CD,
+SYSTEM_DEFINED,
+FISCAL_YEAR,
+ACCOUNTING_PERIOD,
+DOC_TYPE,
+DOC_SEQ_NBR,
+DOC_SEQ_DATE,
+DOC_SEQ_STATUS,
+MOVEMENT_FLAG,
+USER1,
+USER2,
+USER3,
+USER4,
+USER5,
+JOURNAL_LINE,
+GL_ACCTG_DT,
+VAT_APPLICABILITY,
+VAT_TXN_TYPE_CD,
+TAX_CD_VAT,
+VAT_DST_ACCT_TYPE,
+ENTRY_EVENT,
+DEBIT_CREDIT,
+IN_PROCESS_FLG,
+EE_PROC_STATUS,
+OPEN_ITEM_KEY,
+BUSINESS_UNIT_PC,
+ACTIVITY_ID,
+RESOURCE_TYPE,
+RESOURCE_CATEGORY,
+RESOURCE_SUB_CAT,
+ANALYSIS_TYPE
+)
+VALUES
+(&PID1.business_unit,
+$Nit_tr,
+&PID1.item,
+&PID1.item_line,
+&PID1.item_seq_num,
+&PID1.ledger_group,
+&PID1.ledger,
+$dst_seq_num,
+&PID1.primary_ledger,
+&PID1.business_unit_gl,
+$Accountd_tr,
+!<Inicio 017>
+!&PID1.altacct,
+$Altacct_d,
+!<Fin 017>
+&PID1.deptid,
+&PID1.operating_unit,
+&PID1.product,
+&PID1.fund_code,
+&PID1.class_fld,
+&PID1.program_code,
+&PID1.budget_ref,
+&PID1.affiliate,
+&PID1.affiliate_intra1,
+&PID1.affiliate_intra2,
+&PID1.chartfield1,
+&PID1.chartfield2,
+&PID1.chartfield3,
+&PID1.project_id,
+&PID1.statistics_code,
+&PID1.monetary_amount,
+&PID1.statistic_amount,
+&PID1.jrnl_ln_ref,
+&PID1.line_descr,
+&PID1.journal_id,
+&PID1.journal_date,
+&PID1.gl_distrib_status,
+&PID1.process_instance,
+&PID1.appl_jrnl_id,
+&PID1.accounting_dt,
+&PID1.foreign_currency,
+&PID1.foreign_amount,
+&PID1.rt_type,
+&PID1.rate_mult,
+&PID1.rate_div,
+&PID1.currency_cd,
+&PID1.system_defined,
+&PID1.fiscal_year,
+&PID1.accounting_period,
+&PID1.doc_type,
+&PID1.doc_seq_nbr,
+&PID1.doc_seq_date,
+&PID1.doc_seq_status,
+&PID1.movement_flag,
+&PID1.user1,
+&PID1.user2,
+&PID1.user3,
+&PID1.user4,
+&PID1.user5,
+&PID1.journal_line,
+&PID1.gl_acctg_dt,
+&PID1.vat_applicability,
+&PID1.vat_txn_type_cd,
+&PID1.tax_cd_vat,
+&PID1.vat_dst_acct_type,
+&PID1.entry_event,
+&PID1.debit_credit,
+&PID1.in_process_flg,
+&PID1.ee_proc_status,
+&PID1.open_item_key,
+&PID1.business_unit_pc,
+&PID1.activity_id,
+&PID1.resource_type,
+&PID1.resource_category,
+&PID1.resource_sub_cat,
+&PID1.analysis_type
+)
+End-Sql
+
+   Let $Inse_dst = 'Y'
+
+Else
+
+   Let $Inse_dst = 'E'
+
+end-if
+
+End-procedure Insertar-Item-Tra
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Actualiza-Item-Tra                                        !
+! Descr:     Actualiza tabla transferencia temporal                    !
+!----------------------------------------------------------------------!
+begin-procedure Actualiza-Item-Tra
+
+BEGIN-SQL
+
+UPDATE PS_CK_TRATM_TBL
+SET POSTED_PI           = #prcs_process_instance,         
+    PROCESS_PLN_FLG     = $Inse_dst
+WHERE BUSINESS_UNIT   = $Business_Unit_tra
+  AND CUST_ID         = $Cust_trans
+  AND ITEM            = $Item_trans
+  AND PROCESS_PLN_FLG = 'N'
+
+END-SQL 
+
+end-procedure Actualiza-Item-Tra
+!<Fin 016>
+
+!<Inicio #019>
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: buscar-Nc-Antic	                                       !
+! Descr: Busca los NC-ANTIC para actualizar las claves                 !
+!        contables asociadas al USER7 del registro					   !
+! Modificacion: #019												   !
+!----------------------------------------------------------------------!
+Begin-procedure buscar-Nc-Antic
+show 'buscar-Nc-Antic'
+show ' #prcs_instance_contabilizacion: ' #prcs_instance_contabilizacion
+
+let $business_unit     = ' '
+let $cust_id          = ' '
+let $item             = ' '
+let #item_line         = 0
+let #item_seq_num      = 0
+let #dst_seq_num       = 0
+
+Begin-Select on-error=sql-error
+DST4.BUSINESS_UNIT     	           &DST4.BUSINESS_UNIT
+DST4.CUST_ID           		       &DST4.CUST_ID
+DST4.ITEM              		       &DST4.ITEM
+DST4.ITEM_LINE         		       &DST4.ITEM_LINE
+DST4.ITEM_SEQ_NUM      		       &DST4.ITEM_SEQ_NUM
+DST4.DST_SEQ_NUM       		       &DST4.DST_SEQ_NUM
+DST4.ACCOUNT       		       	   &DST4.ACCOUNT
+DST4.DEPTID       		       	   &DST4.DEPTID
+IA4.ENTRY_TYPE	
+IA4.ENTRY_REASON
+IA4.ENTRY_USE_ID
+IA4.USER7
+
+	
+	let $business_unit          = &DST4.BUSINESS_UNIT
+	let $cust_id                = &DST4.CUST_ID
+	let $item                   = &DST4.ITEM
+	let #item_line              = &DST4.ITEM_LINE
+	let #item_seq_num           = &DST4.ITEM_SEQ_NUM
+	let #dst_seq_num            = &DST4.DST_SEQ_NUM
+	let $account_orig			= &DST4.ACCOUNT
+	let $depid_orig				= &DST4.DEPTID
+	
+    Let $Entry_Type 			= &IA4.Entry_Type
+    let $Entry_Reason 			= &IA4.Entry_Reason 	
+    let $Entry_Use_Id 			= &IA4.ENTRY_USE_ID 	
+    let $Bus_Unit_Orig 			= &IA4.USER7 		
+	
+     Do buscarUnCartera
+	 
+	If Not isblank($Bus_Unit_Orig) and $Bus_Unit_Orig_AR <> $business_unit    
+		do Actualizar-cuenta-transitoria
+	End-If
+	
+FROM PS_ITEM_ACTIVITY IA4, PS_ITEM_DST DST4
+WHERE IA4.BUSINESS_UNIT = DST4.BUSINESS_UNIT
+  AND IA4.CUST_ID = DST4.CUST_ID
+  AND IA4.ITEM = DST4.ITEM
+  AND IA4.ITEM_LINE = DST4.ITEM_LINE
+  AND IA4.ITEM_SEQ_NUM = DST4.ITEM_SEQ_NUM
+  AND IA4.ENTRY_TYPE='NC'
+  AND IA4.ENTRY_REASON = 'ANTIC'
+  AND IA4.USER9='F'
+  AND DST4.PROCESS_INSTANCE  = #prcs_instance_contabilizacion
+  AND DST4.GL_DISTRIB_STATUS IN ('N')
+  AND EXISTS (SELECT 'X' FROM PS_ITEM_LINES_TBL TR, PS_SET_CNTRL_REC SET1
+                    WHERE SET1.RECNAME='ITEM_LINES_TBL'
+                    AND   SET1.SETCNTRLVALUE=DST4.BUSINESS_UNIT
+                    AND   SET1.SETID=TR.SETID
+                    AND   ENTRY_TYPE='NC'
+                    AND   ENTRY_REASON='ANTIC' 
+                    AND   TR.ACCOUNT=DST4.ACCOUNT
+                    AND   TR.EFFDT = (SELECT MAX(TR2.EFFDT) FROM PS_ITEM_LINES_TBL TR2
+                                      WHERE TR.SETID=TR2.SETID
+                                      AND   TR.ENTRY_TYPE=TR2.ENTRY_TYPE
+                                      AND   TR.ENTRY_REASON=TR2.ENTRY_REASON))                   
+                    
+ORDER BY DST4.BUSINESS_UNIT, DST4.CUST_ID, DST4.ITEM
+End-Select
+
+end-procedure buscar-Nc-Antic
+
+
+!***********************************************************************
+!----------------------------------------------------------------------!
+! Procedure: do Actualizar-cuenta-transitoria                      !
+! Descr: Actualiza el Departamento con el que viene la Transacción     !
+! Modificación #019													   !
+!----------------------------------------------------------------------!
+begin-procedure Actualizar-cuenta-transitoria
+show ' Actualizar-cuenta-transitoria' '#prcs_instance_contabilizacion ' ' $Business_Unit ' '$Bus_Unit_Orig_AR' ' $cust_id ' ' $item ' ' #item_line ' ' #item_seq_num ' ' #dst_seq_num_aval '
+
+
+begin-sql ON-ERROR = SQL-error
+UPDATE PS_ITEM_DST A
+  SET A.DEPTID = (SELECT TR.DEPTID FROM PS_ITEM_LINES_TBL TR, PS_SET_CNTRL_REC SET1
+                    WHERE SET1.RECNAME='ITEM_LINES_TBL'
+                    AND   SET1.SETCNTRLVALUE=$Bus_Unit_Orig_AR
+                    AND   SET1.SETID=TR.SETID
+                    AND   ENTRY_TYPE='NC'
+                    AND   ENTRY_REASON='ANTIC' 
+                    AND   TR.EFFDT = (SELECT MAX(TR2.EFFDT) FROM PS_ITEM_LINES_TBL TR2
+                                      WHERE TR.SETID=TR2.SETID
+                                      AND   TR.ENTRY_TYPE=TR2.ENTRY_TYPE
+                                      AND   TR.ENTRY_REASON=TR2.ENTRY_REASON)) 
+WHERE A.PROCESS_INSTANCE  = #prcs_instance_contabilizacion
+  AND A.BUSINESS_UNIT = $Business_Unit
+  AND A.CUST_ID = $cust_id
+  AND A.ITEM = $item
+  AND A.ITEM_LINE = #item_line
+  AND A.ITEM_SEQ_NUM = #item_seq_num
+  AND A.DST_SEQ_NUM = #dst_seq_num
+  AND A.ACCOUNT = $account_orig
+  AND A.GL_DISTRIB_STATUS = 'N'
+end-sql
+
+let $control = 'N'
+
+begin-select ON-ERROR = SQL-error
+A.PROCESS_INSTANCE
+  let $control = 'Y'
+FROM PS_ITEM_DST A
+WHERE A.PROCESS_INSTANCE  = #prcs_instance_contabilizacion
+  AND A.BUSINESS_UNIT = $Business_Unit
+  AND A.CUST_ID = $cust_id
+  AND A.ITEM = $item
+  AND A.ITEM_LINE = #item_line
+  AND A.ITEM_SEQ_NUM = #item_seq_num
+  AND A.DST_SEQ_NUM = #dst_seq_num
+  AND A.ACCOUNT = $account_orig
+  AND A.GL_DISTRIB_STATUS = 'N'
+end-select
+
+
+Begin-sql on-error=sql-error
+INSERT INTO PS_CK_CONTROL_DEPT(
+PROCESS_INSTANCE,
+BUSINESS_UNIT,
+CUST_ID,
+ITEM,
+ITEM_LINE,
+ITEM_SEQ_NUM,
+DST_SEQ_NUM,
+ACCOUNT,
+FLAG
+)
+VALUES
+(#prcs_instance_contabilizacion,
+$Business_Unit,
+$cust_id,
+$item,
+#item_line,
+#item_seq_num,
+#dst_seq_num,
+$account_orig,
+$control 
+)
+End-Sql
+
+end-procedure Actualizar-cuenta-transitoria
+
+!-----------------------------------------------------------------------
+
+!get-hora
+
+!-----------------------------------------------------------------------
+
+begin-procedure get-hora
+
+begin-select
+
+to_char(SYSDATE, 'YYYY-MM-DD-HH24.MI.SS') &hora-act
+
+FROM DUAL
+
+end-select
+
+
+display &hora-act
+
+
+
+end-procedure !get-hora
+
+!<Fin #019>
+!************************************************************************
+!----------------------------------------------------------------------!
+! Procedure: Terminar-Proceso                                          !
+! Descr:                                                               !
+!----------------------------------------------------------------------!
+begin-procedure Terminar-Proceso
+    if #prcs_process_instance > 0
+       do Update-Prcs-Run-Status
+    end-if
+
+	let $stdhdg_end_rep = 'Fin de Reporte'
+    do Reset
+end-procedure
+
+!************************************************************************
+!----------------------------------------------------------------------!
+! Llama procedimientos SQC                                             !
+!----------------------------------------------------------------------!
+
+#include 'prcsapi.sqc'   ! Update process Request API
+#include 'prcsdef.sqc'   ! Update Process Request variable declare
+#include 'eoj.sqc'       ! Ask Effective Date
+#include 'curdttim.sqc'  ! Get-Current-DateTime procedure
+#include 'datetime.sqc'  ! Routines for date and time formatting
+#include 'number.sqc'    ! Routines to format numbers
+#include 'readxlat.sqc'  ! Read Translate Table
+#include 'reset.sqc'     ! End of program
+
